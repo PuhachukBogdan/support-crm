@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en" data-style="aurora" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Open Ticket — Design Bake-off (6 styles)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+/* ============ BASE (shared skeleton) ============ */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);
+  -webkit-font-smoothing:antialiased;transition:background .4s ease,color .4s ease}
+:root{--font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;--radius:10px;
+  --shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06)}
+
+/* toolbar */
+.bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;
+  padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);backdrop-filter:blur(6px)}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:-.02em}
+.logo .mark{width:22px;height:22px;border-radius:6px;background:var(--accent);
+  display:grid;place-items:center;color:var(--accent-contrast);font-size:13px;font-weight:800}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:6px}
+.chip{font:inherit;font-size:12.5px;font-weight:500;color:var(--muted);background:transparent;
+  border:1px solid var(--border);padding:5px 11px;border-radius:999px;cursor:pointer;transition:.18s}
+.chip:hover{color:var(--text);border-color:var(--accent)}
+.chip[aria-selected="true"]{background:var(--accent);color:var(--accent-contrast);border-color:var(--accent)}
+.spacer{flex:1}
+.toggle{font:inherit;font-size:12.5px;color:var(--text);background:var(--surface-2);
+  border:1px solid var(--border);padding:6px 12px;border-radius:999px;cursor:pointer;display:flex;gap:7px;align-items:center}
+.hint{font-size:12px;color:var(--muted)}
+
+/* layout */
+.app{display:grid;grid-template-columns:300px 1fr 300px;height:calc(100vh - 45px);animation:fade .45s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.col{overflow:auto;min-width:0}
+.list{border-right:1px solid var(--border);background:var(--surface)}
+.center{background:var(--bg);display:flex;flex-direction:column}
+.panel{border-left:1px solid var(--border);background:var(--surface)}
+
+.colhead{position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);
+  padding:12px 14px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px;z-index:2}
+.count{font-size:11px;color:var(--muted);font-weight:500;margin-left:auto}
+
+/* ticket rows */
+.tk{display:block;padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;
+  position:relative;transition:.16s;border-left:2px solid transparent}
+.tk:hover{background:var(--surface-2);transform:translateX(1px)}
+.tk[aria-current="true"]{background:var(--surface-2);border-left-color:var(--accent)}
+.tk .r1{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+.tk .subj{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tk .r2{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+.unread .subj::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--accent);margin-left:6px;vertical-align:middle}
+.pill{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--border);
+  color:var(--muted);background:var(--surface)}
+.pill.warn{color:#b45309;border-color:#f59e0b55;background:#f59e0b1a}
+.pill.ok{color:#047857;border-color:#10b98155;background:#10b9811a}
+.pill.sla{color:#be123c;border-color:#f43f5e55;background:#f43f5e1a;animation:pulse 1.8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.chan{font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+
+/* conversation */
+.cvhead{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:var(--surface)}
+.cvhead h2{margin:0;font-size:14px;font-weight:600}
+.cvhead .id{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.thread{flex:1;overflow:auto;padding:22px 18px;display:flex;flex-direction:column;gap:16px}
+.msg{max-width:74%;animation:rise .5s ease backwards}
+.msg .b{padding:10px 13px;border-radius:var(--radius);font-size:13.5px;line-height:1.5}
+.msg .meta{font-size:11px;color:var(--muted);margin-top:5px}
+.msg.cust .b{background:var(--surface-2);border:1px solid var(--border);border-bottom-left-radius:4px}
+.msg.agent{align-self:flex-end}
+.msg.agent .b{background:var(--accent);color:var(--accent-contrast);border-bottom-right-radius:4px}
+.msg.agent .meta{text-align:right}
+.msg.note{align-self:center;max-width:82%}
+.msg.note .b{background:var(--note-bg);border:1px dashed var(--note-bd);color:var(--note-tx);font-size:12.5px}
+.msg.note .tag{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--note-tx);opacity:.8}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.typing{display:flex;gap:4px;align-items:center;align-self:flex-start;padding:8px 12px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
+/* macro bar + composer */
+.macros{display:flex;gap:6px;flex-wrap:wrap;padding:8px 18px;border-top:1px solid var(--border);background:var(--surface)}
+.macro{font-size:11.5px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);
+  border-radius:999px;padding:4px 10px;cursor:pointer;transition:.15s}
+.macro:hover{border-color:var(--accent);color:var(--accent)}
+.composer{padding:12px 18px;background:var(--surface);border-top:1px solid var(--border)}
+.composer .box{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);
+  padding:11px 13px;font-size:13px;color:var(--muted);min-height:46px}
+.composer .actions{display:flex;justify-content:flex-end;margin-top:9px;gap:8px}
+.btn{font:inherit;font-size:12.5px;font-weight:600;padding:8px 16px;border-radius:var(--radius);
+  border:1px solid var(--border);background:var(--surface-2);color:var(--text);cursor:pointer;transition:.15s}
+.btn.primary{background:var(--accent);color:var(--accent-contrast);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.06);transform:translateY(-1px)}
+
+/* contact panel */
+.pv{padding:16px 16px}
+.avatar{width:52px;height:52px;border-radius:50%;background:var(--accent);color:var(--accent-contrast);
+  display:grid;place-items:center;font-weight:700;font-size:18px;margin-bottom:10px}
+.pv h3{margin:0 0 2px;font-size:15px}
+.pv .sub{font-size:12px;color:var(--muted);margin-bottom:14px}
+.tier{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:999px;
+  background:var(--accent);color:var(--accent-contrast);margin-bottom:14px}
+.attr{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:12.5px}
+.attr .k{color:var(--muted)}.attr .v{font-weight:600;font-family:var(--mono);font-size:12px}
+.sechead{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px}
+
+/* ============ STYLE THEMES ============ */
+/* AURORA (our own) */
+[data-style="aurora"][data-theme="light"]{--bg:#ffffff;--surface:#f8fafc;--surface-2:#f1f5f9;--text:#0f172a;--muted:#64748b;--border:#e2e8f0;--accent:#6366f1;--accent-contrast:#fff;--note-bg:#fffbeb;--note-bd:#fcd34d;--note-tx:#92400e}
+[data-style="aurora"][data-theme="dark"]{--bg:#0b0f17;--surface:#111826;--surface-2:#1a2333;--text:#e5e7eb;--muted:#94a3b8;--border:#1f2a3a;--accent:#818cf8;--accent-contrast:#0b0f17;--note-bg:#3b2f0f;--note-bd:#a16207;--note-tx:#fde68a}
+
+/* FAMILY (warm command center) */
+[data-style="family"]{--radius:14px;--font:'Inter',sans-serif}
+[data-style="family"] .cvhead h2,[data-style="family"] .pv h3{font-family:'Instrument Serif',serif;font-weight:400;font-size:19px}
+[data-style="family"][data-theme="light"]{--bg:#fbf6ee;--surface:#fffdf8;--surface-2:#f4ebdd;--text:#3b322c;--muted:#8c7d6e;--border:#eaddca;--accent:#c2570f;--accent-contrast:#fff;--note-bg:#fff4e6;--note-bd:#f0b27a;--note-tx:#9a4b12}
+[data-style="family"][data-theme="dark"]{--bg:#241d18;--surface:#2c241d;--surface-2:#372c23;--text:#f2e7d8;--muted:#b8a790;--border:#40342a;--accent:#e8823c;--accent-contrast:#241d18;--note-bg:#3a2c18;--note-bd:#8a5a24;--note-tx:#f5d199}
+
+/* DUB (electric blueprint on matte) */
+[data-style="dub"]{--radius:6px}
+[data-style="dub"] .center{background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:26px 26px}
+[data-style="dub"] .colhead,[data-style="dub"] .sechead,[data-style="dub"] .tk .r2{font-family:var(--mono)}
+[data-style="dub"][data-theme="light"]{--bg:#f4f5f7;--surface:#ffffff;--surface-2:#eceef2;--text:#0a0c10;--muted:#5b6472;--border:#d7dbe2;--accent:#1d4ed8;--accent-contrast:#fff;--grid:#e5e8ee;--note-bg:#eff6ff;--note-bd:#93c5fd;--note-tx:#1e40af}
+[data-style="dub"][data-theme="dark"]{--bg:#080a0e;--surface:#0e131b;--surface-2:#151c27;--text:#e8eef7;--muted:#8794a6;--border:#1c2532;--accent:#3b82f6;--accent-contrast:#04060a;--grid:#121824;--note-bg:#0d1f38;--note-bd:#1e4a80;--note-tx:#93c5fd}
+
+/* LINEAR (dark cockpit, premium minimal) */
+[data-style="linear"]{--radius:8px}
+[data-style="linear"] .center{background-image:radial-gradient(900px 400px at 70% -10%,var(--glow),transparent)}
+[data-style="linear"][data-theme="dark"]{--bg:#08090c;--surface:#0e0f14;--surface-2:#16181f;--text:#e6e7ea;--muted:#8a8f9c;--border:#1e2029;--accent:#7c85f0;--accent-contrast:#0a0b0f;--glow:#5e6ad233;--note-bg:#1a1530;--note-bd:#3b3170;--note-tx:#c4bffb}
+[data-style="linear"][data-theme="light"]{--bg:#fbfbfc;--surface:#ffffff;--surface-2:#f4f4f6;--text:#111218;--muted:#6b6f7b;--border:#e6e7ea;--accent:#5b63d3;--accent-contrast:#fff;--glow:#5e6ad214;--note-bg:#f2f1fd;--note-bd:#c7c3f0;--note-tx:#3f379e}
+
+/* VENTRILOC (architectural blueprint on white) */
+[data-style="ventriloc"]{--radius:3px}
+[data-style="ventriloc"] .colhead,[data-style="ventriloc"] .cvhead .id,[data-style="ventriloc"] .sechead,[data-style="ventriloc"] .chan{font-family:var(--mono);text-transform:uppercase;letter-spacing:.04em}
+[data-style="ventriloc"] .msg .b{border-radius:3px}
+[data-style="ventriloc"][data-theme="light"]{--bg:#ffffff;--surface:#fcfcfa;--surface-2:#f3f3ef;--text:#111110;--muted:#77776e;--border:#111110;--accent:#1a3fb0;--accent-contrast:#fff;--note-bg:#fffdf0;--note-bd:#111;--note-tx:#5c4a00}
+[data-style="ventriloc"][data-theme="light"] .col,[data-style="ventriloc"][data-theme="light"] .tk{border-color:#e7e7e0}
+[data-style="ventriloc"][data-theme="dark"]{--bg:#0c0d0f;--surface:#111316;--surface-2:#181b1f;--text:#eef0f2;--muted:#8b9099;--border:#2a2e34;--accent:#6f8cff;--accent-contrast:#0c0d0f;--note-bg:#1a1c14;--note-bd:#3a3e2a;--note-tx:#e4e6b0}
+
+/* zkPASS (warm CRT terminal on cream) */
+[data-style="zkpass"]{--radius:4px;--font:'JetBrains Mono',monospace}
+[data-style="zkpass"] .center{position:relative}
+[data-style="zkpass"] .center::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent 0 2px,var(--scan) 2px 3px);opacity:.5}
+[data-style="zkpass"] .subj,[data-style="zkpass"] .cvhead h2,[data-style="zkpass"] .pv h3{text-transform:uppercase;letter-spacing:.02em}
+[data-style="zkpass"] .composer .box::after{content:"▋";color:var(--accent);animation:blink 1s steps(1) infinite;margin-left:2px}
+[data-style="zkpass"][data-theme="light"]{--bg:#f5efe1;--surface:#fbf6ea;--surface-2:#eee5d1;--text:#2a2416;--muted:#8a7c5f;--border:#d9ccae;--accent:#b45309;--accent-contrast:#fbf6ea;--scan:#00000008;--note-bg:#efe6cf;--note-bd:#b08a3e;--note-tx:#6b4e12}
+[data-style="zkpass"][data-theme="dark"]{--bg:#0c0f0a;--surface:#11150e;--surface-2:#1a2014;--text:#c8f2a8;--muted:#7fa06a;--border:#243019;--accent:#7dd93b;--accent-contrast:#0c0f0a;--scan:#7dd93b0a;--note-bg:#1c2413;--note-bd:#3f5a22;--note-tx:#aee87a}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="logo"><span class="mark">S</span> Support Desk</div>
+  <div class="chips" id="chips">
+    <button class="chip" data-s="aurora" aria-selected="true">Aurora · наш</button>
+    <button class="chip" data-s="family">Family</button>
+    <button class="chip" data-s="dub">Dub</button>
+    <button class="chip" data-s="linear">Linear</button>
+    <button class="chip" data-s="ventriloc">Ventriloc</button>
+    <button class="chip" data-s="zkpass">zkPass</button>
+  </div>
+  <div class="spacer"></div>
+  <span class="hint" id="lbl">Aurora — clean modern (наш)</span>
+  <button class="toggle" id="theme">🌗 <span>Light / Dark</span></button>
+</div>
+
+<div class="app" id="app">
+  <!-- LEFT: ticket list -->
+  <div class="col list">
+    <div class="colhead">Open tickets <span class="count">142</span></div>
+    <a class="tk" aria-current="true">
+      <div class="r1"><span class="dot"></span><span class="subj">Deposit not reflected — $250</span></div>
+      <div class="r2"><span class="pill sla">SLA 4m</span><span class="chan">web</span><span>#48213 · 2m</span></div>
+    </a>
+    <a class="tk unread">
+      <div class="r1"><span class="subj">Withdrawal pending 48h</span></div>
+      <div class="r2"><span class="pill warn">pending</span><span class="chan">iOS</span><span>#48210 · 6m</span></div>
+    </a>
+    <a class="tk">
+      <div class="r1"><span class="subj">Verification / KYC document</span></div>
+      <div class="r2"><span class="pill">open</span><span class="chan">email</span><span>#48208 · 11m</span></div>
+    </a>
+    <a class="tk">
+      <div class="r1"><span class="subj">Bono de bienvenida no aplicado</span></div>
+      <div class="r2"><span class="pill">open</span><span class="chan">web</span><span>#48205 · 18m</span></div>
+    </a>
+    <a class="tk unread">
+      <div class="r1"><span class="subj">VIP — cashback inquiry</span></div>
+      <div class="r2"><span class="pill ok">VIP</span><span class="chan">Android</span><span>#48201 · 24m</span></div>
+    </a>
+    <a class="tk">
+      <div class="r1"><span class="subj">Free spins not credited</span></div>
+      <div class="r2"><span class="pill">open</span><span class="chan">web</span><span>#48197 · 31m</span></div>
+    </a>
+    <a class="tk">
+      <div class="r1"><span class="subj">Cambio de datos personales</span></div>
+      <div class="r2"><span class="pill">open</span><span class="chan">web</span><span>#48192 · 40m</span></div>
+    </a>
+  </div>
+
+  <!-- CENTER: conversation -->
+  <div class="col center">
+    <div class="cvhead">
+      <h2>Deposit not reflected — $250</h2>
+      <span class="id">#48213</span>
+      <span class="pill sla" style="margin-left:auto">SLA 4m</span>
+    </div>
+    <div class="thread" id="thread">
+      <div class="msg cust" style="animation-delay:.05s"><div class="b">Hi, I deposited $250 via card 20 minutes ago and it's still not in my balance. Transaction ID 88213-AC.</div><div class="meta">Customer · 12:42</div></div>
+      <div class="msg agent" style="animation-delay:.15s"><div class="b">Hi Carlos! Thanks for the transaction ID — let me check the payment status with the provider right now.</div><div class="meta">You · 12:43</div></div>
+      <div class="msg note" style="animation-delay:.25s"><div class="b"><span class="tag">Private note</span><br>PSP shows status = PENDING on Directa24. Escalating to Deposits team if not settled in 5 min.</div></div>
+      <div class="msg cust" style="animation-delay:.35s"><div class="b">Gracias, quedo atento 🙏</div><div class="meta">Customer · 12:44</div></div>
+      <div class="typing" style="animation-delay:.45s"><i></i><i></i><i></i></div>
+    </div>
+    <div class="macros">
+      <span class="macro">/ Deposit delay</span><span class="macro">/ Ask for receipt</span>
+      <span class="macro">/ Escalate → Deposits</span><span class="macro">/ Bienvenida</span><span class="macro">/ Close + CSAT</span>
+    </div>
+    <div class="composer">
+      <div class="box">Type a reply…</div>
+      <div class="actions"><button class="btn">Private note</button><button class="btn primary">Send reply</button></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: contact panel -->
+  <div class="col panel">
+    <div class="pv">
+      <div class="avatar">C</div>
+      <h3>Carlos M.</h3>
+      <div class="sub">carlos.m@example.com</div>
+      <span class="tier">VIP · Gold</span>
+      <div class="sechead">Attributes</div>
+      <div class="attr"><span class="k">Player ID</span><span class="v">1043882</span></div>
+      <div class="attr"><span class="k">Balance</span><span class="v">$18.40</span></div>
+      <div class="attr"><span class="k">KYC</span><span class="v">Verified</span></div>
+      <div class="attr"><span class="k">PSP</span><span class="v">Directa24</span></div>
+      <div class="attr"><span class="k">Country</span><span class="v">AR</span></div>
+      <div class="attr"><span class="k">Lang</span><span class="v">ES</span></div>
+      <div class="sechead">Recent tickets</div>
+      <div class="attr"><span class="k">#47990 Withdrawal</span><span class="v">solved</span></div>
+      <div class="attr"><span class="k">#47120 Bonus</span><span class="v">solved</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const root=document.documentElement, chips=[...document.querySelectorAll('.chip')], lbl=document.getElementById('lbl');
+const labels={aurora:'Aurora — clean modern (наш)',family:'Family — warm command center',dub:'Dub — electric blueprint',linear:'Linear — dark cockpit, premium',ventriloc:'Ventriloc — architectural blueprint',zkpass:'zkPass — warm CRT terminal'};
+const darkDefault={linear:true,zkpass:false};
+function replay(){const app=document.getElementById('app');app.style.animation='none';app.offsetHeight;app.style.animation='';
+  document.querySelectorAll('.msg,.typing').forEach((m,i)=>{m.style.animation='none';m.offsetHeight;m.style.animation='';});}
+chips.forEach(c=>c.addEventListener('click',()=>{
+  chips.forEach(x=>x.setAttribute('aria-selected',x===c));
+  const s=c.dataset.s; root.setAttribute('data-style',s); lbl.textContent=labels[s];
+  if(s in darkDefault) root.setAttribute('data-theme', darkDefault[s]?'dark':'light');
+  replay();
+}));
+document.getElementById('theme').addEventListener('click',()=>{
+  root.setAttribute('data-theme', root.getAttribute('data-theme')==='dark'?'light':'dark');
+});
+</script>
+</body>
+</html>

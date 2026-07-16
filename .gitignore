@@ -32,3 +32,17 @@ Thumbs.db
 !.vscode/extensions.json
 
 # Note: ../chatwoot and ../design-lab live OUTSIDE this repo — nothing to ignore here.
+
+# --- Non-product / working material (kept on disk, NOT in the product repo) ---
+# The repo tracks only the CRM product (services/, web/, libs/, deploy/, root build config).
+# Planning docs, decisions, Claude Code / Spec Kit tooling and instructions are working
+# material and are intentionally untracked. See wiki (vaults/crm) for the durable record.
+.claude/
+.specify/
+specs/
+cowork/
+CLAUDE.md
+AGENTS*.md
+# Reference binaries
+*.docx
+*.pdf

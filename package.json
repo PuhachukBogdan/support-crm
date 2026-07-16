@@ -12,7 +12,11 @@
     "libs/*"
   ],
   "scripts": {
-    "postinstall": "npm run proto:gen",
+    "postinstall": "npm run proto:gen && npm run prisma:gen",
+    "prisma:gen": "prisma generate",
+    "compose:up": "docker compose up -d",
+    "compose:down": "docker compose down -v",
+    "compose:ps": "docker compose ps",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint . && npm run typecheck",
     "lint:fix": "eslint . --fix",
@@ -46,9 +50,13 @@
     "globals": "^15.13.0",
     "jest": "^29.7.0",
     "prettier": "^3.4.2",
+    "prisma": "^6.19.3",
     "ts-proto": "^2.5.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3"
   }
 }

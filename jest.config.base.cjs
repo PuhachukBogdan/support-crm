@@ -32,4 +32,6 @@ module.exports = {
     '^@crm/proto$': '<rootDir>/../../libs/proto/src/index.ts',
   },
   clearMocks: true,
+  // Services may legitimately have no specs yet (bootable shells) — don't fail the suite.
+  passWithNoTests: true,
 };

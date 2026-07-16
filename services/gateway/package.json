@@ -12,15 +12,24 @@
   "dependencies": {
     "@crm/common": "*",
     "@crm/proto": "*",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
+    "@nestjs/microservices": "^11.1.28",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-ws": "^11.1.28",
+    "@nestjs/websockets": "^11.1.28",
+    "ioredis": "^5.11.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
+    "@types/express": "^5.0.6",
     "@types/supertest": "^6.0.2",
+    "@types/ws": "^8.18.1",
     "supertest": "^7.0.0"
   }
 }

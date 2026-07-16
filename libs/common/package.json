@@ -9,6 +9,16 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "jest --config jest.config.cjs"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
+    "@nestjs/microservices": "^11.1.28",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14"
   }
 }

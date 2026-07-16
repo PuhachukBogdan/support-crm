@@ -1,14 +1,20 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { logInfo } from '@crm/common';
+import type { MicroserviceOptions } from '@nestjs/microservices';
+import { grpcServerOptions, HEALTH_PACKAGE, HEALTH_PROTO, logInfo } from '@crm/common';
 import { AppModule } from './app.module';
+import { loadWorkerConfig } from './config';
 
-// Phase 0: bootable BullMQ-consumer shell — proves module wiring compiles and initializes.
-// No queues or jobs yet (BullMQ + Redis land in Phase 1).
+// Phase 1 (spec 003): worker boots as a gRPC microservice exposing HealthService.Check.
+// loadWorkerConfig() runs FIRST — refuse-to-start on missing/placeholder config (SEC-6).
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
-  logInfo('worker', 'worker context initialized (Phase 0 shell — no jobs yet)');
-  await app.close();
+  const cfg = loadWorkerConfig();
+  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
+    AppModule,
+    grpcServerOptions(HEALTH_PACKAGE, HEALTH_PROTO, cfg.GRPC_URL),
+  );
+  await app.listen();
+  logInfo('worker', `worker gRPC server listening on ${cfg.GRPC_URL}`);
 }
 
 void bootstrap();

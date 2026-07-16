@@ -1,13 +1,32 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { logInfo } from '@crm/common';
+import type { MicroserviceOptions } from '@nestjs/microservices';
+import {
+  grpcServerOptions,
+  HEALTH_PACKAGE,
+  HEALTH_PROTO,
+  PING_PACKAGE,
+  PING_PROTO,
+  logInfo,
+} from '@crm/common';
 import { AppModule } from './app.module';
+import { loadUsersConfig } from './config';
 
-// Phase 0: bootable shell — proves module wiring compiles and initializes. No domain logic yet.
+// Phase 1 (spec 003): users boots as a gRPC microservice hosting BOTH the health and ping
+// packages. loadUsersConfig() runs FIRST — refuse-to-start on missing/placeholder config
+// before any connection (SEC-6 / US2).
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
-  logInfo('users', 'service context initialized (Phase 0 shell)');
-  await app.close();
+  const cfg = loadUsersConfig();
+  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
+    AppModule,
+    grpcServerOptions(
+      [HEALTH_PACKAGE, PING_PACKAGE],
+      [HEALTH_PROTO, PING_PROTO],
+      cfg.GRPC_URL,
+    ),
+  );
+  await app.listen();
+  logInfo('users', `users gRPC server listening on ${cfg.GRPC_URL}`);
 }
 
 void bootstrap();

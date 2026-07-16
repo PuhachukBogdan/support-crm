@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
+import { HealthGrpcController } from './health/health.controller';
+import { PrismaService } from './prisma.service';
 
-// Phase 0: empty module shell. This is the structural seam where brand/tenant scoping
-// (Principle I isolation) will live from Phase 2. No isolation logic exists yet.
-@Module({})
+// Phase 1 (spec 003): the brands service is a gRPC microservice exposing HealthService.Check
+// over its own Postgres. Brands domain logic (flows, JWT, RBAC) arrives in Phase 3.
+@Module({
+  controllers: [HealthGrpcController],
+  providers: [PrismaService],
+})
 export class AppModule {}

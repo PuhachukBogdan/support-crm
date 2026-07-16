@@ -1,0 +1,12 @@
+// Datasource-only schema (spec 003, research D2): proves Prisma connectivity via
+// $queryRaw`SELECT 1` for the health aggregate. No models until Phase 2 (data model).
+// One shared client; per-service isolation comes from each service's own DATABASE_URL
+// + DB role (deploy/local/postgres/init), not from separate client code.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

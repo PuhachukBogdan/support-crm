@@ -1,9 +1,15 @@
 /**
  * @crm/common — shared TypeScript types/utilities for the CRM monorepo.
  *
- * Phase 0 content is intentionally trivial: enough to prove cross-workspace linking
- * (US1) and to seed conventions later phases inherit. No product/domain logic here.
+ * Phase 0 seeded cross-workspace linking + conventions. Phase 1 (spec 003-local-infra)
+ * adds the gRPC transport helpers, health/readiness types, and the config loader
+ * (refuse-to-start, SEC-6). No product/domain logic here.
  */
+export * from './grpc';
+export * from './health';
+export * from './config';
+// Re-export zod so services build their config schemas without each declaring the dep.
+export { z } from 'zod';
 
 /** The canonical set of backend microservices (ADR 0029). */
 export const SERVICE_NAMES = [

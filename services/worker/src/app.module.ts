@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
+import { HealthGrpcController } from './health/health.controller';
+import { RedisService } from './queue/redis.service';
 
-// Phase 0: empty module shell for the background-job service. BullMQ queues/consumers
-// are wired in Phase 1 (Redis) and populated with real jobs from Phase 6/12. No jobs yet.
-@Module({})
+// Phase 1 (spec 003): the worker is a gRPC microservice exposing HealthService.Check over
+// its Redis connection (via BullMQ). Real job producers/consumers arrive in Phase 7.
+@Module({
+  controllers: [HealthGrpcController],
+  providers: [RedisService],
+})
 export class AppModule {}

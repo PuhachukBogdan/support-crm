@@ -1,5 +1,11 @@
 import { Module } from '@nestjs/common';
+import { HealthGrpcController } from './health/health.controller';
+import { PrismaService } from './prisma.service';
 
-// Phase 0: empty module shell. Domain logic (conversations, messages) arrives in Phase 2+.
-@Module({})
+// Phase 1 (spec 003): the chats service is a gRPC microservice exposing HealthService.Check
+// over its own Postgres. Chats domain logic (flows, JWT, RBAC) arrives in Phase 3.
+@Module({
+  controllers: [HealthGrpcController],
+  providers: [PrismaService],
+})
 export class AppModule {}

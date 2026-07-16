@@ -1,0 +1,38 @@
+// Per-service readiness contract (spec 003-local-infra, US5 / FR-012).
+//
+// Each backend service implements Check against ITS OWN dependencies (its Postgres
+// and/or Redis). The gateway fans Check out to every service with a bounded deadline
+// and composes the readiness aggregate. No product data crosses this contract —
+// status only (Principle IV: no PII).
+//
+// Principle VIII: this .proto is reviewed/approved BEFORE any handler code is written.
+//
+// `status` fields are strings on the wire ("SERVING" | "NOT_SERVING") — chosen over a
+// proto enum to keep proto-loader (runtime) and ts-proto (types) serialization aligned
+// without enum-representation config. Allowed values live in @crm/common (ServingStatus).
+
+syntax = "proto3";
+
+package crm.health.v1;
+
+// Generated message types (git-ignored): libs/proto/gen/**
+
+service HealthService {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  // Overall for this service: "SERVING" only if every owned dependency is SERVING.
+  string status = 1;
+  string service = 2;                       // "auth" | "users" | "chats" | "brands" | "worker"
+  repeated DependencyStatus dependencies = 3;
+}
+
+message DependencyStatus {
+  string name = 1;                          // "postgres" | "redis"
+  string status = 2;                        // "SERVING" | "NOT_SERVING"
+  // Human-readable, MUST NOT contain secrets/PII (e.g. "connection refused"). Optional.
+  string detail = 3;
+}

@@ -1,0 +1,21 @@
+.git
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+coverage
+**/coverage
+libs/proto/gen
+*.log
+.env
+.env.*
+!.env.example
+# Non-product working material (not needed in images)
+cowork
+.specify
+specs
+.claude
+*.docx
+*.pdf

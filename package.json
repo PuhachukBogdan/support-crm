@@ -1,0 +1,54 @@
+{
+  "name": "crm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "White-label multi-brand support CRM — monorepo root (Phase 0 skeleton, ADR 0029).",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "services/*",
+    "web",
+    "libs/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run proto:gen",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint . && npm run typecheck",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:root": "jest --config jest.config.root.cjs",
+    "test:workspaces": "npm run test --workspaces --if-present",
+    "test": "npm run test:root && npm run test:workspaces",
+    "build": "npm run build --workspaces --if-present",
+    "build:all": "npm run build --workspaces --if-present",
+    "proto:gen": "buf generate",
+    "start:gateway": "npm run start --workspace services/gateway",
+    "dev:web": "npm run dev --workspace web",
+    "docker:build:gateway": "docker build -f deploy/docker/gateway.Dockerfile -t crm-gateway .",
+    "docker:build:auth": "docker build -f deploy/docker/auth.Dockerfile -t crm-auth .",
+    "docker:build:users": "docker build -f deploy/docker/users.Dockerfile -t crm-users .",
+    "docker:build:chats": "docker build -f deploy/docker/chats.Dockerfile -t crm-chats .",
+    "docker:build:brands": "docker build -f deploy/docker/brands.Dockerfile -t crm-brands .",
+    "docker:build:worker": "docker build -f deploy/docker/worker.Dockerfile -t crm-worker .",
+    "docker:build:all": "npm run docker:build:gateway && npm run docker:build:auth && npm run docker:build:users && npm run docker:build:chats && npm run docker:build:brands && npm run docker:build:worker"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.47.2",
+    "@eslint/js": "^9.17.0",
+    "@swc/core": "^1.10.1",
+    "@swc/jest": "^0.2.37",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.13.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.4.2",
+    "ts-proto": "^2.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0"
+  }
+}

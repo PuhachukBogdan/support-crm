@@ -1,0 +1,29 @@
+// Sample gRPC contract for Phase 0.
+//
+// Purpose: prove the schema-first loop — .proto -> buf/ts-proto codegen -> typed stub
+// imports into a NestJS service and builds (spec FR-004, US4). This is NOT a real
+// inter-service contract; genuine contracts (Auth<->Gateway, Chats<->Users/Brands)
+// are defined in Phase 2 (roadmap 2.1). Kept intentionally trivial.
+//
+// Principle VIII: this .proto is reviewed/approved BEFORE any stub-consuming code is written.
+
+syntax = "proto3";
+
+package crm.ping.v1;
+
+// Generated stubs (git-ignored): libs/proto/gen/**
+
+service PingService {
+  // Trivial round-trip used by the Phase-0 codegen smoke test.
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+  // ISO-8601 timestamp the response was served at.
+  string served_at = 2;
+}

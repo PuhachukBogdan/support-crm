@@ -1,0 +1,27 @@
+/*
+ * Design tokens — the white-label seam (Principle VI / FR-011 / SC-007).
+ *
+ * These are NEUTRAL PLACEHOLDER values, not a brand identity. A brand ships its own
+ * token values (light + dark); components reference the variables via Tailwind
+ * (e.g. bg-primary), never hardcoded hex. Toggling the `.dark` class re-themes everything.
+ *
+ * Values are HSL channels ("H S% L%") so Tailwind can wrap them as hsl(var(--token)).
+ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+  --border: 240 5.9% 90%;
+  --ring: 240 5.9% 10%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
+  --border: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
+}

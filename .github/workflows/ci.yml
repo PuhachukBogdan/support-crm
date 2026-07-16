@@ -1,0 +1,30 @@
+name: CI
+
+# Quality gate (roadmap 0.8 / US6): install -> lint -> test on every push and PR.
+# `npm ci` triggers the root postinstall (proto:gen) so generated stubs exist before
+# lint/test. A red stage fails the check and blocks the merge.
+on:
+  push:
+  pull_request:
+
+jobs:
+  install-lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install (also generates proto stubs via postinstall)
+        run: npm ci
+
+      - name: Lint (ESLint + tsc --noEmit across workspaces)
+        run: npm run lint
+
+      - name: Test (Jest services + next/jest web + root linking test)
+        run: npm test

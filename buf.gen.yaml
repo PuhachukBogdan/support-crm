@@ -1,0 +1,14 @@
+version: v2
+clean: true
+plugins:
+  # ts-proto (installed as a devDependency; its bin is on PATH under `npm run`).
+  # Phase 0 generates message types only (outputServices=false) — enough to prove the
+  # generate -> import -> build loop without pulling the gRPC runtime; real service
+  # stubs come with the Phase 2 contracts.
+  - local: protoc-gen-ts_proto
+    out: libs/proto/gen
+    opt:
+      - esModuleInterop=true
+      - forceLong=string
+      - outputServices=false
+      - snakeToCamel=true

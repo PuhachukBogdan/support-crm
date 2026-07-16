@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+libs/proto/gen/
+package-lock.json
+*.tsbuildinfo

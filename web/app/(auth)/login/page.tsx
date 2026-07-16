@@ -1,27 +1,80 @@
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+'use client';
 
-// Placeholder login screen (route + layout only). The real mock form is Demo track D1;
-// the live Auth wiring is Phase 8.6. No auth call here.
+import { useRouter } from 'next/navigation';
+import { z } from 'zod';
+import {
+  AppForm,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from '@/components/composites/form';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { useSession } from '@/session';
+
+// Demo mock login (D1): any well-formed input enters the app. NO auth/network call — the
+// mock session is a labeled non-security placeholder (real Auth = Phase 3 / 8.6).
+const schema = z.object({
+  email: z.string().email('Enter a valid email'),
+  password: z.string().min(1, 'Password is required'),
+});
+
 export default function LoginPage() {
+  const router = useRouter();
+  const { login } = useSession();
+
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
-        <CardDescription>Placeholder — wired to Auth in Phase 8.6.</CardDescription>
+        <CardDescription>Demo — any credentials work (mock login, no real auth).</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" placeholder="you@example.com" />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" />
-        </div>
-        <Button className="w-full">Continue</Button>
+      <CardContent>
+        <AppForm
+          schema={schema}
+          defaultValues={{ email: '', password: '' }}
+          onSubmit={() => {
+            login();
+            router.push('/');
+          }}
+        >
+          {(form) => (
+            <>
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="you@example.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" className="w-full">
+                Continue
+              </Button>
+            </>
+          )}
+        </AppForm>
       </CardContent>
     </Card>
   );

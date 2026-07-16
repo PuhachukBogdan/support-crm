@@ -1,10 +1,12 @@
 'use client';
 
-import { PanelLeft, Search } from 'lucide-react';
+import { LogOut, PanelLeft, Search } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { useSession } from '@/session';
 import { ThemeToggle } from './theme-toggle';
 
-// Topbar: sidebar collapse toggle, a command-palette opener, and the theme switch.
+// Topbar: sidebar collapse toggle, a command-palette opener, the theme switch, and logout.
 export function Topbar({
   onToggleSidebar,
   onOpenCommand,
@@ -12,6 +14,8 @@ export function Topbar({
   onToggleSidebar: () => void;
   onOpenCommand: () => void;
 }) {
+  const router = useRouter();
+  const { logout } = useSession();
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
       <Button
@@ -40,6 +44,18 @@ export function Topbar({
       </Button>
 
       <ThemeToggle />
+
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Log out"
+        onClick={() => {
+          logout();
+          router.push('/login');
+        }}
+      >
+        <LogOut className="h-4 w-4" />
+      </Button>
     </header>
   );
 }

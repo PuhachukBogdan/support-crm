@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import createSagaMiddleware from 'redux-saga';
 import { sampleReducer } from './sample.slice';
+import { recordsReducer } from './records/records.slice';
 import { rootSaga } from './root-saga';
 
 // R7: create a FRESH store per call (no module-level singleton). Under App Router SSR a
@@ -9,7 +10,7 @@ import { rootSaga } from './root-saga';
 export function makeStore() {
   const sagaMiddleware = createSagaMiddleware();
   const store = configureStore({
-    reducer: { sample: sampleReducer },
+    reducer: { sample: sampleReducer, records: recordsReducer },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(sagaMiddleware),
   });
   sagaMiddleware.run(rootSaga);

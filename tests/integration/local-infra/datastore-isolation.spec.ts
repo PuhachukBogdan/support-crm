@@ -6,11 +6,11 @@ import { join } from 'node:path';
 // connects to ONLY its own database, gateway/worker own none, and NO password is hardcoded.
 
 const repoRoot = join(__dirname, '..', '..', '..');
-const initScript = readFileSync(
-  join(repoRoot, 'deploy', 'local', 'postgres', 'init', '01-init-databases.sh'),
-  'utf8',
-);
-const compose = readFileSync(join(repoRoot, 'compose.yaml'), 'utf8');
+// Normalize CRLF → LF so the line-anchored regexes below work on a Windows checkout too
+// (git may materialize these files with CRLF; on Linux/CI they are already LF).
+const readLF = (...p: string[]) => readFileSync(join(repoRoot, ...p), 'utf8').replace(/\r\n/g, '\n');
+const initScript = readLF('deploy', 'local', 'postgres', 'init', '01-init-databases.sh');
+const compose = readLF('compose.yaml');
 
 const DATA_SERVICES = ['auth', 'users', 'chats', 'brands'] as const;
 const NON_DATA_SERVICES = ['gateway', 'worker'] as const;

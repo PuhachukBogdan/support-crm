@@ -2,13 +2,18 @@
 
 import { useRef, type ReactNode } from 'react';
 import { Provider } from 'react-redux';
+import { ThemeProvider } from 'next-themes';
 import { makeStore, type AppStore } from '../src/store';
 
-// Creates the per-request store once on the client and provides it to the tree.
+// Client providers: theme (next-themes toggles the `.dark` token set) + per-request Redux store.
 export function Providers({ children }: { children: ReactNode }) {
   const storeRef = useRef<AppStore | null>(null);
   if (storeRef.current === null) {
     storeRef.current = makeStore();
   }
-  return <Provider store={storeRef.current}>{children}</Provider>;
+  return (
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <Provider store={storeRef.current}>{children}</Provider>
+    </ThemeProvider>
+  );
 }

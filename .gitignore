@@ -46,6 +46,7 @@ Thumbs.db
 # Planning docs, decisions, Claude Code / Spec Kit tooling and instructions are working
 # material and are intentionally untracked. See wiki (vaults/crm) for the durable record.
 .claude/
+.mcp.json
 .specify/
 specs/
 cowork/

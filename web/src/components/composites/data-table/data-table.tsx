@@ -105,7 +105,7 @@ export function DataTable<T>({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 8,
+    overscan: 12,
     initialRect: { width: 0, height },
   });
   const vItems = virtualizer.getVirtualItems();
@@ -148,7 +148,7 @@ export function DataTable<T>({
       <div
         ref={parentRef}
         data-testid="dt-scroll"
-        className="overflow-auto rounded-md border border-border"
+        className="overflow-auto overscroll-contain rounded-md border border-border"
         style={{ maxHeight: height }}
       >
         <Table>

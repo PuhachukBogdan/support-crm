@@ -1,54 +1,59 @@
 /*
  * ============================================================================
- *  DESIGN TOKEN CONTRACT (S0) — the white-label seam.
- *  Principle VI / FR-011 / SC-007 · ADR 0030 (build sequence) · ADR 0031 (locks).
+ *  THEME CONFIG — the ONE place to set colors. Change a value here and the whole
+ *  UI updates (Tailwind maps every token via hsl(var(--…))). No per-component edits.
  * ============================================================================
  *
- *  TWO TIERS:
- *    Tier 1 — PRIMITIVES: the raw neutral cool-gray (slate) ramp + state hues.
- *             Never referenced by components directly. Brand tuning happens here.
- *    Tier 2 — SEMANTIC ROLES: what components actually consume (bg-primary,
- *             text-muted-foreground, border-border …). Mapped from Tier 1.
- *
- *  These are NEUTRAL PLACEHOLDER values, NOT a brand identity (white-label rule):
- *  a cool-gray base that reads as intentional but hardcodes no company colors.
- *  A brand later fills its own values into this SAME contract (names/roles are
- *  frozen); component code never changes. Toggling `.dark` re-themes everything.
+ *  White-label seam (Principle VI / ADR 0028 / 0031). Current values = shadcn's
+ *  DEFAULT neutral palette (authoritative, brand-free) adopted as our base — ADR 0028
+ *  explicitly endorses a "neutral shadcn-like palette". A brand later swaps these
+ *  values (light + dark) in this file; component code never changes. `.dark` re-themes.
  *
  *  Colors are HSL CHANNELS ("H S% L%") so Tailwind wraps them as hsl(var(--token)).
- *  No hex literals anywhere — that is a white-label invariant (see tokens.contract.test).
+ *  No hex literals anywhere (white-label invariant — see tokens.contract.test).
  */
 
-/* ── Tier 1: PRIMITIVES (neutral cool-gray ramp + state hues) ─────────────── */
 :root {
-  /* Neutral cool-gray (slate) ramp — the base tone (ADR 0031). */
-  --slate-50: 210 40% 98%;
-  --slate-100: 210 40% 96.1%;
-  --slate-200: 214.3 31.8% 91.4%;
-  --slate-300: 212.7 26.8% 83.9%;
-  --slate-400: 215 20.2% 65.1%;
-  --slate-500: 215.4 16.3% 46.9%;
-  --slate-600: 215.3 19.3% 34.5%;
-  --slate-700: 215.3 25% 26.7%;
-  --slate-800: 217.2 32.6% 17.5%;
-  --slate-900: 222.2 47.4% 11.2%;
-  --slate-950: 222.2 84% 4.9%;
-  --white: 0 0% 100%;
+  /* ── Semantic color roles (shadcn default / neutral) ───────────────────── */
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
 
-  /* State hues — used by semantic danger/success/warning/info (StatusBadge later). */
-  --red-500: 0 84.2% 60.2%;
-  --red-700: 0 72.2% 40.6%;
-  --green-600: 142.1 76.2% 36.3%;
-  --amber-500: 37.7 92.1% 50.2%;
-  --blue-600: 221.2 83.2% 53.3%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
 
-  /* ── Non-color scales (shared across light/dark; brand-tunable) ────────── */
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
 
-  /* Font family — brand swaps this one line. */
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+
+  /* Status semantics (our additions — StatusBadge; brand-tunable like the rest). */
+  --success: 142.1 70.6% 45.3%;
+  --success-foreground: 0 0% 98%;
+  --warning: 37.7 92.1% 50.2%;
+  --warning-foreground: 240 5.9% 10%;
+  --info: 221.2 83.2% 53.3%;
+  --info-foreground: 0 0% 98%;
+
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 240 5.9% 10%;
+
+  /* ── Non-color scales (shared light/dark; brand-tunable) ───────────────── */
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
 
-  /* Type scale (rem). Tailwind's default scale is the baseline; these name the
-     roles we lean on so a brand can retune density in one place. */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -56,113 +61,64 @@
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
 
-  /* Spacing — 4px base; semantic layout gaps the shell/composites use. */
   --space-unit: 0.25rem;
-  --space-gutter: 1.5rem; /* page padding */
-  --space-stack: 1rem; /* vertical rhythm between blocks */
+  --space-gutter: 1.5rem;
+  --space-stack: 1rem;
 
-  /* Radius. */
   --radius: 0.5rem;
 
-  /* Elevation (no hex — rgb channels of black at low alpha). */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
-  /* Motion. */
   --motion-fast: 120ms;
   --motion-base: 200ms;
   --motion-slow: 320ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
-  /* Z-index / layering scale — one source of truth so overlays never fight
-     (ADR 0031: dialogs, drawers, context panel, command palette, toasts). */
   --z-base: 0;
-  --z-sticky: 100; /* sticky table headers, topbar */
-  --z-dropdown: 200; /* menus, selects, context panel */
-  --z-drawer: 300; /* sheet / side drawer */
-  --z-dialog: 400; /* modal dialogs */
-  --z-popover: 500; /* popovers, tooltips over dialogs */
-  --z-command: 600; /* command palette */
-  --z-toast: 700; /* toasts — always on top */
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-drawer: 300;
+  --z-dialog: 400;
+  --z-popover: 500;
+  --z-command: 600;
+  --z-toast: 700;
 }
 
-/* ── Tier 2: SEMANTIC ROLES — LIGHT (default) ─────────────────────────────── */
-:root {
-  --background: var(--white);
-  --foreground: var(--slate-950);
-
-  --card: var(--white);
-  --card-foreground: var(--slate-950);
-
-  --popover: var(--white);
-  --popover-foreground: var(--slate-950);
-
-  --primary: var(--slate-900);
-  --primary-foreground: var(--slate-50);
-
-  --secondary: var(--slate-100);
-  --secondary-foreground: var(--slate-900);
-
-  --muted: var(--slate-100);
-  --muted-foreground: var(--slate-500);
-
-  --accent: var(--slate-100);
-  --accent-foreground: var(--slate-900);
-
-  --destructive: var(--red-500);
-  --destructive-foreground: var(--slate-50);
-
-  --success: var(--green-600);
-  --success-foreground: var(--slate-50);
-
-  --warning: var(--amber-500);
-  --warning-foreground: var(--slate-950);
-
-  --info: var(--blue-600);
-  --info-foreground: var(--slate-50);
-
-  --border: var(--slate-200);
-  --input: var(--slate-200);
-  --ring: var(--slate-950);
-}
-
-/* ── Tier 2: SEMANTIC ROLES — DARK ────────────────────────────────────────── */
 .dark {
-  --background: var(--slate-950);
-  --foreground: var(--slate-50);
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
 
-  --card: var(--slate-950);
-  --card-foreground: var(--slate-50);
+  --card: 240 10% 3.9%;
+  --card-foreground: 0 0% 98%;
 
-  --popover: var(--slate-950);
-  --popover-foreground: var(--slate-50);
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
 
-  --primary: var(--slate-50);
-  --primary-foreground: var(--slate-900);
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
 
-  --secondary: var(--slate-800);
-  --secondary-foreground: var(--slate-50);
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
 
-  --muted: var(--slate-800);
-  --muted-foreground: var(--slate-400);
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
 
-  --accent: var(--slate-800);
-  --accent-foreground: var(--slate-50);
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
 
-  --destructive: var(--red-700);
-  --destructive-foreground: var(--slate-50);
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
 
-  --success: var(--green-600);
-  --success-foreground: var(--slate-50);
+  --success: 142.1 70.6% 45.3%;
+  --success-foreground: 0 0% 98%;
+  --warning: 37.7 92.1% 50.2%;
+  --warning-foreground: 240 5.9% 10%;
+  --info: 217.2 91.2% 59.8%;
+  --info-foreground: 240 5.9% 10%;
 
-  --warning: var(--amber-500);
-  --warning-foreground: var(--slate-950);
-
-  --info: var(--blue-600);
-  --info-foreground: var(--slate-50);
-
-  --border: var(--slate-800);
-  --input: var(--slate-800);
-  --ring: var(--slate-300);
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
 }

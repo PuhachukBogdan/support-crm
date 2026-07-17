@@ -4,6 +4,10 @@ import { SESSION_STORAGE_KEY } from '@/session';
 
 // T006 [US1] — mock login: invalid blocks; valid enters + sets mock session; no auth call.
 
+// Ferrofluid is a WebGL background — mock it (jsdom has no WebGL; relative path because
+// jest.mock with the '@/' alias trips over the '(auth)' route-group parens).
+jest.mock('../../../src/components/Ferrofluid', () => ({ __esModule: true, default: () => null }));
+
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),

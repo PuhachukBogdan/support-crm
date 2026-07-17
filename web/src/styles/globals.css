@@ -5,7 +5,12 @@
 @tailwind utilities;
 
 @layer base {
+  /* Default any border to the token color (shadcn convention). */
+  * {
+    @apply border-border;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
   }
 }

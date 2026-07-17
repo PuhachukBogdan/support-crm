@@ -8,6 +8,8 @@ const config = {
   testEnvironment: 'jest-environment-jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testMatch: ['**/*.test.{ts,tsx}'],
+  // Include jsx so untyped JS components (e.g. the React Bits Ferrofluid) resolve + mock.
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
 };
 
 module.exports = createJestConfig(config);

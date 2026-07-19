@@ -11,7 +11,11 @@ model + the Player read path in place. Users domain gRPC (`UsersReadService`) ar
 - Data model (feature 006): `Operator`; `Player` ("Player-lite", ADR 0032 §0.1) keyed by `player_id`,
   unified across 1..N brands via the `PlayerBrand` edge (soft `brand_id`, no cross-service FK), with an
   **opaque** GR8-cache seam (`gr8_snapshot`/`gr8_fetched_at`/`gr8_stale` — GR8's typed projection is 7.4).
-- Read path: [`src/player/player.repository.ts`](src/player/player.repository.ts) `getPlayerById`.
+- Read path: [`src/player/player.repository.ts`](src/player/player.repository.ts) `getPlayerById(accountId, playerId)`.
+- Isolation (feature 007): tenant data is read/written ONLY via `PrismaService.forAccount(accountId)`
+  (account-scoped client; fail-closed) — see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
+  The player-union (brands) is preserved under scope — the brand carve-out is brand-level, never
+  account-level. Raw `$queryRaw` (health `SELECT 1`) is an audited escape hatch (no tenant data).
 
 ## Interfaces
 - Owned gRPC contract: [`libs/proto/crm/users/v1/users.proto`](../../libs/proto/crm/users/v1/users.proto)

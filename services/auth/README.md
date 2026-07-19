@@ -9,6 +9,9 @@ Auth domain logic (login, JWT issuance, sessions, MFA, RBAC) arrives in **Phase 
 - Owns its **own** database `auth_db` via role `auth_user` — no cross-service DB access (Principle VIII).
 - Data model (feature 006): `User`, `Credential` (shape-only, no plaintext), `Role`, `UserRole` —
   every tenant table carries an indexed `account_id` seam (ADR 0003). Enforcement (RBAC, MFA) = Phase 3.
+- Isolation (feature 007): tenant data is read/written ONLY via `PrismaService.forAccount(accountId)`
+  (account-scoped client; fail-closed) — see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
+  Raw `$queryRaw` (health `SELECT 1`) bypasses scoping — an audited escape hatch (no tenant data).
 
 ## Interfaces
 - Owned gRPC contract: [`libs/proto/crm/auth/v1/auth.proto`](../../libs/proto/crm/auth/v1/auth.proto)

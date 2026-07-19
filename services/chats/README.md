@@ -13,6 +13,9 @@ Conversation/message domain logic arrives in **Phase 4**.
   `brand_id`/`player_id`/`assignee_operator_id` are **soft refs** (resolved via gRPC, never joined).
 - Consumes (Phase 4+): `UsersReadService` + `BrandsReadService` — reads players/brands over gRPC,
   never via a DB join. Owns no read-contract of its own in this slice.
+- Isolation (feature 007): tenant data is read/written ONLY via `PrismaService.forAccount(accountId)`
+  (account-scoped client; fail-closed) — see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
+  Raw `$queryRaw` (health `SELECT 1`) bypasses scoping — an audited escape hatch (no tenant data).
 
 ## Interfaces
 - gRPC contract: [`libs/proto/crm/health/v1/health.proto`](../../libs/proto/crm/health/v1/health.proto)

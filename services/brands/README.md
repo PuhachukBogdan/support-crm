@@ -10,6 +10,9 @@ Brand-scoped access enforcement (who reads/answers which brand) arrives in **Pha
 - Data model (feature 006): `Brand` (tenant-scope data, never hardcoded identity — Principle VI) +
   `BrandAccessRule` (ADR 0003 access seam; `operator_id` is a soft ref, no cross-service FK). Every
   tenant table carries an indexed `account_id`.
+- Isolation (feature 007): tenant data is read/written ONLY via `PrismaService.forAccount(accountId)`
+  (account-scoped client; fail-closed) — see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
+  Raw `$queryRaw` (health `SELECT 1`) bypasses scoping — an audited escape hatch (no tenant data).
 
 ## Interfaces
 - Owned gRPC contract: [`libs/proto/crm/brands/v1/brands.proto`](../../libs/proto/crm/brands/v1/brands.proto)

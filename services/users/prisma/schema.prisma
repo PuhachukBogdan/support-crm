@@ -1,0 +1,72 @@
+// Users service schema — users_db (feature 006, roadmap 2.2/2.7).
+// DB-per-service (ADR 0029): targets ONLY users_db via the service's own DATABASE_URL +
+// role. Per-service generated client path (research R1). Owns the Player entity
+// ("Player-lite", ADR 0032 §0.1) + the brand-union edge (soft brand_id, no cross-service FK).
+// Model surface reviewed in specs/006-contracts-data-model/data-model.md (Users section).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A staff member's operational profile — distinct from the Auth `User` identity, linked by a
+/// soft `auth_user_id` (no cross-service FK). Custom attributes are an extensible JSON blob (R5).
+model Operator {
+  id                String   @id @default(uuid())
+  account_id        String
+  auth_user_id      String // soft ref to auth.User.id (resolved via gRPC, never joined)
+  display_name      String?
+  active            Boolean  @default(true)
+  custom_attributes Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([account_id])
+}
+
+/// The core customer entity, keyed by `player_id`, unified across 1..N brands (ADR 0032 §0.1).
+/// Player-lite: identity + our own fields + an OPAQUE GR8-cache seam. vip/segment are columns
+/// (indexed) because they drive routing filters (Principle VII); free classification lives in
+/// custom_attributes (R5). GR8's typed projection is deferred to 7.4 — we don't own its schema.
+model Player {
+  player_id         String   @id // domain key (not a generated uuid)
+  account_id        String
+  vip               Boolean  @default(false)
+  segment           String?
+  // Our own AM-owned fields (replace the Excel portfolio — ADR 0032 §4):
+  am_notes          String?
+  preferences       Json?
+  portfolio         Json? // portfolio scaffold; typed VIP fields land at 5.5
+  custom_attributes Json?
+  // Opaque GR8-cache seam (R4) — snapshot stored verbatim; NO GR8-typed columns. Populated by
+  // the async Worker connector at 7.4. Defaults to stale so an unpopulated player reads "unknown".
+  gr8_snapshot      Json?
+  gr8_fetched_at    DateTime?
+  gr8_stale         Boolean   @default(true)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  brands PlayerBrand[]
+
+  @@index([account_id])
+  @@index([account_id, vip])
+  @@index([account_id, segment])
+}
+
+/// The brand-union edge (ADR 0032 §0.2): associates a player with a brand by a SOFT `brand_id`
+/// value (brand identity lives in brands_db; resolved via brands.proto, never joined —
+/// Principle VIII). Composite key supports exactly-one-brand and many-brand players.
+model PlayerBrand {
+  player_id String
+  brand_id  String // soft ref to brands.Brand.id (no cross-service FK)
+
+  player Player @relation(fields: [player_id], references: [player_id], onDelete: Cascade)
+
+  @@id([player_id, brand_id])
+  @@index([brand_id]) // for ListPlayersByBrand (users.proto)
+}

@@ -1,17 +1,23 @@
 # chats
 
-Chatsentication/identity service. **Phase 1 state:** a bootable **gRPC microservice** exposing
-`HealthService.Check` over its **own** Postgres database. Chats domain logic (login, JWT issuance,
-sessions, MFA, RBAC) arrives in **Phase 3**.
+Core conversations / ticketing service. **State:** a bootable **gRPC microservice** exposing
+`HealthService.Check` over its **own** Postgres database, with the Phase-2 data model in place.
+Conversation/message domain logic arrives in **Phase 4**.
 
 ## Responsibility & boundaries
 - gRPC server (`GRPC_URL`, compose port **50053**) implementing `HealthService.Check`.
 - Owns its **own** database `chats_db` via role `chats_user` — no cross-service DB access (Principle VIII).
-- Health probe = Prisma `SELECT 1` (datasource-only schema; models arrive in Phase 2).
+- Data model (feature 006, Chatwoot as blueprint): `Conversation` (the ticket — reserves
+  `category`/`sub_category`/`classified_by` per ADR 0027 + the `player_id` feed key, all nullable),
+  `Message` (`private`-note flag reserved), `Label`/`ConversationLabel`, `Macro`, `Automation`.
+  `brand_id`/`player_id`/`assignee_operator_id` are **soft refs** (resolved via gRPC, never joined).
+- Consumes (Phase 4+): `UsersReadService` + `BrandsReadService` — reads players/brands over gRPC,
+  never via a DB join. Owns no read-contract of its own in this slice.
 
 ## Interfaces
-- gRPC contract: [`libs/proto/crm/health/v1/health.proto`](../../libs/proto/crm/health/v1/health.proto).
-- DB schema (shared, datasource-only for now): [`prisma/schema.prisma`](../../prisma/schema.prisma).
+- gRPC contract: [`libs/proto/crm/health/v1/health.proto`](../../libs/proto/crm/health/v1/health.proto)
+  (consumes [`users.proto`](../../libs/proto/crm/users/v1/users.proto) / [`brands.proto`](../../libs/proto/crm/brands/v1/brands.proto) in Phase 4).
+- DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `chats_db`.
 - Isolation/provisioning: [`deploy/local/postgres/init/01-init-databases.sh`](../../deploy/local/postgres/init/01-init-databases.sh).
 
 ## Config (refuse-to-start, SEC-6)

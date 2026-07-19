@@ -1,0 +1,79 @@
+// Auth service schema — auth_db (feature 006, roadmap 2.2).
+// DB-per-service (ADR 0029): this schema targets ONLY auth_db via the service's own
+// DATABASE_URL + role (deploy/local/postgres/init). Its client generates to a per-service
+// path so four Prisma clients coexist in one monorepo without collision (research R1).
+// Model surface reviewed in specs/006-contracts-data-model/data-model.md (Auth section).
+// Enforcement (isolation middleware, RBAC, MFA) is Phase 3 — here the entities + seams exist.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// An authenticatable staff account (identity for sign-in).
+model User {
+  id           String   @id @default(uuid())
+  account_id   String // tenant seam (ADR 0003) — indexed below.
+  email        String
+  display_name String?
+  status       String   @default("active") // active | disabled
+  mfa_enabled  Boolean  @default(false) // enforcement (no bypass) is Phase 3 — SEC-2.
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  credentials Credential[]
+  roles       UserRole[]
+
+  @@unique([account_id, email])
+  @@index([account_id])
+}
+
+/// Secret material / login method bound to a User. SHAPE ONLY — no plaintext (Principle IV).
+/// account_id is denormalized here (like chats.Message) so isolation attaches uniformly.
+model Credential {
+  id              String    @id @default(uuid())
+  account_id      String
+  user_id         String
+  type            String // password | magic-link | ...
+  secret_hash     String? // argon2/bcrypt hash; null until Phase 3 sets it.
+  last_rotated_at DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([account_id])
+  @@index([user_id])
+}
+
+/// A named permission grouping. The concrete 3.6 role set + overrides land in Phase 3.
+model Role {
+  id         String   @id @default(uuid())
+  account_id String
+  key        String // agent | admin | super_admin | am | shift_am | vip_support | teamlead
+  label      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  users UserRole[]
+
+  @@unique([account_id, key])
+  @@index([account_id])
+}
+
+/// Join edge: User <-> Role (in-schema; no account_id — scoped via its parents).
+model UserRole {
+  user_id String
+  role_id String
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, role_id])
+  @@index([role_id])
+}

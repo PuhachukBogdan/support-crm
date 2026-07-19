@@ -1,0 +1,58 @@
+// Chats <-> Users boundary contract (roadmap 2.1, feature 006).
+//
+// Read-only surface the Chats service consumes for the unified feed + assignment.
+// Cross-service data crosses HERE (gRPC), never via a DB join (Principle VIII).
+// Player is keyed by player_id and unifies 1..N brands (ADR 0032 §0.1 "Player-lite").
+// GR8 fields are NOT in this contract — the GR8 projection is deferred to 7.4.
+//
+// Generated TS message types (git-ignored): libs/proto/gen/crm/users/v1/users.ts
+
+syntax = "proto3";
+
+package crm.users.v1;
+
+service UsersReadService {
+  rpc GetPlayer(GetPlayerRequest) returns (Player);
+  rpc GetOperator(GetOperatorRequest) returns (Operator);
+  // Keyset pagination (Principle VII): opaque page_token, never offset/total.
+  rpc ListPlayersByBrand(ListPlayersByBrandRequest) returns (PlayerPage);
+}
+
+message GetPlayerRequest {
+  string player_id = 1;
+}
+
+message GetOperatorRequest {
+  string operator_id = 1;
+}
+
+message ListPlayersByBrandRequest {
+  string brand_id = 1;
+  string page_token = 2; // opaque keyset cursor; empty = first page
+  int32 page_size = 3;
+}
+
+// Our own player fields only. GR8-derived data is served later from the Redis cache
+// (5.4) with a stale flag — deliberately absent from this foundational contract.
+message Player {
+  string player_id = 1;
+  string account_id = 2;
+  repeated string brand_ids = 3; // brand-union (soft references; 1..N)
+  bool vip = 4;
+  string segment = 5;
+  string am_notes = 6;
+  // JSON-encoded extensible key/values (custom attributes, preferences, portfolio scaffold).
+  string custom_attributes_json = 7;
+}
+
+message Operator {
+  string operator_id = 1;
+  string account_id = 2;
+  string display_name = 3;
+  bool active = 4;
+}
+
+message PlayerPage {
+  repeated Player players = 1;
+  string next_page_token = 2; // empty when no more pages
+}

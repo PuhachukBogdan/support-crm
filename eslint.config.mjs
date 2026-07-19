@@ -17,6 +17,7 @@ export default tseslint.config(
       '**/.next/**',
       '**/coverage/**',
       'libs/proto/gen/**',
+      'services/*/src/generated/**',
       '**/*.tsbuildinfo',
       '**/next-env.d.ts',
     ],

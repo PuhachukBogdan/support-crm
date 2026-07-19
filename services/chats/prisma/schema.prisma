@@ -1,0 +1,115 @@
+// Chats service schema — chats_db (feature 006, roadmap 2.2/2.3).
+// DB-per-service (ADR 0029): targets ONLY chats_db via the service's own DATABASE_URL +
+// role. Per-service generated client path (research R1). Chatwoot is the blueprint for
+// these shapes (read-only reference; nothing copied). Conversations carry the reserved
+// classification fields (ADR 0027) + the player_id feed key (ADR 0032).
+// Model surface reviewed in specs/006-contracts-data-model/data-model.md (Chats section).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// The ticket. Carries tenant + brand scope, the player_id feed key, and the reserved
+/// classification fields (ADR 0027) — all nullable so an unclassified ticket is valid (FR-012).
+/// brand_id / player_id / assignee_operator_id are SOFT refs (owned by other services; resolved
+/// via gRPC, never joined — Principle VIII).
+model Conversation {
+  id                   String   @id @default(uuid())
+  account_id           String
+  brand_id             String // soft ref to brands.Brand.id
+  player_id            String? // soft ref / feed key; nullable until linked
+  reference            String? // human-facing ticket id (format id–date–channel TBD) — reserved
+  status               String   @default("open") // open | pending | resolved | snoozed
+  priority             String?
+  channel              String?
+  assignee_operator_id String? // soft ref to users.Operator.id
+  // Reserved classification (ADR 0027) — all nullable (unclassified is valid, FR-012):
+  category             String?
+  sub_category         String?
+  classified_by        String? // "ai" | operator id | null
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  messages Message[]
+  labels   ConversationLabel[]
+
+  @@index([account_id, status])
+  @@index([account_id, player_id])
+  @@index([brand_id])
+  @@index([player_id])
+}
+
+/// An entry within a conversation. `private` flags an internal note; realtime-scoping so it
+/// never leaks to a customer connection is enforced later (SEC-13) — here the flag is reserved.
+model Message {
+  id              String   @id @default(uuid())
+  account_id      String
+  conversation_id String
+  author_type     String // operator | player | system
+  author_id       String? // soft ref (operator/player)
+  body            String
+  private         Boolean  @default(false)
+  created_at      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@index([conversation_id, created_at]) // keyset thread paging
+  @@index([account_id])
+}
+
+/// A tag definition.
+model Label {
+  id         String   @id @default(uuid())
+  account_id String
+  name       String
+  color      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  conversations ConversationLabel[]
+
+  @@unique([account_id, name])
+}
+
+/// Join edge: Conversation <-> Label (in-schema; no account_id — scoped via its parents).
+model ConversationLabel {
+  conversation_id String
+  label_id        String
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  label        Label        @relation(fields: [label_id], references: [id], onDelete: Cascade)
+
+  @@id([conversation_id, label_id])
+  @@index([label_id])
+}
+
+/// A one-click action bundle (engine built later — entity reserved).
+model Macro {
+  id         String   @id @default(uuid())
+  account_id String
+  name       String
+  definition Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([account_id])
+}
+
+/// A rule definition (triggers: conditions -> actions; engine built later — entity reserved).
+model Automation {
+  id         String   @id @default(uuid())
+  account_id String
+  name       String
+  active     Boolean  @default(true)
+  definition Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([account_id])
+}

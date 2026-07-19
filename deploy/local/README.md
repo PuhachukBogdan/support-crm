@@ -42,6 +42,15 @@ in `.env`. Each role may `CONNECT` to **only its own** database (`PUBLIC` connec
 local realization of DB-per-service isolation (FR-002). `gateway` (stateless routing) and `worker`
 (queue-only) own no database.
 
+### Prisma schemas (per service — feature 006)
+
+As of Phase 2 each data-owning service has its **own** `services/<svc>/prisma/schema.prisma`
+targeting only its database, generating its client to a per-service path
+(`services/<svc>/src/generated/prisma`, git-ignored). The old single datasource-only
+`prisma/schema.prisma` was **retired** — the four per-service schemas supersede it (DB-per-service,
+ADR 0029). Generate all four with `npm run prisma:gen`; migrate one with
+`npm run prisma:migrate:<svc>` (live migration runs on `beton-test`, see feature 006 quickstart).
+
 ## Verifying without Docker
 
 The dev box may lack Docker. All startup/config-refusal/health/ping logic is covered by

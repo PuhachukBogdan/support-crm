@@ -16,3 +16,34 @@ export {
   HealthCheckResponse,
   DependencyStatus,
 } from '../gen/crm/health/v1/health';
+
+// --- Phase 2 inter-service contracts (feature 006, roadmap 2.1) ---
+// Named re-exports (each generated file emits its own ts-proto helpers that would collide
+// under `export *`). Message types only — NestJS loads the .proto at runtime via proto-loader.
+
+// Auth <-> Gateway
+export {
+  ValidateTokenRequest,
+  TokenClaims,
+  LoginRequest,
+  RefreshRequest,
+  TokenPair,
+} from '../gen/crm/auth/v1/auth';
+
+// Chats <-> Users (players/operators, read-only)
+export {
+  GetPlayerRequest,
+  GetOperatorRequest,
+  ListPlayersByBrandRequest,
+  Player,
+  Operator,
+  PlayerPage,
+} from '../gen/crm/users/v1/users';
+
+// Chats <-> Brands (identity + access checks, read-only)
+export {
+  GetBrandRequest,
+  Brand,
+  CheckBrandAccessRequest,
+  BrandAccessResult,
+} from '../gen/crm/brands/v1/brands';

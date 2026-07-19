@@ -1,17 +1,20 @@
 # brands
 
-Brandsentication/identity service. **Phase 1 state:** a bootable **gRPC microservice** exposing
-`HealthService.Check` over its **own** Postgres database. Brands domain logic (login, JWT issuance,
-sessions, MFA, RBAC) arrives in **Phase 3**.
+White-label brand / multi-tenancy service. **State:** a bootable **gRPC microservice** exposing
+`HealthService.Check` over its **own** Postgres database, with the Phase-2 data model in place.
+Brand-scoped access enforcement (who reads/answers which brand) arrives in **Phase 5**.
 
 ## Responsibility & boundaries
 - gRPC server (`GRPC_URL`, compose port **50054**) implementing `HealthService.Check`.
 - Owns its **own** database `brands_db` via role `brands_user` — no cross-service DB access (Principle VIII).
-- Health probe = Prisma `SELECT 1` (datasource-only schema; models arrive in Phase 2).
+- Data model (feature 006): `Brand` (tenant-scope data, never hardcoded identity — Principle VI) +
+  `BrandAccessRule` (ADR 0003 access seam; `operator_id` is a soft ref, no cross-service FK). Every
+  tenant table carries an indexed `account_id`.
 
 ## Interfaces
-- gRPC contract: [`libs/proto/crm/health/v1/health.proto`](../../libs/proto/crm/health/v1/health.proto).
-- DB schema (shared, datasource-only for now): [`prisma/schema.prisma`](../../prisma/schema.prisma).
+- Owned gRPC contract: [`libs/proto/crm/brands/v1/brands.proto`](../../libs/proto/crm/brands/v1/brands.proto)
+  (`BrandsReadService` — bodies in Phase 5) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto).
+- DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `brands_db`.
 - Isolation/provisioning: [`deploy/local/postgres/init/01-init-databases.sh`](../../deploy/local/postgres/init/01-init-databases.sh).
 
 ## Config (refuse-to-start, SEC-6)

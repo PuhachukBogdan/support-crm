@@ -1,10 +1,12 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+// This service's OWN generated client (feature 006) — DB-per-service (research R1).
+// Regenerate with `npm run prisma:gen`; the output dir is git-ignored.
+import { PrismaClient } from './generated/prisma';
 
 /**
  * Per-service Prisma client (spec 003, US5 / FR-011). Reads DATABASE_URL from the env
- * (each service has its OWN database + role — isolation). Datasource-only schema for now:
- * health uses `$queryRaw`SELECT 1``; real models arrive in Phase 2.
+ * (each service has its OWN database + role — isolation). Backed by brands_db
+ * (services/brands/prisma/schema.prisma). Health uses `$queryRaw`SELECT 1``.
  *
  * Deliberately does NOT connect at boot — a downed database must DEGRADE health, not crash
  * startup (FR-012). Prisma connects lazily on first query.

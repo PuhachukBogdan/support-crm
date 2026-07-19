@@ -1,0 +1,37 @@
+// Chats <-> Brands boundary contract (roadmap 2.1, feature 006).
+//
+// Read-only surface for brand identity + brand-access checks. Realizes the ADR 0003
+// access seam; the actual ENFORCEMENT (who may read/answer which brand) is a later
+// feature — this contract only exposes the read/check shape. No cross-service DB join
+// (Principle VIII): Chats/Users resolve brand_id -> brand facts through this RPC.
+//
+// Generated TS message types (git-ignored): libs/proto/gen/crm/brands/v1/brands.ts
+
+syntax = "proto3";
+
+package crm.brands.v1;
+
+service BrandsReadService {
+  rpc GetBrand(GetBrandRequest) returns (Brand);
+  rpc CheckBrandAccess(CheckBrandAccessRequest) returns (BrandAccessResult);
+}
+
+message GetBrandRequest {
+  string brand_id = 1;
+}
+
+message Brand {
+  string brand_id = 1;
+  string account_id = 2;
+  string name = 3;
+  bool active = 4;
+}
+
+message CheckBrandAccessRequest {
+  string operator_id = 1;
+  string brand_id = 2;
+}
+
+message BrandAccessResult {
+  bool allowed = 1;
+}

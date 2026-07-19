@@ -1,0 +1,50 @@
+// Brands service schema — brands_db (feature 006, roadmap 2.2).
+// DB-per-service (ADR 0029): targets ONLY brands_db via the service's own DATABASE_URL +
+// role. Per-service generated client path (research R1). Owns brand identity + the ADR 0003
+// brand-access seam (enforcement is a later feature). Brands are DATA, never hardcoded
+// identity (Principle VI, white-label).
+// Model surface reviewed in specs/006-contracts-data-model/data-model.md (Brands section).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A white-label brand as a tenant-scope row — never hardcoded identity (Principle VI).
+model Brand {
+  id         String   @id @default(uuid())
+  account_id String
+  name       String
+  slug       String
+  active     Boolean  @default(true)
+  settings   Json?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  access_rules BrandAccessRule[]
+
+  @@unique([account_id, slug])
+  @@index([account_id])
+}
+
+/// Which operators may read/answer which brand (ADR 0003 seam; ENFORCEMENT is a later feature).
+/// operator_id is a soft ref to users.Operator.id — no cross-service FK (resolved via gRPC).
+model BrandAccessRule {
+  id           String   @id @default(uuid())
+  account_id   String
+  brand_id     String
+  operator_id  String // soft ref to users.Operator.id
+  access_level String // e.g. read | answer
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  brand Brand @relation(fields: [brand_id], references: [id], onDelete: Cascade)
+
+  @@index([account_id, brand_id])
+  @@index([operator_id])
+}

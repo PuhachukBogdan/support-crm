@@ -1,0 +1,55 @@
+// Auth <-> Gateway boundary contract (roadmap 2.1, feature 006).
+//
+// Schema-first (Principle VIII): this .proto is reviewed/approved BEFORE Phase 3
+// implements the bodies. Message shapes + RPC signatures only — NO business logic.
+// The gateway calls ValidateToken on every request and does routing + JWT only.
+//
+// Generated TS message types (git-ignored): libs/proto/gen/crm/auth/v1/auth.ts
+
+syntax = "proto3";
+
+package crm.auth.v1;
+
+// Auth service surface the gateway (and later, admin flows) consume over gRPC.
+// Bodies implemented in Phase 3 (Passport/JWT, argon2/bcrypt, lockout, refresh).
+service AuthService {
+  // Gateway calls this on every protected request. Fast, read-only verification.
+  rpc ValidateToken(ValidateTokenRequest) returns (TokenClaims);
+
+  // Invite-only login (product decision 2026-07-17): no public signup.
+  rpc Login(LoginRequest) returns (TokenPair);
+
+  // Exchange a refresh token for a new pair (token expiry — SEC-4/5).
+  rpc Refresh(RefreshRequest) returns (TokenPair);
+}
+
+message ValidateTokenRequest {
+  string access_token = 1;
+}
+
+// Claims the gateway needs to route + authorize. account_id carries the tenant seam
+// (ADR 0003); roles feed the policy layer (Principle II, enforced in services — not here).
+message TokenClaims {
+  bool valid = 1;
+  string user_id = 2;
+  string account_id = 3;
+  repeated string roles = 4;
+  // Unix seconds; 0 when invalid.
+  int64 expires_at = 5;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 access_expires_at = 3;
+  int64 refresh_expires_at = 4;
+}

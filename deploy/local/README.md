@@ -51,6 +51,23 @@ targeting only its database, generating its client to a per-service path
 ADR 0029). Generate all four with `npm run prisma:gen`; migrate one with
 `npm run prisma:migrate:<svc>` (live migration runs on `beton-test`, see feature 006 quickstart).
 
+### Seed data (per service — feature 008)
+
+Synthetic, brand-neutral sample data (**dev/demo only — never real data**, Principle V). One seed per
+service writes only its own DB via the feature-007 account-scoped client (every row carries the seed
+`account_id`); idempotent (safe to re-run). Run all after migrating:
+
+```bash
+# each seed targets its service's DATABASE_URL (compose supplies these on beton-test):
+DATABASE_URL="$AUTH_DATABASE_URL"   npm run seed:auth
+DATABASE_URL="$USERS_DATABASE_URL"  npm run seed:users
+DATABASE_URL="$BRANDS_DATABASE_URL" npm run seed:brands
+DATABASE_URL="$CHATS_DATABASE_URL"  npm run seed:chats
+# or the fan-out once per-service URLs are wired: npm run seed
+```
+
+Shared synthetic keys (one account/brand/player) live in `libs/common/src/seed-constants.ts`.
+
 ## Verifying without Docker
 
 The dev box may lack Docker. All startup/config-refusal/health/ping logic is covered by

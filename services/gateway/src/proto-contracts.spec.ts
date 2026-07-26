@@ -6,6 +6,17 @@ import {
   LogoutResult,
   RefreshRequest,
 } from '@crm/proto';
+import {
+  RequestActivationRequest,
+  CompleteActivationRequest,
+  CreateInvitationRequest,
+  InvitationResult,
+  InvitationStatus,
+  StartRegistrationRequest,
+  RegistrationChallenge,
+  RegistrationStatus,
+  CompleteRegistrationRequest,
+} from '@crm/proto';
 import { Player } from '@crm/proto';
 import { Brand } from '@crm/proto';
 
@@ -64,5 +75,35 @@ describe('feature 006 inter-service contracts', () => {
   it('brands.proto — Brand exposes identity for cross-service resolution', () => {
     const keys = Object.keys(Brand.create());
     expect(keys).toEqual(expect.arrayContaining(['brandId', 'accountId', 'name', 'active']));
+  });
+
+  it('auth.proto — account-lifecycle surface (feature 010): activation/invite/registration', () => {
+    // Activation (3.8): generic request + complete (email/code/password).
+    expect(Object.keys(RequestActivationRequest.create())).toEqual(
+      expect.arrayContaining(['email']),
+    );
+    expect(Object.keys(CompleteActivationRequest.create())).toEqual(
+      expect.arrayContaining(['email', 'code', 'password']),
+    );
+    // Invite (3.9): caller claims + payload; status enum distinguishes created/forbidden/rate-limited.
+    expect(Object.keys(CreateInvitationRequest.create())).toEqual(
+      expect.arrayContaining(['inviterUserId', 'inviterAccountId', 'inviterRoles', 'email', 'roleKey']),
+    );
+    expect(Object.keys(InvitationResult.create())).toEqual(
+      expect.arrayContaining(['status', 'invitationId']),
+    );
+    expect(InvitationStatus.INVITATION_CREATED).not.toBe(InvitationStatus.INVITATION_FORBIDDEN);
+    expect(InvitationStatus.INVITATION_RATE_LIMITED).not.toBe(InvitationStatus.INVITATION_CREATED);
+    // Registration (3.10): start (token+email) + complete (token+email+code+password).
+    expect(Object.keys(StartRegistrationRequest.create())).toEqual(
+      expect.arrayContaining(['inviteToken', 'email']),
+    );
+    expect(Object.keys(RegistrationChallenge.create())).toEqual(
+      expect.arrayContaining(['status', 'codeExpiresAt']),
+    );
+    expect(Object.keys(CompleteRegistrationRequest.create())).toEqual(
+      expect.arrayContaining(['inviteToken', 'email', 'code', 'password']),
+    );
+    expect(RegistrationStatus.REGISTRATION_CODE_SENT).not.toBe(RegistrationStatus.REGISTRATION_INVALID);
   });
 });

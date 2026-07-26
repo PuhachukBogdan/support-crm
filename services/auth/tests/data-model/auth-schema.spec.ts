@@ -48,3 +48,33 @@ describe('auth_db schema — feature 009 additions', () => {
     expect(columnIsIndexed(rt!, 'token_hash')).toBe(true);
   });
 });
+
+/**
+ * T004 (feature 010) — the account-lifecycle tables exist, carry the tenant seam, and index their
+ * hot columns (Principle I + VII). FAILS before the 010 schema additions.
+ */
+describe('auth_db schema — feature 010 additions', () => {
+  const models = parseSchema('auth');
+  const byName = (n: string) => models.find((m) => m.name === n);
+
+  it('SuperadminWhitelist exists, is account-scoped, keyed by email', () => {
+    const wl = byName('SuperadminWhitelist');
+    expect(wl).toBeDefined();
+    for (const f of ['account_id', 'email']) expect(hasField(wl!, f)).toBe(true);
+    expect(columnIsIndexed(wl!, 'account_id')).toBe(true);
+    // email is @unique (one authorization per address).
+    expect(columnIsIndexed(wl!, 'email')).toBe(true);
+  });
+
+  it('Invitation exists, is account-scoped, and models a single-use expiring token', () => {
+    const inv = byName('Invitation');
+    expect(inv).toBeDefined();
+    for (const f of ['account_id', 'email', 'role_key', 'invited_by', 'token_hash', 'expires_at', 'consumed_at']) {
+      expect(hasField(inv!, f)).toBe(true);
+    }
+    // The clear invite secret is NEVER a column — only its hash (Principle IV).
+    expect(hasField(inv!, 'token')).toBe(false);
+    expect(columnIsIndexed(inv!, 'account_id')).toBe(true);
+    expect(columnIsIndexed(inv!, 'expires_at')).toBe(true);
+  });
+});

@@ -37,6 +37,27 @@ service AuthService {
 
   // Revoke the current refresh token (logout).
   rpc Logout(LogoutRequest) returns (LogoutResult);
+
+  // --- Feature 010: account lifecycle (onboarding / invite / registration). ADDITIVE. ---
+  // See specs/010-account-onboarding/contracts/auth-grpc.md.
+
+  // Generic super-admin "activate account" entry (anti-enumeration): ALWAYS returns the same ack.
+  // A code is emailed only when `email` is whitelisted AND has no active account.
+  rpc RequestActivation(RequestActivationRequest) returns (ActivationAck);
+
+  // Finish activation: verify emailed code + password policy → create the ACTIVE super-admin
+  // (bound to the whitelist entry's account) and issue a session (a valid code was consumed).
+  rpc CompleteActivation(CompleteActivationRequest) returns (TokenPair);
+
+  // Issue a single-use, expiring invite (hierarchy enforced from caller claims). Emails the link.
+  rpc CreateInvitation(CreateInvitationRequest) returns (InvitationResult);
+
+  // Open an invite: validate token + email match; on success email a fresh verification code.
+  rpc StartRegistration(StartRegistrationRequest) returns (RegistrationChallenge);
+
+  // Finish registration: verify token + code + password policy → create/activate the user with
+  // the invited role, consume the invite, and issue a session.
+  rpc CompleteRegistration(CompleteRegistrationRequest) returns (TokenPair);
 }
 
 message ValidateTokenRequest {
@@ -101,4 +122,64 @@ message TokenPair {
   string refresh_token = 2;
   int64 access_expires_at = 3;
   int64 refresh_expires_at = 4;
+}
+
+// --- Feature 010 messages (account lifecycle) ---
+
+message RequestActivationRequest {
+  string email = 1;
+}
+
+// Deliberately empty / uniform — reveals nothing about whitelist membership (anti-enumeration).
+message ActivationAck {}
+
+message CompleteActivationRequest {
+  string email = 1;
+  string code = 2; // emailed activation code (LoginCode, purpose="activation")
+  string password = 3; // must satisfy the password policy
+}
+
+message CreateInvitationRequest {
+  // Caller identity — populated by the gateway from the VALIDATED access JWT (Principle II).
+  string inviter_user_id = 1;
+  string inviter_account_id = 2;
+  repeated string inviter_roles = 3;
+  // Invitation payload:
+  string email = 4;
+  string role_key = 5; // never "super_admin" (originates only from the whitelist).
+}
+
+enum InvitationStatus {
+  INVITATION_STATUS_UNSPECIFIED = 0;
+  INVITATION_CREATED = 1; // invite issued + emailed.
+  INVITATION_FORBIDDEN = 2; // hierarchy violation (caller may not grant role_key).
+  INVITATION_RATE_LIMITED = 3; // issuance throttled (SEC-14).
+}
+
+message InvitationResult {
+  InvitationStatus status = 1;
+  string invitation_id = 2; // set only when CREATED (audit handle; NOT the secret).
+}
+
+message StartRegistrationRequest {
+  string invite_token = 1; // "<invitation_id>.<secret>" from the emailed link.
+  string email = 2; // must match the invitation's email exactly.
+}
+
+enum RegistrationStatus {
+  REGISTRATION_STATUS_UNSPECIFIED = 0;
+  REGISTRATION_CODE_SENT = 1; // token+email valid → verification code emailed.
+  REGISTRATION_INVALID = 2; // bad/expired/consumed token or email mismatch (generic).
+}
+
+message RegistrationChallenge {
+  RegistrationStatus status = 1;
+  int64 code_expires_at = 2; // unix seconds; 0 unless CODE_SENT.
+}
+
+message CompleteRegistrationRequest {
+  string invite_token = 1;
+  string email = 2;
+  string code = 3; // emailed verification code (LoginCode, purpose="registration")
+  string password = 4; // must satisfy the password policy
 }

@@ -11,9 +11,9 @@ import { loadConfig, z } from '@crm/common';
  *    `.default(...)` so an operator need not set ten env vars to boot, but every one is still
  *    overridable via `.env`. Values are seconds unless noted.
  *
- * NB (analyze U1): there is intentionally **no** `PASSWORD_MIN_LENGTH` — feature 009 has no
- * password-set surface and ships no validator; set-time password policy + its config land in
- * feature 010.
+ * NB (analyze U1): the set-time **password policy** + its config land in feature 010 (this feature
+ * had no password-set surface). Feature 010 adds `PASSWORD_MIN_LENGTH` + class-requirement knobs,
+ * the invite TTL, and the invite / onboarding-request rate knobs below.
  */
 export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env) {
   const required = loadConfig(
@@ -40,6 +40,26 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env) {
       LOCKOUT_WINDOW: z.coerce.number().int().positive().default(900), // 15 min
       ARGON2_MEMORY_COST: z.coerce.number().int().positive().default(19_456), // 19 MiB
       ARGON2_TIME_COST: z.coerce.number().int().positive().default(2),
+      // Feature 010 — set-time password policy (analyze U1). Configurable per FR-015.
+      PASSWORD_MIN_LENGTH: z.coerce.number().int().min(1).default(6),
+      PASSWORD_REQUIRE_UPPERCASE: z
+        .enum(['true', 'false'])
+        .default('true')
+        .transform((v) => v === 'true'),
+      PASSWORD_REQUIRE_DIGIT: z
+        .enum(['true', 'false'])
+        .default('true')
+        .transform((v) => v === 'true'),
+      PASSWORD_REQUIRE_SYMBOL: z
+        .enum(['true', 'false'])
+        .default('true')
+        .transform((v) => v === 'true'),
+      // Feature 010 — invitation lifetime + rate limits (SEC-5 / SEC-14).
+      INVITE_TTL: z.coerce.number().int().positive().default(86_400), // 24h
+      INVITE_RATE_MAX: z.coerce.number().int().positive().default(20),
+      INVITE_RATE_WINDOW: z.coerce.number().int().positive().default(3_600), // 1h
+      ONBOARD_REQUEST_RATE_MAX: z.coerce.number().int().positive().default(5),
+      ONBOARD_REQUEST_RATE_WINDOW: z.coerce.number().int().positive().default(900), // 15m
     })
     .parse(env);
 

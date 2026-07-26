@@ -12,6 +12,11 @@ The system's **single ingress** and API edge. Serves **REST + WebSocket on one h
   remember-me). A **global `AuthGuard`** protects every route unless `@Public()` — it verifies the
   access JWT **locally** (shared `JWT_SECRET`, no per-request gRPC/DB hop; Principle VII) and fails
   closed with 401. Baseline **CSP** via helmet (SEC-12; directives named in `src/security/csp.ts`).
+- **Account-lifecycle edge (feature 010):** `POST /auth/activate/request` + `/auth/activate/complete`
+  (public, super-admin whitelist onboarding), `POST /auth/invites` (**guarded** — inviter identity
+  from the validated claims, never the body), `POST /auth/register/start` + `/auth/register/complete`
+  (public). Forwards to `AuthService`; sets the session on activation/registration success; maps
+  weak-password → **422**, hierarchy → **403**, rate-limit → **429**, other auth failures → **401**.
 - `GET /health` (+ `/health/ready`) and `GET /ping` — unauthenticated infra surfaces (`@Public()`).
 - Owns **no database**. Holds a Redis connection for its own readiness check.
 
@@ -22,7 +27,8 @@ The system's **single ingress** and API edge. Serves **REST + WebSocket on one h
   [`health.proto`](../../libs/proto/crm/health/v1/health.proto),
   [`ping.proto`](../../libs/proto/crm/ping/v1/ping.proto).
 - Cookie/guard/CSP behavior: [`src/auth/`](src/auth) + [`src/security/csp.ts`](src/security/csp.ts);
-  contract in `specs/009-auth-core-sessions/contracts/gateway-rest.md`.
+  contracts in `specs/009-auth-core-sessions/contracts/gateway-rest.md` +
+  `specs/010-account-onboarding/contracts/gateway-rest.md`.
 
 ## Config (refuse-to-start, SEC-6)
 `NODE_ENV`, `GATEWAY_PORT`, `REDIS_URL`, `{AUTH,USERS,CHATS,BRANDS,WORKER}_GRPC_TARGET`, **`JWT_SECRET`**

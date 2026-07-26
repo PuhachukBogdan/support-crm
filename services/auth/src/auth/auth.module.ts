@@ -13,6 +13,10 @@ import { OtpService } from './otp.service';
 import { LoginService } from './login.service';
 import { RefreshService } from './refresh.service';
 import { LockoutService } from './lockout.service';
+import { OnboardingService } from './onboarding.service';
+import { InviteService } from './invite.service';
+import { RegistrationService } from './registration.service';
+import { RateLimiter } from './rate-limiter';
 import { AuthGrpcController } from './auth.grpc.controller';
 
 /**
@@ -43,6 +47,10 @@ import { AuthGrpcController } from './auth.grpc.controller';
     LoginService,
     RefreshService,
     LockoutService,
+    OnboardingService,
+    InviteService,
+    RegistrationService,
+    RateLimiter,
   ],
   exports: [PrismaService, AUTH_CONFIG, EMAIL_PORT, ADMIN_NOTIFICATION_PORT, CLOCK, JwtModule],
 })

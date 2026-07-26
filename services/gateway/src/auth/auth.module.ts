@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
+import { OnboardingController } from './onboarding.controller';
+import { InviteController } from './invite.controller';
+import { RegistrationController } from './registration.controller';
 import { AuthGuard } from './auth.guard';
 import { GrpcClientsModule } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, loadGatewayConfig } from '../config';
@@ -14,7 +17,7 @@ import { GATEWAY_CONFIG, loadGatewayConfig } from '../config';
  */
 @Module({
   imports: [GrpcClientsModule, JwtModule.register({})],
-  controllers: [AuthController],
+  controllers: [AuthController, OnboardingController, InviteController, RegistrationController],
   providers: [
     { provide: GATEWAY_CONFIG, useFactory: () => loadGatewayConfig() },
     { provide: APP_GUARD, useClass: AuthGuard },

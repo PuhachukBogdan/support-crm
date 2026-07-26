@@ -4,6 +4,9 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import { LoginService } from './login.service';
 import { TokenService } from './token.service';
 import { RefreshService } from './refresh.service';
+import { OnboardingService } from './onboarding.service';
+import { InviteService } from './invite.service';
+import { RegistrationService } from './registration.service';
 
 // Request/response shapes as delivered by proto-loader (keepCase:false → camelCase;
 // longs:String → int64 fields are strings on the wire; enums:String → enum NAMES on the wire).
@@ -25,6 +28,38 @@ interface RefreshRequest {
 interface LogoutRequest {
   refreshToken: string;
 }
+interface RequestActivationRequest {
+  email: string;
+}
+interface CompleteActivationRequest {
+  email: string;
+  code: string;
+  password: string;
+}
+interface CreateInvitationRequest {
+  inviterUserId: string;
+  inviterAccountId: string;
+  inviterRoles: string[];
+  email: string;
+  roleKey: string;
+}
+interface StartRegistrationRequest {
+  inviteToken: string;
+  email: string;
+}
+interface CompleteRegistrationRequest {
+  inviteToken: string;
+  email: string;
+  code: string;
+  password: string;
+}
+
+/** proto InvitationStatus enum names (enums:String). */
+const INVITATION_WIRE: Record<'created' | 'forbidden' | 'rate_limited', string> = {
+  created: 'INVITATION_CREATED',
+  forbidden: 'INVITATION_FORBIDDEN',
+  rate_limited: 'INVITATION_RATE_LIMITED',
+};
 
 /** proto LoginStatus enum names (enums:String) — the wire values the gateway receives. */
 const STATUS_WIRE: Record<'code_sent' | 'invalid_credentials' | 'locked', string> = {
@@ -48,6 +83,9 @@ export class AuthGrpcController {
     @Inject(LoginService) private readonly login: LoginService,
     @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(RefreshService) private readonly refresh: RefreshService,
+    @Inject(OnboardingService) private readonly onboarding: OnboardingService,
+    @Inject(InviteService) private readonly invite: InviteService,
+    @Inject(RegistrationService) private readonly registration: RegistrationService,
   ) {}
 
   @GrpcMethod('AuthService', 'Login')
@@ -108,5 +146,80 @@ export class AuthGrpcController {
   @GrpcMethod('AuthService', 'Logout')
   async logoutRpc(req: LogoutRequest) {
     return { revoked: await this.refresh.logout(req.refreshToken) };
+  }
+
+  // --- Feature 010: super-admin whitelist onboarding (roadmap 3.8) ---
+
+  @GrpcMethod('AuthService', 'RequestActivation')
+  async requestActivationRpc(req: RequestActivationRequest) {
+    // Uniform ack — reveals nothing about whitelist membership (anti-enumeration).
+    await this.onboarding.requestActivation(req.email);
+    return {};
+  }
+
+  @GrpcMethod('AuthService', 'CompleteActivation')
+  async completeActivationRpc(req: CompleteActivationRequest) {
+    const outcome = await this.onboarding.completeActivation(req.email, req.code, req.password);
+    if (outcome.status === 'ok') {
+      return {
+        accessToken: outcome.pair.accessToken,
+        refreshToken: outcome.pair.refreshToken,
+        accessExpiresAt: String(outcome.pair.accessExpiresAt),
+        refreshExpiresAt: String(outcome.pair.refreshExpiresAt),
+      };
+    }
+    if (outcome.status === 'weak_password') {
+      // INVALID_ARGUMENT → gateway maps to 422 (distinct from a generic auth failure).
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'weak_password' });
+    }
+    throw new RpcException({ code: GrpcStatus.UNAUTHENTICATED, message: 'invalid' });
+  }
+
+  // --- Feature 010: admin-center invite (roadmap 3.9) ---
+
+  @GrpcMethod('AuthService', 'CreateInvitation')
+  async createInvitationRpc(req: CreateInvitationRequest) {
+    const outcome = await this.invite.createInvitation(
+      { userId: req.inviterUserId, accountId: req.inviterAccountId, roles: req.inviterRoles ?? [] },
+      req.email,
+      req.roleKey,
+    );
+    return {
+      status: INVITATION_WIRE[outcome.status],
+      invitationId: outcome.status === 'created' ? outcome.invitationId : '',
+    };
+  }
+
+  // --- Feature 010: registration (roadmap 3.10) ---
+
+  @GrpcMethod('AuthService', 'StartRegistration')
+  async startRegistrationRpc(req: StartRegistrationRequest) {
+    const outcome = await this.registration.startRegistration(req.inviteToken, req.email);
+    if (outcome.status === 'code_sent') {
+      return { status: 'REGISTRATION_CODE_SENT', codeExpiresAt: String(outcome.codeExpiresAt) };
+    }
+    return { status: 'REGISTRATION_INVALID', codeExpiresAt: '0' };
+  }
+
+  @GrpcMethod('AuthService', 'CompleteRegistration')
+  async completeRegistrationRpc(req: CompleteRegistrationRequest) {
+    const outcome = await this.registration.completeRegistration(
+      req.inviteToken,
+      req.email,
+      req.code,
+      req.password,
+    );
+    if (outcome.status === 'ok') {
+      return {
+        accessToken: outcome.pair.accessToken,
+        refreshToken: outcome.pair.refreshToken,
+        accessExpiresAt: String(outcome.pair.accessExpiresAt),
+        refreshExpiresAt: String(outcome.pair.refreshExpiresAt),
+      };
+    }
+    if (outcome.status === 'weak_password') {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'weak_password' });
+    }
+    throw new RpcException({ code: GrpcStatus.UNAUTHENTICATED, message: 'invalid' });
   }
 }

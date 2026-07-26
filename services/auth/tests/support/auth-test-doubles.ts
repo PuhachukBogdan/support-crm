@@ -22,6 +22,15 @@ export function makeAuthConfig(overrides: Partial<AuthConfig> = {}): AuthConfig 
     LOCKOUT_WINDOW: 900,
     ARGON2_MEMORY_COST: 1024,
     ARGON2_TIME_COST: 1,
+    PASSWORD_MIN_LENGTH: 6,
+    PASSWORD_REQUIRE_UPPERCASE: true,
+    PASSWORD_REQUIRE_DIGIT: true,
+    PASSWORD_REQUIRE_SYMBOL: true,
+    INVITE_TTL: 86_400,
+    INVITE_RATE_MAX: 20,
+    INVITE_RATE_WINDOW: 3_600,
+    ONBOARD_REQUEST_RATE_MAX: 5,
+    ONBOARD_REQUEST_RATE_WINDOW: 900,
     ...overrides,
   } as AuthConfig;
 }
@@ -66,10 +75,31 @@ export interface FakeRefreshToken {
   created_at: Date;
 }
 
+export interface FakeWhitelistEntry {
+  id: string;
+  account_id: string;
+  email: string;
+  note: string | null;
+  created_at: Date;
+}
+export interface FakeInvitation {
+  id: string;
+  account_id: string;
+  email: string;
+  role_key: string;
+  invited_by: string;
+  token_hash: string;
+  expires_at: Date;
+  consumed_at: Date | null;
+  created_at: Date;
+}
+
 export interface FakeSeed {
   users?: Partial<FakeUser>[];
   credentials?: Partial<FakeCredential>[];
   userRoles?: { user_id: string; roleKey: string }[];
+  whitelist?: Partial<FakeWhitelistEntry>[];
+  invitations?: Partial<FakeInvitation>[];
 }
 
 /** A minimal, stateful stand-in for the auth PrismaService (only the methods the services use). */
@@ -92,14 +122,51 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
   }));
   const loginCodes: FakeLoginCode[] = [];
   const refreshTokens: FakeRefreshToken[] = [];
-  const userRoles = seed.userRoles ?? [];
+  const userRoles: { user_id: string; roleKey: string }[] = seed.userRoles ?? [];
+  const roles: { id: string; account_id: string; key: string }[] = [];
+  const whitelist: FakeWhitelistEntry[] = (seed.whitelist ?? []).map((w, i) => ({
+    id: w.id ?? `wl-${i + 1}`,
+    account_id: w.account_id ?? 'acct-1',
+    email: w.email ?? `sa${i + 1}@example.test`,
+    note: w.note ?? null,
+    created_at: w.created_at ?? new Date(),
+  }));
+  const invitations: FakeInvitation[] = (seed.invitations ?? []).map((v, i) => ({
+    id: v.id ?? `inv-${i + 1}`,
+    account_id: v.account_id ?? 'acct-1',
+    email: v.email ?? `invitee${i + 1}@example.test`,
+    role_key: v.role_key ?? 'manager',
+    invited_by: v.invited_by ?? 'user-1',
+    token_hash: v.token_hash ?? '',
+    expires_at: v.expires_at ?? new Date(Date.now() + 86_400_000),
+    consumed_at: v.consumed_at ?? null,
+    created_at: v.created_at ?? new Date(),
+  }));
   let lc = 0;
   let rt = 0;
+  let uc = users.length;
+  let cc = credentials.length;
+  let ic = invitations.length;
 
   const prisma = {
     user: {
       findFirst: async ({ where }: { where: { email?: string; id?: string } }) =>
         users.find((u) => (where.email ? u.email === where.email : u.id === where.id)) ?? null,
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        users.find((u) => u.id === where.id) ?? null,
+      create: async ({ data }: { data: Partial<FakeUser> }) => {
+        const row: FakeUser = {
+          id: data.id ?? `user-${++uc}`,
+          account_id: data.account_id ?? 'acct-1',
+          email: data.email ?? `user${uc}@example.test`,
+          display_name: data.display_name ?? null,
+          status: data.status ?? 'active',
+          failed_login_count: data.failed_login_count ?? 0,
+          locked_until: data.locked_until ?? null,
+        };
+        users.push(row);
+        return row;
+      },
       update: async ({ where, data }: { where: { id: string }; data: Partial<FakeUser> }) => {
         const u = users.find((x) => x.id === where.id)!;
         Object.assign(u, data);
@@ -109,6 +176,28 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
     credential: {
       findFirst: async ({ where }: { where: { user_id: string; type: string } }) =>
         credentials.find((c) => c.user_id === where.user_id && c.type === where.type) ?? null,
+      create: async ({ data }: { data: Partial<FakeCredential> }) => {
+        const row: FakeCredential = {
+          id: data.id ?? `cred-${++cc}`,
+          account_id: data.account_id ?? 'acct-1',
+          user_id: data.user_id ?? 'user-1',
+          type: data.type ?? 'password',
+          secret_hash: data.secret_hash ?? null,
+        };
+        credentials.push(row);
+        return row;
+      },
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Partial<FakeCredential>;
+      }) => {
+        const c = credentials.find((x) => x.id === where.id)!;
+        Object.assign(c, data);
+        return c;
+      },
     },
     loginCode: {
       create: async ({ data }: { data: Omit<FakeLoginCode, 'id' | 'attempts' | 'consumed_at' | 'created_at'> }) => {
@@ -124,6 +213,19 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
       },
       findUnique: async ({ where }: { where: { challenge_id: string } }) =>
         loginCodes.find((r) => r.challenge_id === where.challenge_id) ?? null,
+      findFirst: async ({
+        where,
+      }: {
+        where: { user_id: string; purpose: string; consumed_at: null };
+      }) =>
+        loginCodes
+          .filter(
+            (r) =>
+              r.user_id === where.user_id &&
+              r.purpose === where.purpose &&
+              r.consumed_at === null,
+          )
+          .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0] ?? null,
       update: async ({ where, data }: { where: { id: string }; data: Partial<FakeLoginCode> }) => {
         const r = loginCodes.find((x) => x.id === where.id)!;
         Object.assign(r, data);
@@ -181,14 +283,63 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         return { count };
       },
     },
+    role: {
+      // Resolve-or-create a Role by (account_id, key). Returns { id, account_id, key }.
+      upsert: async ({
+        where,
+        create,
+      }: {
+        where: { account_id_key: { account_id: string; key: string } };
+        create: { account_id: string; key: string };
+      }) => {
+        const { account_id, key } = where.account_id_key;
+        let r = roles.find((x) => x.account_id === account_id && x.key === key);
+        if (!r) {
+          r = { id: `role-${key}`, account_id: create.account_id, key: create.key };
+          roles.push(r);
+        }
+        return r;
+      },
+    },
     userRole: {
       findMany: async ({ where }: { where: { user_id: string } }) =>
         userRoles
           .filter((ur) => ur.user_id === where.user_id)
           .map((ur) => ({ user_id: ur.user_id, role: { key: ur.roleKey } })),
+      create: async ({ data }: { data: { user_id: string; role_id: string } }) => {
+        const r = roles.find((x) => x.id === data.role_id);
+        const roleKey = r?.key ?? data.role_id;
+        userRoles.push({ user_id: data.user_id, roleKey });
+        return { user_id: data.user_id, role_id: data.role_id };
+      },
+    },
+    superadminWhitelist: {
+      findUnique: async ({ where }: { where: { email: string } }) =>
+        whitelist.find((w) => w.email === where.email) ?? null,
+      findFirst: async ({ where }: { where: { email: string } }) =>
+        whitelist.find((w) => w.email === where.email) ?? null,
+    },
+    invitation: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        invitations.find((v) => v.id === where.id) ?? null,
+      create: async ({ data }: { data: Omit<FakeInvitation, 'id' | 'consumed_at' | 'created_at'> }) => {
+        const row: FakeInvitation = {
+          id: `inv-${++ic}`,
+          consumed_at: null,
+          created_at: new Date(),
+          ...data,
+        };
+        invitations.push(row);
+        return row;
+      },
+      update: async ({ where, data }: { where: { id: string }; data: Partial<FakeInvitation> }) => {
+        const v = invitations.find((x) => x.id === where.id)!;
+        Object.assign(v, data);
+        return v;
+      },
     },
     // Expose the backing arrays for assertions.
-    _tables: { users, credentials, loginCodes, refreshTokens },
+    _tables: { users, credentials, loginCodes, refreshTokens, roles, userRoles, whitelist, invitations },
   };
   return prisma;
 }

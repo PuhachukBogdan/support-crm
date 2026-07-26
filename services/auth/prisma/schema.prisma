@@ -21,7 +21,7 @@ model User {
   account_id   String // tenant seam (ADR 0003) — indexed below.
   email        String
   display_name String?
-  status       String   @default("active") // active | disabled
+  status       String   @default("active") // active | disabled | pending | invited (010)
   mfa_enabled  Boolean  @default(false) // enforcement (no bypass) is Phase 3 — SEC-2.
   // Lockout state (feature 009, SEC-14). failed_login_count is consecutive failures, reset
   // to 0 on any successful login; when locked_until is set and in the future, login is
@@ -94,7 +94,7 @@ model LoginCode {
   user_id      String
   challenge_id String    @unique // opaque handle returned by Login; presented to VerifyLoginCode.
   code_hash    String // argon2id hash of the N-char code.
-  purpose      String    @default("login_2fa") // registration/recovery reserved for 010.
+  purpose      String    @default("login_2fa") // login_2fa | activation | registration (010); recovery reserved.
   expires_at   DateTime // now + CODE_TTL; expired codes refused.
   attempts     Int       @default(0) // wrong entries; at CODE_MAX_ATTEMPTS the challenge is dead.
   consumed_at  DateTime? // set on success → single-use.
@@ -126,5 +126,39 @@ model RefreshToken {
   @@index([user_id])
   @@index([account_id])
   @@index([token_hash])
+  @@index([expires_at])
+}
+
+/// Server-side super-admin authorization list (feature 010, roadmap 3.8). Edited ONLY out-of-band
+/// (seed / migration / ops SQL) — there is NO app write path (FR-001). Each row binds an email to
+/// the account it onboards a super-admin into. "Spent" once an active User exists for the email.
+/// The activation lookup-by-email is a pre-account bootstrap read via the RAW client (like 009 login).
+model SuperadminWhitelist {
+  id         String   @id @default(uuid())
+  account_id String // the account this entry onboards a super-admin INTO.
+  email      String   @unique
+  note       String? // optional ops note (never a secret).
+  created_at DateTime @default(now())
+
+  @@index([account_id])
+}
+
+/// Single-use, expiring invitation (feature 010, roadmap 3.9/3.10). The token secret is delivered
+/// only in the emailed link; at rest we keep an argon2id hash. Registration email MUST match `email`.
+/// role_key is never "super_admin" (super-admins originate only from the whitelist). Lookup-by-token
+/// at registration is a pre-account bootstrap read via the RAW client.
+model Invitation {
+  id          String    @id @default(uuid()) // public half of "<id>.<secret>".
+  account_id  String // the account the invitee joins.
+  email       String // invited address; registration email must match exactly.
+  role_key    String // granted role on completion (never "super_admin").
+  invited_by  String // user_id of the issuing admin/super-admin (audit).
+  token_hash  String // argon2id hash of the invite secret.
+  expires_at  DateTime // now + INVITE_TTL; expired invites refused (SEC-5).
+  consumed_at DateTime? // set when registration completes → single-use.
+  created_at  DateTime  @default(now())
+
+  @@index([account_id])
+  @@index([email])
   @@index([expires_at])
 }

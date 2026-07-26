@@ -17,8 +17,18 @@ export interface OutboundLoginCode {
   expiresAt: Date;
 }
 
+/** An invitation link addressed to an invited email (feature 010). The token is secret. */
+export interface OutboundInvite {
+  to: string; // invited email
+  inviteToken: string; // "<invitationId>.<secret>" — secret; lives only in transit + the outbox
+  invitationId: string;
+  expiresAt: Date;
+}
+
 export interface EmailPort {
   sendLoginCode(message: OutboundLoginCode): Promise<void>;
+  /** Deliver an invitation link (feature 010). The token is secret — never logged. */
+  sendInvite(message: OutboundInvite): Promise<void>;
 }
 
 /** Nest DI token for the EmailPort (interfaces have no runtime token). */
@@ -35,6 +45,7 @@ export const EMAIL_PORT = Symbol('EMAIL_PORT');
  */
 export class OutboxEmailAdapter implements EmailPort {
   readonly outbox: OutboundLoginCode[] = [];
+  readonly inviteOutbox: OutboundInvite[] = [];
 
   constructor(private readonly devSinkPath = process.env.LOGIN_CODE_DEV_SINK) {}
 
@@ -49,6 +60,22 @@ export class OutboxEmailAdapter implements EmailPort {
           code: message.code,
           challengeId: message.challengeId,
           purpose: message.purpose,
+          expiresAt: message.expiresAt.toISOString(),
+        }) + '\n',
+      );
+    }
+  }
+
+  async sendInvite(message: OutboundInvite): Promise<void> {
+    this.inviteOutbox.push({ ...message });
+    if (this.devSinkPath) {
+      appendFileSync(
+        this.devSinkPath,
+        JSON.stringify({
+          to: message.to,
+          inviteToken: message.inviteToken,
+          invitationId: message.invitationId,
+          purpose: 'invitation',
           expiresAt: message.expiresAt.toISOString(),
         }) + '\n',
       );

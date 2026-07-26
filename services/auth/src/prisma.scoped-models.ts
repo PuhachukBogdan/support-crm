@@ -4,4 +4,15 @@
  * through their in-schema parents. Cross-checked against schema.prisma by
  * tests/data-model/account-scope-coverage.spec.ts so a new tenant table cannot silently escape.
  */
-export const SCOPED_MODELS = ['User', 'Credential', 'Role', 'LoginCode', 'RefreshToken'] as const;
+export const SCOPED_MODELS = [
+  'User',
+  'Credential',
+  'Role',
+  'LoginCode',
+  'RefreshToken',
+  // Feature 010 (account lifecycle). Enrolled for WRITE-PATH coverage; the pre-account bootstrap
+  // *reads* (whitelist-by-email, invite-by-token) intentionally use the RAW client (like the 009
+  // login lookup) — a scoped read would fail-closed with no account context.
+  'SuperadminWhitelist',
+  'Invitation',
+] as const;

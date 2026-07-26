@@ -34,6 +34,17 @@ export {
   LogoutRequest,
   LogoutResult,
   TokenPair,
+  // Feature 010 — account lifecycle (activation / invite / registration).
+  RequestActivationRequest,
+  ActivationAck,
+  CompleteActivationRequest,
+  CreateInvitationRequest,
+  InvitationStatus,
+  InvitationResult,
+  StartRegistrationRequest,
+  RegistrationStatus,
+  RegistrationChallenge,
+  CompleteRegistrationRequest,
 } from '../gen/crm/auth/v1/auth';
 
 // Chats <-> Users (players/operators, read-only)

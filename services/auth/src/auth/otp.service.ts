@@ -52,8 +52,14 @@ export class OtpService {
     return out;
   }
 
-  /** Issue a fresh challenge for a subject and email the code. Returns the opaque handle only. */
-  async issueChallenge(subject: CodeSubject): Promise<IssuedChallenge> {
+  /**
+   * Issue a fresh challenge for a subject and email the code. Returns the opaque handle only.
+   * `purpose` selects the flow: `login_2fa` (009), `activation` / `registration` (010).
+   */
+  async issueChallenge(
+    subject: CodeSubject,
+    purpose: string = 'login_2fa',
+  ): Promise<IssuedChallenge> {
     // Supersede any prior unconsumed challenge for this user — at most ONE active challenge
     // exists at a time (data-model), so an earlier challenge_id can never be verified later
     // (it now reads as `consumed`). This closes a stale-challenge reuse window (US2 / SEC-2).
@@ -77,7 +83,7 @@ export class OtpService {
         user_id: subject.id,
         challenge_id: challengeId,
         code_hash: codeHash,
-        purpose: 'login_2fa',
+        purpose,
         expires_at: expiresAt,
       },
     });
@@ -87,7 +93,7 @@ export class OtpService {
       to: subject.email,
       code,
       challengeId,
-      purpose: 'login_2fa',
+      purpose,
       expiresAt,
     });
 
@@ -114,6 +120,43 @@ export class OtpService {
     }
 
     // Consume — single-use (a replay of this code now returns `consumed`).
+    await this.prisma.loginCode.update({
+      where: { id: row.id },
+      data: { consumed_at: this.clock.now() },
+    });
+    return { ok: true, userId: row.user_id, accountId: row.account_id };
+  }
+
+  /**
+   * Verify the active code for a user + purpose (feature 010). Onboarding/registration never
+   * expose a `challenge_id` to the caller — the user is resolved from the whitelisted email or the
+   * invite, then the newest unconsumed code of that purpose is checked. Single-use, expiring,
+   * attempt-capped — same guarantees as {@link verifyCode}.
+   */
+  async verifyCodeForUser(
+    userId: string,
+    code: string,
+    purpose: string,
+  ): Promise<CodeVerifyResult> {
+    const row = await this.prisma.loginCode.findFirst({
+      where: { user_id: userId, purpose, consumed_at: null },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!row) return { ok: false, reason: 'invalid' };
+    if (row.attempts >= this.cfg.CODE_MAX_ATTEMPTS) return { ok: false, reason: 'exhausted' };
+    if (row.expires_at.getTime() <= this.clock.now().getTime()) {
+      return { ok: false, reason: 'expired' };
+    }
+
+    const match = await argon2.verify(row.code_hash, code).catch(() => false);
+    if (!match) {
+      await this.prisma.loginCode.update({
+        where: { id: row.id },
+        data: { attempts: row.attempts + 1 },
+      });
+      return { ok: false, reason: 'invalid' };
+    }
+
     await this.prisma.loginCode.update({
       where: { id: row.id },
       data: { consumed_at: this.clock.now() },

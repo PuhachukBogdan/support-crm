@@ -1,9 +1,10 @@
 # auth
 
 Authentication / identity service. **State:** a bootable **gRPC microservice** that owns `auth_db`
-and implements the **login & session engine** (Phase 3, feature 009) — two-step login, JWT issuance,
-rotating sessions, and lockout — alongside `HealthService.Check`. RBAC enforcement + the full role
-matrix are **feature 011**; invite/registration/whitelist onboarding is **feature 010**.
+and implements the **login & session engine** (feature 009) plus the **account lifecycle** (feature
+010) — two-step login, JWT issuance, rotating sessions, lockout, super-admin whitelist onboarding,
+admin invites, and invited-user registration — alongside `HealthService.Check`. RBAC enforcement +
+the full role matrix + the "view-as-role" preview are **feature 011**.
 
 ## Responsibility & boundaries
 - gRPC server (`GRPC_URL`, compose port **50051**) hosting `AuthService` + `HealthService`.
@@ -13,9 +14,18 @@ matrix are **feature 011**; invite/registration/whitelist onboarding is **featur
   credential-only path to any session — super-admin included (SEC-2). Short access JWT + rotating,
   DB-backed refresh (session = ~1d, ~7d with "remember me"); rotation revokes the prior token and
   detects reuse. Lockout after 5 consecutive failures (SEC-14) with an identity-only admin notice.
-- Data model: `User` (+ `failed_login_count`/`locked_until`), `Credential` (argon2id `secret_hash`),
-  `Role`/`UserRole`, and feature-009 `LoginCode` / `RefreshToken` — every tenant table carries an
-  indexed `account_id` seam (ADR 0003).
+- **Account lifecycle (feature 010):** super-admins appear ONLY from the out-of-band
+  `SuperadminWhitelist` — a generic `RequestActivation` (anti-enumeration) emails a code, then
+  `CompleteActivation` sets a policy-compliant password and creates the active super-admin.
+  Admin/super-admin issue **single-use, expiring invites** (`CreateInvitation`, hierarchy-enforced,
+  rate-limited); the invited user **registers** (`StartRegistration`/`CompleteRegistration`) with a
+  matching email + fresh emailed code + policy password. Set-time **password policy** (min length +
+  upper/digit/symbol, configurable) is enforced at every set-password surface. Codes reuse `LoginCode`
+  (purpose `activation`/`registration`); the target `User` is pre-created non-active (`pending`/`invited`).
+- Data model: `User` (+ `failed_login_count`/`locked_until`; statuses `active`/`disabled`/`pending`/`invited`),
+  `Credential` (argon2id `secret_hash`), `Role`/`UserRole`, feature-009 `LoginCode` / `RefreshToken`,
+  and feature-010 `SuperadminWhitelist` / `Invitation` — every tenant table carries an indexed
+  `account_id` seam (ADR 0003).
 - Isolation (feature 007): tenant data flows via `PrismaService.forAccount(accountId)` (fail-closed) —
   see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts). The **pre-login
   credential lookup runs unscoped** (it *establishes* `account_id` — research R7); minted tokens are
@@ -24,7 +34,8 @@ matrix are **feature 011**; invite/registration/whitelist onboarding is **featur
 ## Interfaces
 - Owned gRPC contract: [`libs/proto/crm/auth/v1/auth.proto`](../../libs/proto/crm/auth/v1/auth.proto)
   (`AuthService`: `Login`→`LoginChallenge`, `VerifyLoginCode`, `ValidateToken`, `Refresh`, `Logout`,
-  `ResendLoginCode`) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto).
+  `ResendLoginCode`; **feature 010:** `RequestActivation`, `CompleteActivation`, `CreateInvitation`,
+  `StartRegistration`, `CompleteRegistration`) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto).
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `auth_db`.
 - Outbound seams: `EmailPort` (dev in-memory outbox now; worker→SMTP + egress allow-list later) and
   `AdminNotificationPort` (identity-only lockout alert) — `src/auth/ports/`.
@@ -32,14 +43,15 @@ matrix are **feature 011**; invite/registration/whitelist onboarding is **featur
 ## Config (refuse-to-start, SEC-6)
 `NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`JWT_SECRET`** (secret — shared with the gateway for local
 verify). Tunables with safe defaults (overridable): `ACCESS_TTL`, `SESSION_TTL`, `REMEMBER_TTL`,
-`CODE_TTL`, `CODE_LENGTH`, `CODE_MAX_ATTEMPTS`, `LOCKOUT_THRESHOLD`, `LOCKOUT_WINDOW`, argon2 cost.
-Validated at boot by [`src/config.ts`](src/config.ts). *(No password-set validator here — set-time
-policy lands with feature 010.)*
+`CODE_TTL`, `CODE_LENGTH`, `CODE_MAX_ATTEMPTS`, `LOCKOUT_THRESHOLD`, `LOCKOUT_WINDOW`, argon2 cost;
+**feature 010:** `PASSWORD_MIN_LENGTH` + `PASSWORD_REQUIRE_UPPERCASE`/`DIGIT`/`SYMBOL`, `INVITE_TTL`,
+`INVITE_RATE_MAX`/`WINDOW`, `ONBOARD_REQUEST_RATE_MAX`/`WINDOW`. Validated at boot by
+[`src/config.ts`](src/config.ts).
 
 ## Run / test
 ```bash
 npm run test --workspace services/auth      # Track A: hermetic (mock Prisma, in-memory ports, fixed clock)
-npm run prisma:migrate:auth                 # Track B only (live auth_db); then npm run seed
+npm run prisma:deploy                        # Track B only (apply committed migrations to auth_db); then npm run seed
 ```
 Runs as part of `docker compose up` (see [`deploy/local/README.md`](../../deploy/local/README.md)).
 

@@ -3,9 +3,11 @@ import * as argon2 from 'argon2';
 import { LoginService } from './login.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
+import { LockoutService } from './lockout.service';
 import type { PrismaService } from '../prisma.service';
 import { FixedClock } from './ports/clock';
 import { OutboxEmailAdapter } from './ports/email.port';
+import { InMemoryAdminNotificationAdapter } from './ports/admin-notify.port';
 import { makeAuthConfig, makeFakePrisma, type FakePrisma } from '../../tests/support/auth-test-doubles';
 
 /**
@@ -39,7 +41,8 @@ describe('LoginService (feature 009)', () => {
     const p = prisma as unknown as PrismaService;
     tokens = new TokenService(cfg, clock, p, new JwtService({}));
     const otp = new OtpService(cfg, clock, p, email);
-    login = new LoginService(cfg, clock, p, otp, tokens);
+    const lockout = new LockoutService(cfg, clock, p, new InMemoryAdminNotificationAdapter());
+    login = new LoginService(cfg, clock, p, otp, tokens, lockout);
   }
 
   beforeEach(() => build());
@@ -101,5 +104,14 @@ describe('LoginService (feature 009)', () => {
     const outcome = await login.login('agent@example.test', PASSWORD);
     expect(outcome.status).toBe('locked');
     expect(email.outbox).toHaveLength(0);
+  });
+
+  it('locks the account after the 5th consecutive wrong password (SEC-14)', async () => {
+    let last: Awaited<ReturnType<typeof login.login>> | undefined;
+    for (let i = 0; i < 5; i++) {
+      last = await login.login('agent@example.test', 'WrongPassword9!');
+    }
+    expect(last!.status).toBe('locked');
+    expect(prisma._tables.users.find((u) => u.id === 'user-1')!.locked_until).not.toBeNull();
   });
 });

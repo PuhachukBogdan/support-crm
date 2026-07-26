@@ -11,6 +11,8 @@ import { CLOCK, SystemClock } from './ports/clock';
 import { TokenService } from './token.service';
 import { OtpService } from './otp.service';
 import { LoginService } from './login.service';
+import { RefreshService } from './refresh.service';
+import { LockoutService } from './lockout.service';
 import { AuthGrpcController } from './auth.grpc.controller';
 
 /**
@@ -39,6 +41,8 @@ import { AuthGrpcController } from './auth.grpc.controller';
     TokenService,
     OtpService,
     LoginService,
+    RefreshService,
+    LockoutService,
   ],
   exports: [PrismaService, AUTH_CONFIG, EMAIL_PORT, ADMIN_NOTIFICATION_PORT, CLOCK, JwtModule],
 })

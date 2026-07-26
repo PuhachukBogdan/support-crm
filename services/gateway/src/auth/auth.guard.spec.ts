@@ -56,6 +56,22 @@ describe('AuthGuard (feature 009)', () => {
     ).toThrow(UnauthorizedException);
   });
 
+  it('ignores an Authorization: Bearer header — only the httpOnly access cookie counts (401)', () => {
+    const token = sign({ sub: 'u', account_id: 'acct-A' });
+    expect(() =>
+      guardWith(false).canActivate(
+        httpCtx({ cookies: {}, headers: { authorization: `Bearer ${token}` } }),
+      ),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('a refresh cookie alone does not authenticate — the access cookie is required (401)', () => {
+    const token = sign({ sub: 'u', account_id: 'acct-A' });
+    expect(() =>
+      guardWith(false).canActivate(httpCtx({ cookies: { refresh: token } })),
+    ).toThrow(UnauthorizedException);
+  });
+
   it('lets a @Public() route through even with no cookie', () => {
     expect(guardWith(true).canActivate(httpCtx({ cookies: {} }))).toBe(true);
   });

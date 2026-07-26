@@ -54,6 +54,14 @@ export class OtpService {
 
   /** Issue a fresh challenge for a subject and email the code. Returns the opaque handle only. */
   async issueChallenge(subject: CodeSubject): Promise<IssuedChallenge> {
+    // Supersede any prior unconsumed challenge for this user — at most ONE active challenge
+    // exists at a time (data-model), so an earlier challenge_id can never be verified later
+    // (it now reads as `consumed`). This closes a stale-challenge reuse window (US2 / SEC-2).
+    await this.prisma.loginCode.updateMany({
+      where: { user_id: subject.id, consumed_at: null },
+      data: { consumed_at: this.clock.now() },
+    });
+
     const challengeId = randomUUID();
     const code = this.generateCode(this.cfg.CODE_LENGTH);
     const codeHash = await argon2.hash(code, {

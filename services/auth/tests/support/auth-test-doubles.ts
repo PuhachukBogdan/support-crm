@@ -129,6 +129,22 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         Object.assign(r, data);
         return r;
       },
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { user_id: string; consumed_at: null };
+        data: Partial<FakeLoginCode>;
+      }) => {
+        let count = 0;
+        for (const r of loginCodes) {
+          if (r.user_id === where.user_id && r.consumed_at === null) {
+            Object.assign(r, data);
+            count++;
+          }
+        }
+        return { count };
+      },
     },
     refreshToken: {
       create: async ({ data }: { data: Omit<FakeRefreshToken, 'id' | 'revoked_at' | 'created_at'> }) => {
@@ -140,6 +156,29 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         };
         refreshTokens.push(row);
         return row;
+      },
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        refreshTokens.find((r) => r.id === where.id) ?? null,
+      update: async ({ where, data }: { where: { id: string }; data: Partial<FakeRefreshToken> }) => {
+        const r = refreshTokens.find((x) => x.id === where.id)!;
+        Object.assign(r, data);
+        return r;
+      },
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { user_id: string; revoked_at: null };
+        data: Partial<FakeRefreshToken>;
+      }) => {
+        let count = 0;
+        for (const r of refreshTokens) {
+          if (r.user_id === where.user_id && r.revoked_at === null) {
+            Object.assign(r, data);
+            count++;
+          }
+        }
+        return { count };
       },
     },
     userRole: {

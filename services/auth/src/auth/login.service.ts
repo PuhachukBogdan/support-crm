@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { CLOCK, type Clock } from './ports/clock';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
+import { LockoutService } from './lockout.service';
 
 /** Step-1 outcome (domain vocabulary; the gRPC controller maps it to proto `LoginStatus`). */
 export type LoginOutcome =
@@ -38,6 +39,7 @@ export class LoginService {
     private readonly prisma: PrismaService,
     private readonly otp: OtpService,
     private readonly tokens: TokenService,
+    private readonly lockout: LockoutService,
   ) {}
 
   async login(email: string, password: string): Promise<LoginOutcome> {
@@ -51,7 +53,7 @@ export class LoginService {
       return { status: 'invalid_credentials' };
     }
 
-    if (user.locked_until && user.locked_until.getTime() > this.clock.now().getTime()) {
+    if (this.lockout.isLocked(user)) {
       return { status: 'locked' };
     }
 
@@ -64,7 +66,12 @@ export class LoginService {
     }
 
     const ok = await this.tokens.verifyPassword(credential.secret_hash, password);
-    if (!ok) return { status: 'invalid_credentials' };
+    if (!ok) {
+      // Consecutive failures count toward lockout (SEC-14); at the threshold the account locks
+      // and an admin is notified (identity only). The response stays generic either way.
+      const nowLocked = await this.lockout.recordFailure(user);
+      return { status: nowLocked ? 'locked' : 'invalid_credentials' };
+    }
 
     const challenge = await this.otp.issueChallenge({
       id: user.id,
@@ -85,10 +92,7 @@ export class LoginService {
     const roles = await this.loadRoles(result.userId);
 
     // Successful login clears any accumulated failure state.
-    await this.prisma.user.update({
-      where: { id: result.userId },
-      data: { failed_login_count: 0, locked_until: null },
-    });
+    await this.lockout.reset(result.userId);
 
     const access = this.tokens.signAccessToken({
       userId: result.userId,

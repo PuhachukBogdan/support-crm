@@ -1,26 +1,34 @@
 # gateway
 
-The system's **single ingress** and API edge. Serves **REST + WebSocket on one host/port** and is
-a **gRPC client** of the backend services. Routing/edge only — **no business logic** (Principle VIII);
-JWT validation + RBAC routing arrive in Phase 3.
+The system's **single ingress** and API edge. Serves **REST + WebSocket on one host/port**, is a
+**gRPC client** of the backend services, and is the **session edge** (feature 009). Routing/edge only
+— **no business logic** (Principle VIII); credential/code/token decisions belong to the auth service.
 
 ## Responsibility & boundaries
 - Exposes the only host-reachable surface (`GATEWAY_PORT`, default 3000): REST + WS.
-- `GET /health` — liveness (unauthenticated; probe target).
-- `GET /health/ready` — **readiness aggregate**: fans `HealthService.Check` out to all backend
-  services over gRPC (bounded deadline) + checks its own Redis → one DTO, 503 if any degraded.
-- `GET /ping?message=` — cross-service round-trip to `users` over gRPC (US3); 503 if downstream down.
+- **Session edge (feature 009):** `POST /auth/login`, `POST /auth/verify`, `POST /auth/refresh`
+  (public), `POST /auth/logout`, `GET /auth/me` (session-bearing). Translates the `AuthService` gRPC
+  surface into REST + **httpOnly `access`/`refresh` cookies** (Secure, SameSite=Lax; ~1d, ~7d with
+  remember-me). A **global `AuthGuard`** protects every route unless `@Public()` — it verifies the
+  access JWT **locally** (shared `JWT_SECRET`, no per-request gRPC/DB hop; Principle VII) and fails
+  closed with 401. Baseline **CSP** via helmet (SEC-12; directives named in `src/security/csp.ts`).
+- `GET /health` (+ `/health/ready`) and `GET /ping` — unauthenticated infra surfaces (`@Public()`).
 - Owns **no database**. Holds a Redis connection for its own readiness check.
 
 ## Interfaces
-- gRPC **client** of: `auth`, `users`, `chats`, `brands`, `worker` (health) + `users` (ping).
-  Contracts: [`libs/proto/crm/health/v1/health.proto`](../../libs/proto/crm/health/v1/health.proto),
-  [`libs/proto/crm/ping/v1/ping.proto`](../../libs/proto/crm/ping/v1/ping.proto).
-- Dial targets + port map: [`.env.example`](../../.env.example) / [`deploy/local/README.md`](../../deploy/local/README.md).
+- gRPC **client** of: `auth` (full `AuthService` — login/verify/refresh/logout/validate), plus
+  `auth`/`users`/`chats`/`brands`/`worker` health + `users` ping. Contracts:
+  [`auth.proto`](../../libs/proto/crm/auth/v1/auth.proto),
+  [`health.proto`](../../libs/proto/crm/health/v1/health.proto),
+  [`ping.proto`](../../libs/proto/crm/ping/v1/ping.proto).
+- Cookie/guard/CSP behavior: [`src/auth/`](src/auth) + [`src/security/csp.ts`](src/security/csp.ts);
+  contract in `specs/009-auth-core-sessions/contracts/gateway-rest.md`.
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GATEWAY_PORT`, `REDIS_URL`, `{AUTH,USERS,CHATS,BRANDS,WORKER}_GRPC_TARGET`. Validated at
-boot by [`src/config.ts`](src/config.ts) via `@crm/common` `loadConfig` — missing/placeholder ⇒ exit≠0.
+`NODE_ENV`, `GATEWAY_PORT`, `REDIS_URL`, `{AUTH,USERS,CHATS,BRANDS,WORKER}_GRPC_TARGET`, **`JWT_SECRET`**
+(shared with auth for local verify). Tunable: `ACCESS_TTL`/`SESSION_TTL`/`REMEMBER_TTL` (cookie maxAge),
+`COOKIE_SECURE` (default `true`; `false` only for local plain-HTTP dev). Validated at boot by
+[`src/config.ts`](src/config.ts) via `@crm/common` `loadConfig` — missing/placeholder ⇒ exit≠0.
 
 ## Run / test
 ```bash

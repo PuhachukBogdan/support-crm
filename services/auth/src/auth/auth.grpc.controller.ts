@@ -3,6 +3,7 @@ import { GrpcMethod, RpcException } from '@nestjs/microservices';
 import { status as GrpcStatus } from '@grpc/grpc-js';
 import { LoginService } from './login.service';
 import { TokenService } from './token.service';
+import { RefreshService } from './refresh.service';
 
 // Request/response shapes as delivered by proto-loader (keepCase:false → camelCase;
 // longs:String → int64 fields are strings on the wire; enums:String → enum NAMES on the wire).
@@ -17,6 +18,12 @@ interface VerifyLoginCodeRequest {
 }
 interface ValidateTokenRequest {
   accessToken: string;
+}
+interface RefreshRequest {
+  refreshToken: string;
+}
+interface LogoutRequest {
+  refreshToken: string;
 }
 
 /** proto LoginStatus enum names (enums:String) — the wire values the gateway receives. */
@@ -40,6 +47,7 @@ export class AuthGrpcController {
   constructor(
     private readonly login: LoginService,
     private readonly tokens: TokenService,
+    private readonly refresh: RefreshService,
   ) {}
 
   @GrpcMethod('AuthService', 'Login')
@@ -81,5 +89,24 @@ export class AuthGrpcController {
       roles: claims.roles,
       expiresAt: String(claims.expiresAt),
     };
+  }
+
+  @GrpcMethod('AuthService', 'Refresh')
+  async refreshRpc(req: RefreshRequest) {
+    const pair = await this.refresh.refresh(req.refreshToken);
+    if (!pair) {
+      throw new RpcException({ code: GrpcStatus.UNAUTHENTICATED, message: 'invalid_refresh' });
+    }
+    return {
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
+      accessExpiresAt: String(pair.accessExpiresAt),
+      refreshExpiresAt: String(pair.refreshExpiresAt),
+    };
+  }
+
+  @GrpcMethod('AuthService', 'Logout')
+  async logoutRpc(req: LogoutRequest) {
+    return { revoked: await this.refresh.logout(req.refreshToken) };
   }
 }

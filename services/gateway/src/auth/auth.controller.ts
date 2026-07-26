@@ -16,10 +16,21 @@ import { firstValueFrom, type Observable } from 'rxjs';
 import { AUTH_CLIENT } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, type GatewayConfig } from '../config';
 import { Public } from './public.decorator';
-import { clearSessionCookies, setSessionCookies } from './session-cookie';
+import {
+  REFRESH_COOKIE,
+  clearSessionCookies,
+  setSessionCookies,
+  type SessionTokens,
+} from './session-cookie';
 import type { RequestClaims } from './auth.guard';
 
 // AuthService methods as delivered by proto-loader (enum NAMES as strings, int64 as strings).
+interface TokenPairWire {
+  accessToken: string;
+  refreshToken: string;
+  accessExpiresAt: string;
+  refreshExpiresAt: string;
+}
 interface AuthGrpc {
   login(data: {
     email: string;
@@ -29,12 +40,9 @@ interface AuthGrpc {
     challengeId: string;
     code: string;
     rememberMe: boolean;
-  }): Observable<{
-    accessToken: string;
-    refreshToken: string;
-    accessExpiresAt: string;
-    refreshExpiresAt: string;
-  }>;
+  }): Observable<TokenPairWire>;
+  refresh(data: { refreshToken: string }): Observable<TokenPairWire>;
+  logout(data: { refreshToken: string }): Observable<{ revoked: boolean }>;
 }
 
 interface LoginBody {
@@ -64,6 +72,17 @@ export class AuthController implements OnModuleInit {
 
   onModuleInit(): void {
     this.auth = this.client.getService<AuthGrpc>('AuthService');
+  }
+
+  /** Cookie maxAges derived from the authoritative expiries auth returned (respects 1d/7d). */
+  private cookiesFromPair(pair: TokenPairWire): SessionTokens {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return {
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
+      accessMaxAgeSec: Math.max(1, Number(pair.accessExpiresAt) - nowSec),
+      refreshMaxAgeSec: Math.max(1, Number(pair.refreshExpiresAt) - nowSec),
+    };
   }
 
   /** Step 1 — email + password → a challenge. No cookie is set here. */
@@ -96,16 +115,7 @@ export class AuthController implements OnModuleInit {
       const pair = await firstValueFrom(
         this.auth.verifyLoginCode({ challengeId: body.challengeId, code: body.code, rememberMe }),
       );
-      setSessionCookies(
-        res,
-        {
-          accessToken: pair.accessToken,
-          refreshToken: pair.refreshToken,
-          accessMaxAgeSec: this.cfg.ACCESS_TTL,
-          refreshMaxAgeSec: rememberMe ? this.cfg.REMEMBER_TTL : this.cfg.SESSION_TTL,
-        },
-        { secure: this.cfg.COOKIE_SECURE },
-      );
+      setSessionCookies(res, this.cookiesFromPair(pair), { secure: this.cfg.COOKIE_SECURE });
       return { status: 'ok' };
     } catch {
       // Generic — wrong/expired/consumed/exhausted are indistinguishable to the caller.
@@ -113,6 +123,44 @@ export class AuthController implements OnModuleInit {
       res.status(HttpStatus.UNAUTHORIZED);
       return { status: 'invalid_code' };
     }
+  }
+
+  /** Rotate the session from the refresh cookie. Public: it must work once the access token expired. */
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const raw = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
+    if (!raw) {
+      clearSessionCookies(res, { secure: this.cfg.COOKIE_SECURE });
+      res.status(HttpStatus.UNAUTHORIZED);
+      return { status: 'unauthorized' };
+    }
+    try {
+      const pair = await firstValueFrom(this.auth.refresh({ refreshToken: raw }));
+      setSessionCookies(res, this.cookiesFromPair(pair), { secure: this.cfg.COOKIE_SECURE });
+      return { status: 'ok' };
+    } catch {
+      clearSessionCookies(res, { secure: this.cfg.COOKIE_SECURE });
+      res.status(HttpStatus.UNAUTHORIZED);
+      return { status: 'unauthorized' };
+    }
+  }
+
+  /** End the session: revoke the refresh token and clear both cookies (always). */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const raw = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
+    if (raw) {
+      try {
+        await firstValueFrom(this.auth.logout({ refreshToken: raw }));
+      } catch {
+        // Revocation best-effort; cookies are cleared regardless.
+      }
+    }
+    clearSessionCookies(res, { secure: this.cfg.COOKIE_SECURE });
+    return { status: 'logged_out' };
   }
 
   /** Convenience — the current identity from the validated session (protected by the guard). */

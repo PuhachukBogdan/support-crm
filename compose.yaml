@@ -63,6 +63,11 @@ services:
       CHATS_GRPC_TARGET: chats:50053
       BRANDS_GRPC_TARGET: brands:50054
       WORKER_GRPC_TARGET: worker:50055
+      # Session edge (feature 009): the guard verifies the access JWT LOCALLY, so the gateway
+      # needs the SAME secret the auth service signs with. `Secure` defaults ON; relax to off
+      # (COOKIE_SECURE=false in .env) only for local plain-HTTP dev.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     # Single host-exposed ingress: REST + WebSocket on one port (US4 / FR-009).
     ports:
       - '${GATEWAY_PORT:-3000}:3000'
@@ -74,6 +79,11 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       GRPC_URL: 0.0.0.0:50051
       DATABASE_URL: postgresql://auth_user:${AUTH_DB_PASSWORD:?}@postgres:5432/auth_db
+      # Signs the short-lived access JWT; the gateway verifies it with the SAME secret (009).
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Dev-only: path where the in-memory EmailPort also appends delivered login codes as JSON
+      # so local/dev flows can read them without real SMTP. Empty (default) = off. Never in prod.
+      LOGIN_CODE_DEV_SINK: ${LOGIN_CODE_DEV_SINK:-}
 
   users:
     <<: *service-base

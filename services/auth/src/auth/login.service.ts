@@ -36,10 +36,10 @@ export class LoginService {
   constructor(
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly prisma: PrismaService,
-    private readonly otp: OtpService,
-    private readonly tokens: TokenService,
-    private readonly lockout: LockoutService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(OtpService) private readonly otp: OtpService,
+    @Inject(TokenService) private readonly tokens: TokenService,
+    @Inject(LockoutService) private readonly lockout: LockoutService,
   ) {}
 
   async login(email: string, password: string): Promise<LoginOutcome> {

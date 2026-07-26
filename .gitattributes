@@ -1,0 +1,4 @@
+# Shell scripts MUST use LF. A CRLF shebang (`#!/bin/bash\r`) is unexecutable inside a Linux
+# container — it fails with "required file not found". This bit the first Track-B sync of
+# feature 009 (postgres init script tar'd from a Windows working tree with core.autocrlf=true).
+*.sh text eol=lf

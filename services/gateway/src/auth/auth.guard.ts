@@ -29,8 +29,10 @@ export interface RequestClaims {
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
-    private readonly reflector: Reflector,
-    private readonly jwt: JwtService,
+    // Explicit @Inject — the service runtime (tsx/esbuild) emits no decorator metadata,
+    // so class-typed params (incl. framework providers) must name their token.
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(JwtService) private readonly jwt: JwtService,
     @Inject(GATEWAY_CONFIG) private readonly cfg: GatewayConfig,
   ) {}
 

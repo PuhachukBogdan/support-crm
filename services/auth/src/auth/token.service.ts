@@ -45,8 +45,8 @@ export class TokenService {
   constructor(
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly prisma: PrismaService,
-    private readonly jwt: JwtService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(JwtService) private readonly jwt: JwtService,
   ) {}
 
   private argonOpts() {

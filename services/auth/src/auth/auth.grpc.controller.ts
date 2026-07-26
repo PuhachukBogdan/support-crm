@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Inject } from '@nestjs/common';
 import { GrpcMethod, RpcException } from '@nestjs/microservices';
 import { status as GrpcStatus } from '@grpc/grpc-js';
 import { LoginService } from './login.service';
@@ -45,9 +45,9 @@ const STATUS_WIRE: Record<'code_sent' | 'invalid_credentials' | 'locked', string
 @Controller()
 export class AuthGrpcController {
   constructor(
-    private readonly login: LoginService,
-    private readonly tokens: TokenService,
-    private readonly refresh: RefreshService,
+    @Inject(LoginService) private readonly login: LoginService,
+    @Inject(TokenService) private readonly tokens: TokenService,
+    @Inject(RefreshService) private readonly refresh: RefreshService,
   ) {}
 
   @GrpcMethod('AuthService', 'Login')

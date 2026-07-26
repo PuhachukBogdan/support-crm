@@ -25,7 +25,7 @@ export class LockoutService {
   constructor(
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly prisma: PrismaService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ADMIN_NOTIFICATION_PORT) private readonly notify: AdminNotificationPort,
   ) {}
 

@@ -39,7 +39,7 @@ export class OtpService {
   constructor(
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly prisma: PrismaService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EMAIL_PORT) private readonly email: EmailPort,
   ) {}
 

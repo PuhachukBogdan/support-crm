@@ -22,8 +22,8 @@ export class RefreshService {
   constructor(
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly prisma: PrismaService,
-    private readonly tokens: TokenService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TokenService) private readonly tokens: TokenService,
   ) {}
 
   async refresh(rawRefresh: string): Promise<IssuedTokenPair | null> {

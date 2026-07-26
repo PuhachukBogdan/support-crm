@@ -21,12 +21,18 @@ export {
 // Named re-exports (each generated file emits its own ts-proto helpers that would collide
 // under `export *`). Message types only — NestJS loads the .proto at runtime via proto-loader.
 
-// Auth <-> Gateway
+// Auth <-> Gateway (feature 006 + 009 two-step extension)
 export {
   ValidateTokenRequest,
   TokenClaims,
   LoginRequest,
+  LoginStatus,
+  LoginChallenge,
+  VerifyLoginCodeRequest,
+  ResendLoginCodeRequest,
   RefreshRequest,
+  LogoutRequest,
+  LogoutResult,
   TokenPair,
 } from '../gen/crm/auth/v1/auth';
 

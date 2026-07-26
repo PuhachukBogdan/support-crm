@@ -2,6 +2,7 @@ import { Controller, Get, HttpCode, HttpStatus, Inject, Res } from '@nestjs/comm
 import type { Response } from 'express';
 import type { ReadinessDto } from '@crm/common';
 import { ReadinessService } from './readiness.service';
+import { Public } from '../auth/public.decorator';
 
 /**
  * Liveness contract (see specs/002-.../contracts/gateway-health.md).
@@ -14,6 +15,7 @@ export interface HealthResponse {
   uptimeSeconds: number;
 }
 
+@Public() // liveness/readiness probes must not require a token (feature 009 global guard).
 @Controller('health')
 export class HealthController {
   // Explicit @Inject — the service runtime (tsx/esbuild) emits no decorator metadata.

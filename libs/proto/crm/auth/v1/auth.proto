@@ -1,8 +1,14 @@
-// Auth <-> Gateway boundary contract (roadmap 2.1, feature 006).
+// Auth <-> Gateway boundary contract (roadmap 2.1, feature 006; extended by feature 009).
 //
-// Schema-first (Principle VIII): this .proto is reviewed/approved BEFORE Phase 3
-// implements the bodies. Message shapes + RPC signatures only — NO business logic.
-// The gateway calls ValidateToken on every request and does routing + JWT only.
+// Schema-first (Principle VIII): this .proto is reviewed/approved BEFORE bodies are
+// implemented. Message shapes + RPC signatures only — NO business logic. The gateway
+// calls ValidateToken on every request and does routing + JWT only.
+//
+// Feature 009 (Auth core & sessions) makes the flow TWO-STEP (email+password → emailed
+// code → session) for ALL roles. This is ADDITIVE to the 006-approved contract:
+// ValidateToken / Login / Refresh / TokenClaims / TokenPair keep their field numbers;
+// only new RPCs/messages and one new field (RefreshRequest.remember_me) are added.
+// See specs/009-auth-core-sessions/contracts/auth-grpc.md.
 //
 // Generated TS message types (git-ignored): libs/proto/gen/crm/auth/v1/auth.ts
 
@@ -11,16 +17,26 @@ syntax = "proto3";
 package crm.auth.v1;
 
 // Auth service surface the gateway (and later, admin flows) consume over gRPC.
-// Bodies implemented in Phase 3 (Passport/JWT, argon2/bcrypt, lockout, refresh).
 service AuthService {
   // Gateway calls this on every protected request. Fast, read-only verification.
   rpc ValidateToken(ValidateTokenRequest) returns (TokenClaims);
 
-  // Invite-only login (product decision 2026-07-17): no public signup.
-  rpc Login(LoginRequest) returns (TokenPair);
+  // Step 1 of login (feature 009 changed semantics): verify email+password, then on
+  // success issue a one-time code via the EmailPort and return a challenge. NO token here.
+  rpc Login(LoginRequest) returns (LoginChallenge);
 
-  // Exchange a refresh token for a new pair (token expiry — SEC-4/5).
+  // Step 2 of login (feature 009): verify the emailed code for a challenge → issue the
+  // token pair. No token is ever issued before a code is consumed (SEC-2, un-bypassable).
+  rpc VerifyLoginCode(VerifyLoginCodeRequest) returns (TokenPair);
+
+  // Re-send a code for an active challenge (rate-limited). Optional this feature.
+  rpc ResendLoginCode(ResendLoginCodeRequest) returns (LoginChallenge);
+
+  // Exchange a refresh token for a new pair (token expiry — SEC-4/5); rotates the refresh.
   rpc Refresh(RefreshRequest) returns (TokenPair);
+
+  // Revoke the current refresh token (logout).
+  rpc Logout(LogoutRequest) returns (LogoutResult);
 }
 
 message ValidateTokenRequest {
@@ -43,8 +59,41 @@ message LoginRequest {
   string password = 2;
 }
 
+// Step-1 outcome. status == CODE_SENT is the ONLY success; a token never appears here.
+enum LoginStatus {
+  LOGIN_STATUS_UNSPECIFIED = 0;
+  CODE_SENT = 1; // credentials ok → code emailed; proceed to VerifyLoginCode.
+  INVALID_CREDENTIALS = 2; // generic; caller MUST NOT distinguish from unknown-email.
+  LOCKED = 3; // account temporarily locked (SEC-14).
+}
+
+message LoginChallenge {
+  LoginStatus status = 1;
+  string challenge_id = 2; // empty unless status == CODE_SENT.
+  int64 code_expires_at = 3; // unix seconds; 0 unless CODE_SENT.
+}
+
+message VerifyLoginCodeRequest {
+  string challenge_id = 1;
+  string code = 2;
+  bool remember_me = 3; // selects session lifetime (~1d vs ~7d).
+}
+
+message ResendLoginCodeRequest {
+  string challenge_id = 1;
+}
+
 message RefreshRequest {
   string refresh_token = 1;
+  bool remember_me = 2; // NEW (feature 009, additive) — rotation preserves session class.
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResult {
+  bool revoked = 1;
 }
 
 message TokenPair {

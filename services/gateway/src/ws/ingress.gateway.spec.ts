@@ -13,8 +13,10 @@ describe('gateway single ingress (REST + WS)', () => {
   let port: number;
 
   beforeAll(async () => {
-    // The gRPC client registrations + Redis service read these at module init.
+    // The gRPC client registrations + Redis service + auth edge config read these at module init.
     process.env.NODE_ENV = 'test';
+    process.env.GATEWAY_PORT = '3000';
+    process.env.JWT_SECRET = 'test-gateway-jwt-secret-0123456789';
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.AUTH_GRPC_TARGET = 'localhost:50051';
     process.env.USERS_GRPC_TARGET = 'localhost:50052';

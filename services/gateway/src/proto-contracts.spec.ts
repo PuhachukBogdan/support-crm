@@ -1,4 +1,11 @@
 import { TokenClaims } from '@crm/proto';
+import {
+  LoginStatus,
+  LoginChallenge,
+  VerifyLoginCodeRequest,
+  LogoutResult,
+  RefreshRequest,
+} from '@crm/proto';
 import { Player } from '@crm/proto';
 import { Brand } from '@crm/proto';
 
@@ -16,6 +23,25 @@ describe('feature 006 inter-service contracts', () => {
     expect(keys).toEqual(
       expect.arrayContaining(['valid', 'userId', 'accountId', 'roles', 'expiresAt']),
     );
+  });
+
+  it('auth.proto — 2-step login surface (feature 009): challenge/verify/logout messages', () => {
+    // Step-1 result: a challenge, never a token; status is the LoginStatus enum.
+    const challenge = Object.keys(LoginChallenge.create());
+    expect(challenge).toEqual(
+      expect.arrayContaining(['status', 'challengeId', 'codeExpiresAt']),
+    );
+    // Step-2 request carries the challenge handle, the code, and the remember-me class.
+    const verify = Object.keys(VerifyLoginCodeRequest.create());
+    expect(verify).toEqual(expect.arrayContaining(['challengeId', 'code', 'rememberMe']));
+    // Refresh gained the remember_me echo (additive) so rotation preserves the session class.
+    expect(Object.keys(RefreshRequest.create())).toEqual(
+      expect.arrayContaining(['refreshToken', 'rememberMe']),
+    );
+    expect(Object.keys(LogoutResult.create())).toEqual(expect.arrayContaining(['revoked']));
+    // LoginStatus models CODE_SENT (the only success) distinctly from the generic failure.
+    expect(LoginStatus.CODE_SENT).not.toBe(LoginStatus.INVALID_CREDENTIALS);
+    expect(LoginStatus.LOCKED).not.toBe(LoginStatus.CODE_SENT);
   });
 
   it('users.proto — Player is keyed by playerId, unifies brands, carries no GR8 field', () => {

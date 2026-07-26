@@ -17,9 +17,11 @@ const PROTO_ROOT = join(__dirname, '..', '..', 'proto');
 
 export const PING_PACKAGE = 'crm.ping.v1';
 export const HEALTH_PACKAGE = 'crm.health.v1';
+export const AUTH_PACKAGE = 'crm.auth.v1';
 
 export const PING_PROTO = join(PROTO_ROOT, 'crm', 'ping', 'v1', 'ping.proto');
 export const HEALTH_PROTO = join(PROTO_ROOT, 'crm', 'health', 'v1', 'health.proto');
+export const AUTH_PROTO = join(PROTO_ROOT, 'crm', 'auth', 'v1', 'auth.proto');
 
 /**
  * proto-loader options shared by every server and client. `keepCase: false` makes the

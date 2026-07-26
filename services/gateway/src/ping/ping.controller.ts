@@ -11,6 +11,7 @@ import { type ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, type Observable, timeout } from 'rxjs';
 import type { PingRequest, PingResponse } from '@crm/proto';
 import { PING_CLIENT } from '../grpc/clients.module';
+import { Public } from '../auth/public.decorator';
 
 interface PingServiceClient {
   ping(request: PingRequest): Observable<PingResponse>;
@@ -23,6 +24,7 @@ const DOWNSTREAM_TIMEOUT_MS = 2000;
  * users service over gRPC and returns the DOWNSTREAM response. If users is unavailable, it
  * returns a clear 503 (never crashes). Bounded by a deadline so it can't hang.
  */
+@Public() // infra round-trip probe (spec 003, US3) — unauthenticated by design.
 @Controller('ping')
 export class PingController implements OnModuleInit {
   private pingService!: PingServiceClient;

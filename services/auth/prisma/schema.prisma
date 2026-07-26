@@ -23,11 +23,18 @@ model User {
   display_name String?
   status       String   @default("active") // active | disabled
   mfa_enabled  Boolean  @default(false) // enforcement (no bypass) is Phase 3 — SEC-2.
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  // Lockout state (feature 009, SEC-14). failed_login_count is consecutive failures, reset
+  // to 0 on any successful login; when locked_until is set and in the future, login is
+  // refused with a generic "try later" (no enumeration).
+  failed_login_count Int       @default(0)
+  locked_until       DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
 
   credentials Credential[]
   roles       UserRole[]
+  loginCodes  LoginCode[]
+  refreshTokens RefreshToken[]
 
   @@unique([account_id, email])
   @@index([account_id])
@@ -76,4 +83,48 @@ model UserRole {
 
   @@id([user_id, role_id])
   @@index([role_id])
+}
+
+/// One-time email code for the 2-step login (feature 009). The code itself is NEVER stored
+/// or logged in clear — only its argon2id hash (Principle IV). At most one *active* challenge
+/// per user: a new Login supersedes any prior unconsumed one. account_id is the tenant seam.
+model LoginCode {
+  id           String    @id @default(uuid())
+  account_id   String
+  user_id      String
+  challenge_id String    @unique // opaque handle returned by Login; presented to VerifyLoginCode.
+  code_hash    String // argon2id hash of the N-char code.
+  purpose      String    @default("login_2fa") // registration/recovery reserved for 010.
+  expires_at   DateTime // now + CODE_TTL; expired codes refused.
+  attempts     Int       @default(0) // wrong entries; at CODE_MAX_ATTEMPTS the challenge is dead.
+  consumed_at  DateTime? // set on success → single-use.
+  created_at   DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([account_id])
+  @@index([expires_at])
+}
+
+/// Rotating session token (feature 009). The opaque refresh secret is delivered only in the
+/// httpOnly cookie; at rest we keep an argon2id hash. Rotated on each use (old one revoked);
+/// reuse of a revoked/rotated token is refused (theft detection). account_id is the tenant seam.
+model RefreshToken {
+  id           String    @id @default(uuid())
+  account_id   String
+  user_id      String
+  token_hash   String // argon2id hash of the refresh secret.
+  remember_me  Boolean   @default(false) // selects lifetime class (~1d vs ~7d).
+  expires_at   DateTime // fixed at issue (no sliding renewal).
+  rotated_from String? // prior token id in the rotation chain (reuse detection).
+  revoked_at   DateTime? // set on logout, rotation, or reuse detection.
+  created_at   DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([account_id])
+  @@index([token_hash])
+  @@index([expires_at])
 }

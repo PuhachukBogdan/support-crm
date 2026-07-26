@@ -4,4 +4,4 @@
  * through their in-schema parents. Cross-checked against schema.prisma by
  * tests/data-model/account-scope-coverage.spec.ts so a new tenant table cannot silently escape.
  */
-export const SCOPED_MODELS = ['User', 'Credential', 'Role'] as const;
+export const SCOPED_MODELS = ['User', 'Credential', 'Role', 'LoginCode', 'RefreshToken'] as const;

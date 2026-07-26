@@ -11,6 +11,7 @@
 export const SEED_ACCOUNT_ID = 'seed-account-0000-0000-000000000001';
 export const SEED_BRAND_ID = 'seed-brand-0000-0000-000000000001';
 export const SEED_BRAND_SLUG = 'bow'; // neutral placeholder slug — no real identity
+export const SEED_BRAND_ID_2 = 'seed-brand-0000-0000-000000000002'; // feature 012: player brand-union fixture
 export const SEED_PLAYER_ID = 'seed-player-001';
 
 // auth_db
@@ -30,6 +31,8 @@ export const SEED_BRAND_ACCESS_RULE_ID = 'seed-bar-0000-0000-000000000001';
 export const SEED_LABEL_ID = 'seed-label-0000-0000-000000000001';
 export const SEED_CONVERSATION_OPEN_ID = 'seed-conv-open-0000-000000000001';
 export const SEED_CONVERSATION_RESOLVED_ID = 'seed-conv-resolved-0000-00000001';
+export const SEED_CONVERSATION_PENDING_ID = 'seed-conv-pending-0000-000000001'; // feature 012: mixed-status fixture
+export const SEED_CONVERSATION_BRAND2_ID = 'seed-conv-brand2-0000-000000001'; // feature 012: same player, 2nd brand (union)
 export const SEED_MESSAGE_PLAYER_ID = 'seed-msg-0000-0000-000000000001';
 export const SEED_MESSAGE_REPLY_ID = 'seed-msg-0000-0000-000000000002';
 export const SEED_MESSAGE_NOTE_ID = 'seed-msg-0000-0000-000000000003';

@@ -55,6 +55,10 @@ model Message {
   author_id       String? // soft ref (operator/player)
   body            String
   private         Boolean  @default(false)
+  // Operator-id soft refs on a PRIVATE note (feature 012, roadmap 4.2). Capture-only: existence /
+  // cross-account validation + notification are deferred to the Users read endpoint (Phase 5) —
+  // resolution is itself account-scoped, so an out-of-account id can never resolve (research R6).
+  mentions        String[] @default([])
   created_at      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)

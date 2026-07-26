@@ -4,6 +4,8 @@ import {
   grpcClientOptions,
   AUTH_PACKAGE,
   AUTH_PROTO,
+  CHATS_PACKAGE,
+  CHATS_PROTO,
   HEALTH_PACKAGE,
   HEALTH_PROTO,
   PING_PACKAGE,
@@ -15,6 +17,9 @@ export const PING_CLIENT = 'PING_CLIENT';
 // Feature 009: the AuthService client (login/verify/refresh/logout/validate) — distinct from
 // the health-only client above. The gateway's session edge dials this.
 export const AUTH_CLIENT = 'AUTH_CLIENT';
+// Feature 012: the chats-core client (ChatsReadService + ChatsWriteService) — the inbox/
+// conversation/message/feed edge dials this.
+export const CHATS_CLIENT = 'CHATS_CLIENT';
 export const AUTH_HEALTH_CLIENT = 'AUTH_HEALTH_CLIENT';
 export const USERS_HEALTH_CLIENT = 'USERS_HEALTH_CLIENT';
 export const CHATS_HEALTH_CLIENT = 'CHATS_HEALTH_CLIENT';
@@ -46,6 +51,12 @@ const HEALTH_TARGETS: Array<[string, string]> = [
         name: AUTH_CLIENT,
         useFactory: () =>
           grpcClientOptions(AUTH_PACKAGE, AUTH_PROTO, process.env.AUTH_GRPC_TARGET as string),
+      },
+      {
+        // Chats-core surface (feature 012) — conversations/messages/player-feed reads + writes.
+        name: CHATS_CLIENT,
+        useFactory: () =>
+          grpcClientOptions(CHATS_PACKAGE, CHATS_PROTO, process.env.CHATS_GRPC_TARGET as string),
       },
       ...HEALTH_TARGETS.map(([token, envVar]) => ({
         name: token,

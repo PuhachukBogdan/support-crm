@@ -1,0 +1,165 @@
+// Chats core contract (roadmap 4.1–4.3, feature 012).
+//
+// The Chats service's own domain surface: conversations, messages, and the player feed.
+// Cross-service data (operator/player/brand identity) is NOT modelled here — those cross via
+// the users/brands contracts (Principle VIII), never a DB join. This file owns only chats_db shapes.
+//
+// Caller context rides in gRPC METADATA, not message fields (research R1) — keys
+// `x-actor-user-id`, `x-actor-account-id`, `x-actor-role`, `x-actor-permissions` (comma-joined),
+// `x-actor-brands` (comma-joined permitted brand ids, R3), `x-is-preview`. The service-tier guard
+// re-checks the permission context independently so a call skipping the gateway is refused (SC-004).
+//
+// Pagination is keyset only (Principle VII / R7): opaque page_token (empty = first page) + page_size
+// (server-capped at 100, default 50); responses return next_page_token (empty = no more). No offset,
+// no totals. Additive-only: never renumber or reuse field numbers.
+//
+// Generated TS message types (git-ignored): libs/proto/gen/crm/chats/v1/chats.ts
+
+syntax = "proto3";
+
+package crm.chats.v1;
+
+// Package-scoped enums → PREFIXED values; *_UNSPECIFIED = 0; wire value = NAME (enums:String).
+
+enum ConversationStatus {
+  CONVERSATION_STATUS_UNSPECIFIED = 0;
+  CONVERSATION_STATUS_OPEN = 1;
+  CONVERSATION_STATUS_PENDING = 2;
+  CONVERSATION_STATUS_RESOLVED = 3;
+  CONVERSATION_STATUS_SNOOZED = 4;
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  MESSAGE_KIND_PUBLIC_REPLY = 1;      // operator, not private
+  MESSAGE_KIND_PRIVATE_NOTE = 2;      // operator, private — never in CUSTOMER projection (SEC-13)
+  MESSAGE_KIND_INCOMING_CUSTOMER = 3; // player (normally channel-ingested, Phase 6)
+  MESSAGE_KIND_SYSTEM = 4;            // system
+}
+
+enum ThreadProjection {
+  THREAD_PROJECTION_UNSPECIFIED = 0;
+  THREAD_PROJECTION_STAFF = 1;        // all kinds
+  THREAD_PROJECTION_CUSTOMER = 2;     // public + incoming only; private notes excluded at query (R4)
+}
+
+// Lean list item (no thread) — ListConversations / player feed.
+message ConversationSummary {
+  string id = 1;
+  string brand_id = 2;
+  string player_id = 3;               // "" when unlinked
+  ConversationStatus status = 4;
+  string priority = 5;                // "" when unset
+  string assignee_operator_id = 6;    // "" when unassigned
+  string channel = 7;
+  string last_activity_at = 8;        // ISO-8601 (updated_at)
+  string created_at = 9;
+}
+
+// Full conversation detail (metadata; thread via GetThread).
+message Conversation {
+  string id = 1;
+  string brand_id = 2;
+  string player_id = 3;
+  ConversationStatus status = 4;
+  string priority = 5;
+  string assignee_operator_id = 6;
+  string channel = 7;
+  string reference = 8;
+  // Reserved classification (ADR 0027) — surfaced read-only, populated by later features:
+  string category = 9;
+  string sub_category = 10;
+  string classified_by = 11;
+  string created_at = 12;
+  string updated_at = 13;
+}
+
+message Message {
+  string id = 1;
+  string conversation_id = 2;
+  MessageKind kind = 3;               // derived (R5)
+  string author_id = 4;               // "" for system
+  string body = 5;
+  repeated string mentions = 6;       // operator-id soft refs; only on PRIVATE_NOTE; resolution deferred (R6)
+  string created_at = 7;
+}
+
+service ChatsReadService {
+  rpc ListConversations(ListConversationsRequest) returns (ConversationPage);
+  rpc GetConversation(GetConversationRequest) returns (Conversation);
+  rpc GetThread(GetThreadRequest) returns (MessagePage);
+  rpc GetPlayerFeed(GetPlayerFeedRequest) returns (ConversationPage); // brand-union within account (US3)
+}
+
+message ListConversationsRequest {
+  // All filters optional; any combination (FR-002). *_UNSPECIFIED / "" = no filter on that dimension.
+  ConversationStatus status = 1;
+  string priority = 2;
+  string assignee_operator_id = 3;
+  string player_id = 4;
+  string brand_id = 5;                // optional narrowing; result is always intersected with permitted brands (R3)
+  string page_token = 6;
+  int32 page_size = 7;                // server-capped (100 max, 50 default)
+}
+
+message ConversationPage {
+  repeated ConversationSummary conversations = 1;
+  string next_page_token = 2;
+}
+
+message GetConversationRequest {
+  string id = 1;
+}
+
+message GetThreadRequest {
+  string conversation_id = 1;
+  ThreadProjection projection = 2;    // STAFF | CUSTOMER (R4)
+  string page_token = 3;
+  int32 page_size = 4;
+}
+
+message MessagePage {
+  repeated Message messages = 1;
+  string next_page_token = 2;
+}
+
+message GetPlayerFeedRequest {
+  string player_id = 1;
+  ThreadProjection projection = 2;
+  string page_token = 3;
+  int32 page_size = 4;
+}
+
+service ChatsWriteService {
+  rpc PostMessage(PostMessageRequest) returns (Message);
+  rpc SetConversationStatus(SetConversationStatusRequest) returns (Conversation);
+  rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+  // Internal/seed + future channel ingress (Phase 6) path for inbound customer messages:
+  rpc RecordIncomingMessage(RecordIncomingMessageRequest) returns (Message);
+}
+
+message PostMessageRequest {
+  string conversation_id = 1;
+  MessageKind kind = 2;               // PUBLIC_REPLY | PRIVATE_NOTE only (validated)
+  string body = 3;
+  repeated string mentions = 4;       // honored only for PRIVATE_NOTE (R6)
+}
+
+message SetConversationStatusRequest {
+  string conversation_id = 1;
+  ConversationStatus status = 2;      // must be a valid non-UNSPECIFIED value
+}
+
+message CreateConversationRequest {
+  string brand_id = 1;
+  string player_id = 2;               // optional
+  string priority = 3;
+  string channel = 4;
+  string assignee_operator_id = 5;
+}
+
+message RecordIncomingMessageRequest {
+  string conversation_id = 1;
+  string body = 2;
+  string author_id = 3;               // player id
+}

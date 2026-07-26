@@ -1,5 +1,5 @@
 import { buildSeed } from './seed.build';
-import { SEED_ACCOUNT_ID, SEED_BRAND_ID, SEED_PLAYER_ID } from '@crm/common';
+import { SEED_ACCOUNT_ID, SEED_BRAND_ID, SEED_BRAND_ID_2, SEED_PLAYER_ID } from '@crm/common';
 
 /**
  * US1 (feature 008): the chats seed builder yields a label + two conversations (reserved classification
@@ -14,11 +14,13 @@ describe('chats seed builder', () => {
     }
   });
 
-  it('conversations reference the shared brand + player and exercise the reserved classification', () => {
+  it('conversations share the player and span two brands (player brand-union, feature 012 US3)', () => {
     for (const c of seed.conversations) {
-      expect(c.brand_id).toBe(SEED_BRAND_ID);
       expect(c.player_id).toBe(SEED_PLAYER_ID);
     }
+    const brands = new Set(seed.conversations.map((c) => c.brand_id));
+    expect(brands.has(SEED_BRAND_ID)).toBe(true);
+    expect(brands.has(SEED_BRAND_ID_2)).toBe(true); // same player_id spanning brands
     // at least one conversation is classified (reserved fields, ADR 0027)
     expect(seed.conversations.some((c) => c.category === 'billing' && c.classified_by === 'seed')).toBe(true);
   });

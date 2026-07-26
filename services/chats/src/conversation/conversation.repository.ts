@@ -32,6 +32,12 @@ export interface ListFilters {
   priority?: string;
   assigneeOperatorId?: string;
   playerId?: string;
+  /**
+   * Feature 014 (R10): restrict to these conversation ids — the `sla_outcome` filter, resolved by the
+   * SLA repository into an id set. `[]` means "no conversation has that outcome", which must yield an
+   * EMPTY page rather than an unfiltered one.
+   */
+  idIn?: string[];
   /** Brand restriction: undefined = none; [] = deliberately empty (permitted set excludes the ask). */
   brandIn?: string[];
   limit: number;
@@ -69,6 +75,7 @@ export class ConversationRepository {
     if (f.assigneeOperatorId) where.assignee_operator_id = f.assigneeOperatorId;
     if (f.playerId) where.player_id = f.playerId;
     if (f.brandIn) where.brand_id = { in: f.brandIn };
+    if (f.idIn) where.id = { in: f.idIn };
 
     if (f.cursor) {
       const at = new Date(f.cursor.createdAt);

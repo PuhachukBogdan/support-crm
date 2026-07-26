@@ -133,15 +133,106 @@ model RoundRobinState {
   @@index([account_id])
 }
 
-/// A rule definition (triggers: conditions -> actions; engine built later — entity reserved).
+/// A rule definition: trigger + conditions -> ordered actions (feature 014, roadmap 4.6).
+/// Reserved by feature 006; given meaning here — the same path Macro took in 013.
+///
+/// `author_user_id` is the authority the rule acts with: its author's CURRENT effective permissions,
+/// re-resolved on EVERY evaluation (FR-023 / research R5), so revoking a permission through Access
+/// Management also stops that person's rules — no separate disable step, no frozen privilege.
+/// `author_brands` captures the author's brand scope at authoring time; brands are not populated
+/// anywhere in the product yet (Brands service = Phase 5), at which point they join the same live
+/// re-resolution path as permissions.
 model Automation {
-  id         String   @id @default(uuid())
-  account_id String
-  name       String
-  active     Boolean  @default(true)
-  definition Json
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id             String   @id @default(uuid())
+  account_id     String
+  name           String
+  active         Boolean  @default(true)
+  definition     Json
+  author_user_id String // soft ref to an auth user — never joined (Principle VIII)
+  author_brands  String[] @default([])
+  position       Int      @default(0) // evaluation order; ties broken by created_at
+  revision       Int      @default(1) // bumped on every definition change, named by each run record
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
+  @@unique([account_id, name])
   @@index([account_id])
+  @@index([account_id, active]) // the engine's hot lookup
+}
+
+/// One diagnostic entry per rule evaluation (feature 014, FR-007).
+///
+/// PII-FREE by construction: ids, an outcome and a short reason. A keyword rule records THAT it
+/// matched, never what it matched on (FR-020 / SEC-26). This is NOT the 0019 audit store — the
+/// durable audit log of sensitive actions is roadmap 4.8.
+///
+/// The unique on (automation_id, conversation_id, event_key) IS the at-most-once guarantee (FR-008 /
+/// research R6): a violation means "this rule already handled this event" and is a successful no-op,
+/// not an error. An application-level "have I done this?" check would be a race; a unique index is not.
+///
+/// Growth is unbounded until a retention policy exists (ADR 0015 defers retention; a trim job belongs
+/// with the worker catalogue, 7.3). Stated deliberately rather than discovered in production.
+model AutomationRun {
+  id                  String   @id @default(uuid())
+  account_id          String
+  automation_id       String // soft ref within chats_db; a deleted rule keeps its history
+  automation_revision Int
+  conversation_id     String
+  trigger             String
+  event_key           String // deterministic per event occurrence (research R6)
+  outcome             String // applied | not_matched | refused
+  reason              String? // short, PII-free
+  created_at          DateTime @default(now())
+
+  @@unique([automation_id, conversation_id, event_key])
+  @@index([account_id, automation_id, created_at])
+  @@index([account_id, conversation_id])
+}
+
+/// The first-reply target (feature 014, roadmap 4.7, FR-010).
+///
+/// scope_* use the "*" SENTINEL rather than NULL: Postgres unique indexes treat NULLs as DISTINCT,
+/// so NULL scoping would permit two account-level defaults and make "the target" ambiguous — the kind
+/// of defect that surfaces as an unreproducible wrong deadline (research R7). Precedence, most
+/// specific first: (brand, priority) -> (brand, *) -> (*, priority) -> (*, *).
+model FirstReplySlaPolicy {
+  id             String   @id @default(uuid())
+  account_id     String
+  target_minutes Int
+  scope_priority String   @default("*")
+  scope_brand_id String   @default("*")
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@unique([account_id, scope_priority, scope_brand_id])
+  @@index([account_id])
+}
+
+/// Per-conversation first-reply measurement (feature 014, FR-011..FR-016). One row per conversation.
+///
+/// `target_minutes` + `deadline_at` are FROZEN at clock start: a later policy edit can neither
+/// retro-breach nor un-breach a decided outcome (FR-016), AND the sweep predicate stays a plain
+/// indexed comparison instead of a per-row policy resolution (research R8).
+///
+/// A PRIVATE note is inert here: it never stops the clock, never sets first_reply_at, and never
+/// reaches a breach list (FR-012 — the SEC-13 invariant re-asserted on a new path).
+model ConversationSlaState {
+  id                  String    @id @default(uuid())
+  account_id          String
+  conversation_id     String
+  started_at          DateTime // the first inbound player message
+  target_minutes      Int
+  deadline_at         DateTime
+  outcome             String    @default("running") // running | met | breached
+  first_reply_at      DateTime? // first PUBLIC staff reply
+  first_reply_seconds Int?
+  breach_announced_at DateTime? // stamped once — makes the breach fire exactly once, ever
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  @@unique([conversation_id])
+  @@index([account_id, outcome]) // the sla_outcome inbox filter
+  // THE SWEEP PREDICATE — deliberately account-agnostic because the sweep is (research R2/R3).
+  // A read index only; every write that follows the sweep goes through forAccount().
+  @@index([outcome, deadline_at])
 }

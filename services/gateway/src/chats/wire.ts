@@ -55,7 +55,12 @@ const MACRO_ACTION_TYPE: Record<string, string> = {
   set_status: 'MACRO_ACTION_TYPE_SET_STATUS',
   add_label: 'MACRO_ACTION_TYPE_ADD_LABEL',
   assign: 'MACRO_ACTION_TYPE_ASSIGN',
+  // Feature 014: the vocabulary is shared by macros and automation rules.
+  set_priority: 'MACRO_ACTION_TYPE_SET_PRIORITY',
 };
+
+/** The closed priority set an action may SET (the list filter stays free-form — see chats wire). */
+const PRIORITIES = ['low', 'normal', 'high'] as const;
 
 /**
  * Macro action type (feature 013). **Always required** — there is no sensible default for "what
@@ -80,9 +85,98 @@ export function toMacroActionsWire(
     if (!raw) throw new BadRequestException('invalid action value: must not be empty');
     // A SET_STATUS action's value IS a conversation status — run it through the same allow-list the
     // status endpoints use (and store the wire name), so a macro can never hold an unknown status.
+    if (type === 'MACRO_ACTION_TYPE_SET_PRIORITY' && !(PRIORITIES as readonly string[]).includes(raw)) {
+      reject('action priority', raw, PRIORITIES as unknown as string[]);
+    }
     const value = type === 'MACRO_ACTION_TYPE_SET_STATUS' ? toStatusWireRequired(raw) : raw;
     return { type, value };
   });
+}
+
+// ── Feature 014: automation rules + the SLA filter ────────────────────────────
+// Same rule as everything above, and it matters more here: a rule is stored and then runs by itself
+// later. A silently-defaulted trigger or condition would mean a rule that does something its author
+// never asked for, on every future event, with nobody watching.
+
+const AUTOMATION_TRIGGER: Record<string, string> = {
+  conversation_created: 'AUTOMATION_TRIGGER_CONVERSATION_CREATED',
+  message_received: 'AUTOMATION_TRIGGER_MESSAGE_RECEIVED',
+  status_changed: 'AUTOMATION_TRIGGER_STATUS_CHANGED',
+  first_reply_breached: 'AUTOMATION_TRIGGER_FIRST_REPLY_BREACHED',
+};
+
+/** Always required — there is no sensible default for "what does this rule react to". */
+export function toTriggerWire(trigger?: string): string {
+  if (!trigger) return reject('trigger', '', Object.keys(AUTOMATION_TRIGGER));
+  return AUTOMATION_TRIGGER[trigger] ?? reject('trigger', trigger, Object.keys(AUTOMATION_TRIGGER));
+}
+
+const CONDITION_FIELD: Record<string, string> = {
+  status: 'CONDITION_FIELD_STATUS',
+  priority: 'CONDITION_FIELD_PRIORITY',
+  brand: 'CONDITION_FIELD_BRAND',
+  channel: 'CONDITION_FIELD_CHANNEL',
+  assignee: 'CONDITION_FIELD_ASSIGNEE',
+  label: 'CONDITION_FIELD_LABEL',
+  message_text: 'CONDITION_FIELD_MESSAGE_TEXT',
+};
+
+const CONDITION_OP: Record<string, string> = {
+  eq: 'CONDITION_OP_EQ',
+  ne: 'CONDITION_OP_NE',
+  present: 'CONDITION_OP_PRESENT',
+  absent: 'CONDITION_OP_ABSENT',
+  contains: 'CONDITION_OP_CONTAINS',
+};
+
+export function toConditionFieldWire(field?: string): string {
+  if (!field) return reject('condition field', '', Object.keys(CONDITION_FIELD));
+  return CONDITION_FIELD[field] ?? reject('condition field', field, Object.keys(CONDITION_FIELD));
+}
+
+export function toConditionOpWire(op?: string): string {
+  if (!op) return reject('condition operator', '', Object.keys(CONDITION_OP));
+  return CONDITION_OP[op] ?? reject('condition operator', op, Object.keys(CONDITION_OP));
+}
+
+export interface AutomationDefinitionInput {
+  trigger?: string;
+  conditions?: { field?: string; op?: string; value?: string }[];
+  actions?: { type?: string; value?: string }[];
+}
+
+/**
+ * A whole rule definition, validated at the edge before any RPC. Conditions MAY be empty (that is how
+ * "every occurrence of the trigger" is expressed); actions may NOT (a rule that does nothing is a
+ * configuration error, not a harmless no-op). Any invalid part rejects the WHOLE definition.
+ */
+export function toAutomationDefinitionWire(input?: AutomationDefinitionInput) {
+  if (!input || typeof input !== 'object') {
+    throw new BadRequestException('invalid definition: expected {trigger, conditions, actions}');
+  }
+  const trigger = toTriggerWire(input.trigger);
+  const rawConditions = input.conditions ?? [];
+  if (!Array.isArray(rawConditions)) {
+    throw new BadRequestException('invalid conditions: expected an array of {field, op, value}');
+  }
+  const conditions = rawConditions.map((c) => ({
+    field: toConditionFieldWire(c?.field),
+    op: toConditionOpWire(c?.op),
+    value: (c?.value ?? '').trim(),
+  }));
+  return { trigger, conditions, actions: toMacroActionsWire(input.actions) };
+}
+
+const SLA_OUTCOME: Record<string, string> = {
+  running: 'SLA_OUTCOME_RUNNING',
+  met: 'SLA_OUTCOME_MET',
+  breached: 'SLA_OUTCOME_BREACHED',
+};
+
+/** Absent/empty → UNSPECIFIED (no filter). Unknown → 400, never a widened query. */
+export function toSlaOutcomeWire(outcome?: string): string {
+  if (!outcome) return 'SLA_OUTCOME_UNSPECIFIED';
+  return SLA_OUTCOME[outcome] ?? reject('slaOutcome', outcome, Object.keys(SLA_OUTCOME));
 }
 
 const THREAD_PROJECTION: Record<string, string> = {

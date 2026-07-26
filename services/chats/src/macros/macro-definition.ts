@@ -1,4 +1,4 @@
-import { isValidStatusWire } from '../shared/wire';
+import { isValidPriority, isValidStatusWire } from '../shared/wire';
 
 /**
  * Macro definition shape + validation (feature 013, US2 — research R4).
@@ -19,6 +19,9 @@ export const MACRO_ACTION_TYPES = [
   'MACRO_ACTION_TYPE_SET_STATUS',
   'MACRO_ACTION_TYPE_ADD_LABEL',
   'MACRO_ACTION_TYPE_ASSIGN',
+  // Feature 014 (roadmap 4.6/4.7): the vocabulary is now SHARED by macros and automation rules.
+  // Appended, never reordered — a stored definition must keep its meaning.
+  'MACRO_ACTION_TYPE_SET_PRIORITY',
 ] as const;
 
 export type MacroActionType = (typeof MACRO_ACTION_TYPES)[number];
@@ -40,6 +43,9 @@ export const ACTION_PERMISSION: Readonly<Record<MacroActionType, string | null>>
   MACRO_ACTION_TYPE_SET_STATUS: 'crm.conversation.reply',
   MACRO_ACTION_TYPE_ADD_LABEL: 'crm.labels.manage',
   MACRO_ACTION_TYPE_ASSIGN: 'crm.conversation.assign',
+  // Feature 014: changing priority is the same class of act as changing status, so it reuses the
+  // same key rather than fragmenting the catalogue with `crm.conversation.priority` (research R9).
+  MACRO_ACTION_TYPE_SET_PRIORITY: 'crm.conversation.reply',
 };
 
 const isActionType = (t: unknown): t is MacroActionType =>
@@ -62,6 +68,11 @@ export function parseActions(input: unknown): MacroAction[] {
     if (!value) throw new MacroDefinitionError('macro action value must not be empty');
     if (a.type === 'MACRO_ACTION_TYPE_SET_STATUS' && !isValidStatusWire(value)) {
       throw new MacroDefinitionError('macro SET_STATUS value is not a valid status');
+    }
+    // Feature 014: a stored SET_PRIORITY must name a priority the product understands. Refusing
+    // here is what keeps a rule from parking an unrecognised priority on a conversation.
+    if (a.type === 'MACRO_ACTION_TYPE_SET_PRIORITY' && !isValidPriority(value)) {
+      throw new MacroDefinitionError('SET_PRIORITY value is not a valid priority');
     }
     return { type: a.type, value };
   });

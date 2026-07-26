@@ -24,6 +24,12 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   { category: 'crm', key: 'crm.conversation.assign', label: 'Assign conversations' },
   { category: 'crm', key: 'crm.labels.manage', label: 'Manage & apply labels' },
   { category: 'crm', key: 'crm.templates.manage', label: 'Author macros & canned responses' },
+  // CRM — automations + first-reply SLA (feature 014, roadmap 4.6/4.7). Two keys, not five
+  // (research R9): authoring rules is one supervisory privilege, setting the reply target another.
+  // The new SET_PRIORITY action reuses `crm.conversation.reply`, following 013's precedent for
+  // SET_STATUS — a rule can never perform an action its AUTHOR could not perform directly (FR-023).
+  { category: 'crm', key: 'crm.automations.manage', label: 'Author automation rules' },
+  { category: 'crm', key: 'crm.sla.manage', label: 'Manage the first-reply SLA target' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -106,6 +112,11 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'crm.labels.manage',
     // Authoring macros / canned responses is a lead-level configuration task (R2).
     'crm.templates.manage',
+    // Feature 014 — the same lead-level configuration class: encoding routine reactions as rules
+    // and setting the reply target. Deliberately NOT given to any operational agent role, so a new
+    // key stays OFF for every existing agent until granted (the 011 R-2 corollary).
+    'crm.automations.manage',
+    'crm.sla.manage',
   ],
   // admin gets everything EXCEPT the two super-admin exclusives: role management (FR-018) and
   // the view-as preview (US5 — God/super-admin only).

@@ -7,6 +7,8 @@ import { AssignmentController } from './assignment.controller';
 import { LabelsController } from './labels.controller';
 import { MacrosController } from './macros.controller';
 import { CannedController } from './canned.controller';
+import { AutomationsController } from './automations.controller';
+import { SlaController } from './sla.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -25,6 +27,9 @@ import { CannedController } from './canned.controller';
     LabelsController,
     MacrosController,
     CannedController,
+    // Feature 014 (roadmap 4.6/4.7).
+    AutomationsController,
+    SlaController,
   ],
 })
 export class ChatsModule {}

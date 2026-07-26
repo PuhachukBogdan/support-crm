@@ -72,6 +72,9 @@ message Conversation {
   string classified_by = 11;
   string created_at = 12;
   string updated_at = 13;
+  // Feature 014 (roadmap 4.7) — additive. The first-reply measurement rides on the detail so the UI
+  // needs no second call. Absent when no clock ever started (no SLA policy applied).
+  FirstReplySlaState first_reply_sla = 14;
 }
 
 message Message {
@@ -94,6 +97,10 @@ service ChatsReadService {
   rpc ListLabels(Empty) returns (LabelList);
   rpc ListMacros(Empty) returns (MacroList);
   rpc ListCannedResponses(Empty) returns (CannedResponseList);
+  // ── Feature 014 (automations + first-reply SLA, roadmap 4.6–4.7) — additive ──
+  rpc ListAutomations(ListAutomationsRequest) returns (AutomationList);
+  rpc ListAutomationRuns(ListAutomationRunsRequest) returns (AutomationRunList);
+  rpc GetFirstReplySlaPolicies(Empty) returns (FirstReplySlaPolicyList);
 }
 
 message ListConversationsRequest {
@@ -105,6 +112,10 @@ message ListConversationsRequest {
   string brand_id = 5;                // optional narrowing; result is always intersected with permitted brands (R3)
   string page_token = 6;
   int32 page_size = 7;                // server-capped (100 max, 50 default)
+  // Feature 014 (R10): the breached list is a FILTER on the inbox, not a parallel endpoint — it
+  // inherits keyset paging, the page cap, brand intersection and crm.inbox.view. Unknown value ⇒
+  // 400 at the REST edge (never a widened query).
+  SlaOutcome sla_outcome = 8;
 }
 
 message ConversationPage {
@@ -150,6 +161,11 @@ service ChatsWriteService {
   rpc DefineMacro(DefineMacroRequest) returns (Macro);
   rpc ApplyMacro(ApplyMacroRequest) returns (Conversation);
   rpc CreateCannedResponse(CreateCannedResponseRequest) returns (CannedResponse);
+  // ── Feature 014 (automations + first-reply SLA, roadmap 4.6–4.7) — additive ──
+  rpc CreateAutomation(CreateAutomationRequest) returns (Automation);
+  rpc UpdateAutomation(UpdateAutomationRequest) returns (Automation);
+  rpc DeleteAutomation(AutomationIdRequest) returns (Ack);
+  rpc SetFirstReplySlaPolicy(SetFirstReplySlaPolicyRequest) returns (FirstReplySlaPolicy);
 }
 
 message PostMessageRequest {
@@ -191,6 +207,8 @@ enum MacroActionType {
   MACRO_ACTION_TYPE_SET_STATUS = 1;   // value = ConversationStatus name
   MACRO_ACTION_TYPE_ADD_LABEL = 2;    // value = label_id
   MACRO_ACTION_TYPE_ASSIGN = 3;       // value = operator_id
+  // Feature 014: the shared action vocabulary is used by macros AND automation rules.
+  MACRO_ACTION_TYPE_SET_PRIORITY = 4; // value = priority name (research R9)
 }
 
 message MacroAction {
@@ -271,4 +289,181 @@ message ApplyMacroRequest {
 message CreateCannedResponseRequest {
   string name = 1;
   string body = 2;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Feature 014 — Automations engine (roadmap 4.6) + first-reply SLA (roadmap 4.7).
+// ADDITIVE ONLY: nothing above is renumbered; MacroActionType gained a value at the
+// end (SET_PRIORITY = 4) and ListConversationsRequest a field (sla_outcome = 8).
+// Caller context still rides in metadata (x-actor-*), never in a body.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// A rule's trigger. Closed, additive catalogue — an UNSPECIFIED/unknown trigger is refused at
+// authoring AND at run time (a definition stored before a catalogue change must never resolve to a
+// different meaning than its author intended).
+enum AutomationTrigger {
+  AUTOMATION_TRIGGER_UNSPECIFIED = 0;          // refused — a rule must name its trigger
+  AUTOMATION_TRIGGER_CONVERSATION_CREATED = 1;
+  AUTOMATION_TRIGGER_MESSAGE_RECEIVED = 2;     // inbound PLAYER message only (never staff replies)
+  AUTOMATION_TRIGGER_STATUS_CHANGED = 3;
+  AUTOMATION_TRIGGER_FIRST_REPLY_BREACHED = 4; // emitted by the 4.7 half (US3 join)
+}
+
+enum ConditionField {
+  CONDITION_FIELD_UNSPECIFIED = 0;  // refused
+  CONDITION_FIELD_STATUS = 1;
+  CONDITION_FIELD_PRIORITY = 2;
+  CONDITION_FIELD_BRAND = 3;
+  CONDITION_FIELD_CHANNEL = 4;
+  CONDITION_FIELD_ASSIGNEE = 5;     // PRESENT / ABSENT
+  CONDITION_FIELD_LABEL = 6;        // PRESENT / ABSENT, value = label_id
+  CONDITION_FIELD_MESSAGE_TEXT = 7; // CONTAINS, only under MESSAGE_RECEIVED
+}
+
+enum ConditionOp {
+  CONDITION_OP_UNSPECIFIED = 0;     // refused
+  CONDITION_OP_EQ = 1;
+  CONDITION_OP_NE = 2;
+  CONDITION_OP_PRESENT = 3;
+  CONDITION_OP_ABSENT = 4;
+  CONDITION_OP_CONTAINS = 5;        // message text only
+}
+
+// First-reply measurement outcome. Also the ListConversations filter (R10).
+enum SlaOutcome {
+  SLA_OUTCOME_UNSPECIFIED = 0;      // no filter
+  SLA_OUTCOME_RUNNING = 1;
+  SLA_OUTCOME_MET = 2;
+  SLA_OUTCOME_BREACHED = 3;
+}
+
+message AutomationCondition {
+  ConditionField field = 1;
+  ConditionOp op = 2;
+  string value = 3;
+}
+
+message AutomationDefinition {
+  AutomationTrigger trigger = 1;
+  repeated AutomationCondition conditions = 2; // may be empty (= every occurrence of the trigger)
+  repeated MacroAction actions = 3;            // MUST be non-empty; shares the macro vocabulary
+}
+
+message Automation {
+  string id = 1;
+  string name = 2;
+  bool active = 3;
+  int32 position = 4;
+  int32 revision = 5;
+  // The authority the rule acts with: its author's CURRENT permissions, re-resolved on every
+  // evaluation (FR-023 / research R5). A rule is never more powerful than its author.
+  string author_user_id = 6;
+  AutomationDefinition definition = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+message AutomationList {
+  repeated Automation automations = 1;
+  string next_page_token = 2;
+}
+
+message ListAutomationsRequest {
+  string page_token = 1;
+  int32 page_size = 2;                         // server-capped
+}
+
+message CreateAutomationRequest {
+  string name = 1;
+  AutomationDefinition definition = 2;
+  int32 position = 3;
+  bool active = 4;
+}
+
+// Partial update. Explicit has_* presence flags: proto3 scalar presence is ambiguous through
+// proto-loader, so "" / 0 / false must not silently mean "clear this field".
+message UpdateAutomationRequest {
+  string id = 1;
+  string name = 2;
+  bool has_name = 3;
+  AutomationDefinition definition = 4;
+  bool has_definition = 5;                     // when true the definition is revalidated + revision bumped
+  int32 position = 6;
+  bool has_position = 7;
+  bool active = 8;
+  bool has_active = 9;
+}
+
+message AutomationIdRequest { string id = 1; }
+
+// One diagnostic entry per evaluation (FR-007). PII-FREE by construction: ids, an outcome and a
+// short reason — never message text, never a player id. NOT the 0019 audit store (that is 4.8).
+message AutomationRun {
+  string id = 1;
+  string automation_id = 2;
+  int32 automation_revision = 3;
+  string conversation_id = 4;
+  AutomationTrigger trigger = 5;
+  string outcome = 6;                          // applied | not_matched | refused
+  string reason = 7;                           // e.g. "author lacks crm.conversation.assign"
+  string created_at = 8;
+}
+message AutomationRunList {
+  repeated AutomationRun runs = 1;
+  string next_page_token = 2;
+}
+
+message ListAutomationRunsRequest {
+  string automation_id = 1;                    // "" = every rule in the account
+  string conversation_id = 2;                  // "" = every conversation
+  string page_token = 3;
+  int32 page_size = 4;
+}
+
+// The first-reply target. scope_* use the "*" sentinel rather than absence: Postgres unique
+// indexes treat NULLs as DISTINCT, so NULL scoping would allow two account-level defaults and make
+// "the target" ambiguous (research R7).
+message FirstReplySlaPolicy {
+  string id = 1;
+  int32 target_minutes = 2;
+  string scope_priority = 3;                   // "*" = any priority
+  string scope_brand_id = 4;                   // "*" = any brand
+}
+message FirstReplySlaPolicyList { repeated FirstReplySlaPolicy policies = 1; }
+
+message SetFirstReplySlaPolicyRequest {
+  int32 target_minutes = 1;                    // > 0
+  string scope_priority = 2;                   // "" or "*" = any
+  string scope_brand_id = 3;
+}
+
+// Per-conversation measurement, surfaced on the conversation detail.
+message FirstReplySlaState {
+  SlaOutcome outcome = 1;
+  string started_at = 2;
+  string deadline_at = 3;
+  int32 target_minutes = 4;                    // FROZEN at clock start (FR-016)
+  string first_reply_at = 5;                   // "" while running
+  int32 first_reply_seconds = 6;               // 0 while running
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// Maintenance surface — deliberately a SEPARATE service (research R3).
+//
+// Not a user-facing surface: the gateway exposes NO route to it, and the handler requires actor
+// metadata `x-actor-kind: system`. It is the entry point for the worker's repeatable tick and the
+// only caller of the single unscoped id-only read. It answers with COUNTS — never rows — so no
+// tenant data crosses the boundary even to a system caller.
+// ─────────────────────────────────────────────────────────────────────────────────
+service ChatsMaintenanceService {
+  rpc SweepFirstReplySla(SweepRequest) returns (SweepResult);
+}
+
+message SweepRequest {
+  int32 limit = 1;                             // server-capped (SLA_SWEEP_BATCH)
+}
+message SweepResult {
+  int32 checked = 1;
+  int32 breached = 2;
+  int32 rules_applied = 3;
+  // No ids of any kind. Counts only.
 }

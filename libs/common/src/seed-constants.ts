@@ -46,3 +46,20 @@ export const SEED_CANNED_RESPONSE_ID = 'seed-canned-0000-0000-00000000001';
 export const SEED_MESSAGE_PLAYER_ID = 'seed-msg-0000-0000-000000000001';
 export const SEED_MESSAGE_REPLY_ID = 'seed-msg-0000-0000-000000000002';
 export const SEED_MESSAGE_NOTE_ID = 'seed-msg-0000-0000-000000000003';
+
+// feature 014 (automations + first-reply SLA, roadmap 4.6/4.7) fixtures.
+/** Keyword rule: inbound message + unassigned + text contains the keyword → label + status. */
+export const SEED_AUTOMATION_KEYWORD_ID = 'seed-auto-0000-0000-000000000001';
+/** Rule containing an ASSIGN action — the author-lacks-permission / zero-writes fixture. */
+export const SEED_AUTOMATION_ASSIGN_ID = 'seed-auto-0000-0000-000000000002';
+/** Deliberately self-satisfying rule (status changed → set status) — the no-cascade fixture. */
+export const SEED_AUTOMATION_SELF_ID = 'seed-auto-0000-0000-000000000003';
+/** Reacts to a first-reply breach — the US3 join fixture. */
+export const SEED_AUTOMATION_BREACH_ID = 'seed-auto-0000-0000-000000000004';
+/** The keyword the seeded rule matches on. Brand-neutral, obviously synthetic. */
+export const SEED_AUTOMATION_KEYWORD = 'seedkeyword';
+export const SEED_SLA_POLICY_ID = 'seed-sla-policy-0000-000000000001';
+/** Short on purpose: a breach must be observable within seconds on Track B (SC-006). */
+export const SEED_SLA_TARGET_MINUTES = 1;
+/** Conversation used for the SLA scenarios — its clock is driven by the Track-B script. */
+export const SEED_CONVERSATION_SLA_ID = 'seed-conv-sla-0000-00000000001';

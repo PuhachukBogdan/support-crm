@@ -32,6 +32,24 @@ export function isValidStatusWire(wire: string | undefined): boolean {
   return !!wire && wire !== 'CONVERSATION_STATUS_UNSPECIFIED' && wire in WIRE_TO_STATUS;
 }
 
+// ── Conversation priority (feature 014) ──────────────────────────────────────
+/**
+ * The closed priority set a **write** may set. `Conversation.priority` is a free-form column and the
+ * 012 list *filter* stays free-form (narrowing it would change existing behaviour for no reason);
+ * this allow-list exists because feature 014 introduced the first path that WRITES a priority from a
+ * stored definition — a macro or automation action. An unrecognised value there must be refused, not
+ * persisted, or a rule could park a priority nothing else in the product understands.
+ *
+ * `'*'` is deliberately absent: it is the SLA-policy "any" sentinel (research R7) and must never be
+ * storable as a real priority.
+ */
+export const PRIORITIES = ['low', 'normal', 'high'] as const;
+export type Priority = (typeof PRIORITIES)[number];
+
+export function isValidPriority(value: string | undefined): value is Priority {
+  return !!value && (PRIORITIES as readonly string[]).includes(value);
+}
+
 // ── Message kind (derived) ────────────────────────────────────────────────────
 export function kindFromMessage(authorType: string, isPrivate: boolean): string {
   if (authorType === 'player') return 'MESSAGE_KIND_INCOMING_CUSTOMER';

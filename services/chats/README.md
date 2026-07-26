@@ -3,8 +3,9 @@
 Core conversations / ticketing service. **State:** a **gRPC microservice** over its **own** Postgres
 exposing `HealthService.Check`, the **chats-core domain** (feature 012, roadmap 4.1–4.3 —
 conversations, messages incl. protected private notes, player feed) and the **workflow layer**
-(feature 013, roadmap 4.4–4.5 — assignment + round-robin, labels, macros, canned responses).
-Automations / SLA / audit / uploads / exports (4.6–4.10) and VIP routing (4.11–4.13) are later features.
+(feature 013, roadmap 4.4–4.5 — assignment + round-robin, labels, macros, canned responses), plus the
+**automations engine + first-reply SLA** (feature 014, roadmap 4.6–4.7). Audit log / uploads / exports
+(4.8–4.10) and VIP routing (4.11–4.14) are later features.
 
 ## Responsibility & boundaries
 - gRPC server (`GRPC_URL`, compose port **50053**): `HealthService.Check`, `ChatsReadService`,
@@ -22,7 +23,10 @@ Automations / SLA / audit / uploads / exports (4.6–4.10) and VIP routing (4.11
   `crm.conversation.assign` (assign / reassign / unassign / auto-assign), `crm.labels.manage`
   (create labels + attach/detach), `crm.templates.manage` (**author** macros + canned responses).
   Existing `crm.macros.use` gates **applying** a macro — authoring and using are deliberately
-  different capabilities.
+  different capabilities. **Feature 014 adds two more:** `crm.automations.manage` (author rules, read
+  run records) and `crm.sla.manage` (the first-reply target). Both are supervisory — no operational
+  agent role holds them by default, because whoever can author rules decides what the system does by
+  itself.
 - **Caller context rides in gRPC metadata** (`x-actor-account-id/user-id/role/permissions/brands`),
   never in message fields (research R1). Brand scope (`x-actor-brands`) intersects list/feed results;
   singleton reads/writes are brand resource-checked. Absent brands ⇒ no brand filter (Brands service,
@@ -39,6 +43,46 @@ Automations / SLA / audit / uploads / exports (4.6–4.10) and VIP routing (4.11
   answers `GROUP_ROUTING_NOT_AVAILABLE` instead of guessing a group. The cursor read-modify-write and
   the assignment share one transaction, so two concurrent callers cannot be handed the same operator.
 
+- **Automations (4.6).** A rule = trigger + conditions → ordered actions, sharing the **same action
+  vocabulary as macros** so "what a bundle may do" and "what a rule may do" cannot drift apart. Three
+  properties are load-bearing:
+  - **A rule acts with its AUTHOR's CURRENT permissions**, re-resolved from auth on **every**
+    evaluation (FR-023; the operator chose this over a snapshot). Revoking a permission through Access
+    Management therefore also stops that person's rules — no separate disable step, no frozen
+    privilege. There is deliberately **no cross-request cache**, so there is no stale window and
+    nothing to invalidate; the engine memoises only within one evaluation pass. Accepted cost: a rule
+    goes quiet when its author changes role, which is why every refusal is recorded with the missing
+    key.
+  - **All-or-nothing, by ordering rather than rollback.** Definition re-validation, condition matching,
+    the author's permission per action, and referenced-entity existence all happen **before** the first
+    write. A refused rule leaves the conversation completely untouched.
+  - **No cascade, structurally.** Domain events are published **only from gRPC controllers**; the
+    engine writes through repositories, and repositories cannot publish. So an automation's own writes
+    emit nothing and no rule configuration can loop — a `suppressEvents` flag would have been one
+    forgotten argument away from an unbounded write loop. Policed by
+    [`src/events/no-publish-from-repositories.spec.ts`](src/events/no-publish-from-repositories.spec.ts).
+  - **At most once per (rule, conversation, event)** — enforced by a unique index on
+    `AutomationRun(automation_id, conversation_id, event_key)`, not by an application check (a
+    check-then-write is a race; an index is not). The run record shares the transaction with the
+    actions, so a duplicate aborts the whole batch.
+- **First-reply SLA (4.7).** A per-account target (with optional per-priority / per-brand overrides)
+  and one clock row per conversation. Starts on the first inbound player message; stops **only** on the
+  first **public** staff reply — a private note is inert (FR-012, the SEC-13 distinction on a new
+  surface). A status change, including `resolved`, neither stops nor pauses it. The target is **frozen
+  onto the row at start**, so editing the policy cannot retro-breach anything. **No policy ⇒ no
+  clock** — absence of a target is not a zero target.
+- **The breach is detected by a timer, not by a reader.** The worker fires a repeatable BullMQ tick
+  (default 30 s) into `ChatsMaintenanceService.SweepFirstReplySla`; detection latency is bounded by that
+  interval by design. A breach emits an event exactly once (`breach_announced_at` + a timestamp-free
+  `breach:<id>` key), which rules can trigger on — but the measurement never depends on any rule
+  existing.
+- ⚠️ **The one unscoped tenant read in this service** lives in
+  [`src/sla/sla-sweep.repository.ts`](src/sla/sla-sweep.repository.ts) — read its header before
+  touching it. A timer has no caller and therefore no account context, so answering "which accounts
+  have overdue clocks" cannot go through `forAccount`. It is fenced five ways: **ids only**, **counts
+  only leave the service**, **system-actor only**, **no gateway route**, **batch-capped** — and every
+  write that follows is scoped normally. Logged in the feature's plan under Complexity Tracking.
+
 ## Interfaces
 - gRPC contracts: [`chats.proto`](../../libs/proto/crm/chats/v1/chats.proto) (own) +
   [`health.proto`](../../libs/proto/crm/health/v1/health.proto). Consumes
@@ -46,12 +90,20 @@ Automations / SLA / audit / uploads / exports (4.6–4.10) and VIP routing (4.11
   [`brands.proto`](../../libs/proto/crm/brands/v1/brands.proto) once those read servers land (Phase 5).
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `chats_db`. Migrations in
   [`prisma/migrations/`](prisma/migrations) (Track B: `prisma migrate deploy`). Feature 013 adds two
-  account-scoped tables — `CannedResponse` and `RoundRobinState` (rotation cursor) — both enrolled in
-  [`src/prisma.scoped-models.ts`](src/prisma.scoped-models.ts).
+  account-scoped tables — `CannedResponse` and `RoundRobinState` (rotation cursor). Feature 014 gives
+  the reserved `Automation` model meaning (+ author, position, revision) and adds `AutomationRun`,
+  `FirstReplySlaPolicy` and `ConversationSlaState`. All are enrolled in
+  [`src/prisma.scoped-models.ts`](src/prisma.scoped-models.ts), cross-checked against the schema by
+  `tests/data-model/account-scope-coverage.spec.ts`.
 - Isolation extension: [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`. Validated at boot by [`src/config.ts`](src/config.ts).
+`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`AUTH_GRPC_TARGET`**. Validated at boot by
+[`src/config.ts`](src/config.ts).
+
+**Cross-service dependency (new in 014):** chats → **auth** (`ResolveEffectivePermissions`) to resolve a
+rule author's live permissions. Acyclic — auth never calls chats. Without the dial target every rule
+would refuse (fail-closed), which is safe but useless, so it is a boot requirement.
 
 ## Run / test
 ```bash
@@ -81,4 +133,15 @@ Runs as part of `docker compose up` (see [`deploy/local/README.md`](../../deploy
 - A stored macro `definition` is **re-validated on read and on apply**, not trusted: a blob written
   by an older, looser version must not silently perform something this version does not understand.
   An unreadable definition surfaces as an empty action list on list, and refuses on apply.
+- A stored automation `definition` is re-validated the same way, at author time **and** at run time.
+- **`$transaction` is used in its BATCH form**, never the interactive callback, on every 014 path. That
+  is deliberate: 013's live-only defect was pulling `$transaction` into a variable and losing its
+  `this`, after which Prisma died on `_engineConfig`. No 014 path needs a read-modify-write inside the
+  transaction, so the form that cannot have that bug is the one used.
+- **`AutomationRun` grows without bound** — this feature ships the table and its indexes, not a
+  retention policy (deferred by ADR 0015; a trim job belongs with the worker catalogue, 7.3). The row is
+  deliberately narrow (ids, an outcome, a short reason) so it stays cheap until then.
+- The `'*'` sentinel on `FirstReplySlaPolicy.scope_*` is not cosmetic: Postgres unique indexes treat
+  NULLs as **distinct**, so NULL scoping would allow two account-level defaults and make "the target"
+  ambiguous. `'*'` is refused as a literal priority/brand value everywhere.
 - tsx/esbuild emits no decorator metadata → every constructor param uses explicit `@Inject`.

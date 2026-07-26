@@ -109,11 +109,38 @@ const ALL_PERMS = [
 ];
 
 describe('macro definition (pure validation, R4)', () => {
-  it('accepts the three v1 action types', () => {
+  /** A value each action type accepts — the two typed ones validate against their allow-list. */
+  const okValue = (type: string) =>
+    type === 'MACRO_ACTION_TYPE_SET_STATUS'
+      ? 'CONVERSATION_STATUS_OPEN'
+      : type === 'MACRO_ACTION_TYPE_SET_PRIORITY'
+        ? 'high'
+        : 'x';
+
+  it('accepts every action type in the shared vocabulary', () => {
     for (const type of MACRO_ACTION_TYPES) {
-      const value = type === 'MACRO_ACTION_TYPE_SET_STATUS' ? 'CONVERSATION_STATUS_OPEN' : 'x';
+      const value = okValue(type);
       expect(parseActions([{ type, value }])).toEqual([{ type, value }]);
     }
+  });
+
+  // Feature 014 — the vocabulary is now shared with automation rules, and SET_PRIORITY is the first
+  // action whose value is validated against a closed priority list (see shared/wire.ts).
+  it('validates a SET_PRIORITY value against the priority allow-list', () => {
+    expect(parseActions([{ type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'low' }])).toEqual([
+      { type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'low' },
+    ]);
+    for (const bad of ['URGENT', 'urgent', 'critical', 'HIGH', '*']) {
+      expect(() =>
+        parseActions([{ type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: bad }]),
+      ).toThrow();
+    }
+  });
+
+  it('needs crm.conversation.reply for SET_PRIORITY (same class of act as SET_STATUS, R9)', () => {
+    expect(
+      requiredPermissions(parseActions([{ type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'high' }])),
+    ).toEqual(['crm.conversation.reply']);
   });
 
   it.each([

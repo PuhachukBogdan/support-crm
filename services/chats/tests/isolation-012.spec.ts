@@ -2,6 +2,7 @@ import { Metadata } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../src/prisma.service';
 import { ConversationRepository } from '../src/conversation/conversation.repository';
+import type { SlaRepository } from '../src/sla/sla.repository';
 import { ConversationReadController } from '../src/conversation/conversation.grpc.controller';
 import { FeedReadController } from '../src/feed/feed.grpc.controller';
 
@@ -66,11 +67,19 @@ function md(accountId: string, brands = ['brand-a']): Metadata {
   return m;
 }
 
+/** Feature 014: the read controller gained the SLA repository; stubbed for this isolation sweep. */
+function noSla() {
+  return {
+    conversationIdsByOutcome: jest.fn(async () => [] as string[]),
+    getState: jest.fn(async () => null),
+  } as unknown as SlaRepository;
+}
+
 describe('cross-account isolation sweep (SC-003)', () => {
   const repo = () => new ConversationRepository(fakePrisma());
 
   it('list by player_id returns only the caller account rows', async () => {
-    const res = await new ConversationReadController(repo()).listConversations(
+    const res = await new ConversationReadController(repo(), noSla()).listConversations(
       { playerId: 'p1' },
       md('acc-1'),
     );
@@ -79,7 +88,7 @@ describe('cross-account isolation sweep (SC-003)', () => {
 
   it('open-by-id of another account row is NOT_FOUND', async () => {
     await expect(
-      new ConversationReadController(repo()).getConversation({ id: 'c2' }, md('acc-1')),
+      new ConversationReadController(repo(), noSla()).getConversation({ id: 'c2' }, md('acc-1')),
     ).rejects.toBeInstanceOf(RpcException);
   });
 

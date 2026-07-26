@@ -8,7 +8,15 @@ import { RequiresChatsPermission } from '../security/requires-chats-permission.d
 import { readActorContext, resolveBrandIn, mayAccessBrand } from '../security/actor-context';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
 import { toSummaryWire, toDetailWire, wireToStatus } from '../shared/wire';
+import { SlaRepository } from '../sla/sla.repository';
 import { ConversationRepository } from './conversation.repository';
+
+/** Feature 014 (R10): the SLA filter values, mapped to the stored outcome scalar. */
+const SLA_OUTCOME_FROM_WIRE: Record<string, string> = {
+  SLA_OUTCOME_RUNNING: 'running',
+  SLA_OUTCOME_MET: 'met',
+  SLA_OUTCOME_BREACHED: 'breached',
+};
 
 // proto-loader (keepCase:false) delivers camelCase request objects.
 interface ListConversationsRequestWire {
@@ -19,6 +27,8 @@ interface ListConversationsRequestWire {
   brandId?: string;
   pageToken?: string;
   pageSize?: number;
+  /** Feature 014: '' / UNSPECIFIED = no filter; otherwise running | met | breached. */
+  slaOutcome?: string;
 }
 interface GetConversationRequestWire {
   id: string;
@@ -33,7 +43,10 @@ interface GetConversationRequestWire {
 @Controller()
 @UseGuards(ChatsAccessGuard)
 export class ConversationReadController {
-  constructor(@Inject(ConversationRepository) private readonly repo: ConversationRepository) {}
+  constructor(
+    @Inject(ConversationRepository) private readonly repo: ConversationRepository,
+    @Inject(SlaRepository) private readonly sla: SlaRepository,
+  ) {}
 
   @GrpcMethod('ChatsReadService', 'ListConversations')
   @RequiresChatsPermission('crm.inbox.view')
@@ -48,12 +61,30 @@ export class ConversationReadController {
       }
       throw e;
     }
+    // Feature 014 (R10): "show me what we missed" is a FILTER on the inbox, not a parallel endpoint —
+    // so it inherits keyset paging, the page cap, the brand intersection and crm.inbox.view. An
+    // unrecognised value is refused rather than ignored: silently dropping it would widen the query to
+    // every conversation, which is the opposite of what the caller asked for (the 012 lesson).
+    let idIn: string[] | undefined;
+    const slaWire = req.slaOutcome;
+    if (slaWire && slaWire !== 'SLA_OUTCOME_UNSPECIFIED') {
+      const outcome = SLA_OUTCOME_FROM_WIRE[slaWire];
+      if (!outcome) {
+        throw new RpcException({
+          code: GrpcStatus.INVALID_ARGUMENT,
+          message: 'invalid sla_outcome',
+        });
+      }
+      idIn = await this.sla.conversationIdsByOutcome(ctx.accountId, outcome);
+    }
+
     const { rows, nextCursor } = await this.repo.list(ctx.accountId, {
       status: wireToStatus(req.status),
       priority: req.priority || undefined,
       assigneeOperatorId: req.assigneeOperatorId || undefined,
       playerId: req.playerId || undefined,
       brandIn: resolveBrandIn(ctx, req.brandId),
+      ...(idIn === undefined ? {} : { idIn }),
       limit: clampPageSize(req.pageSize),
       cursor,
     });
@@ -73,6 +104,20 @@ export class ConversationReadController {
     if (!row || !mayAccessBrand(ctx, row.brand_id)) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
-    return toDetailWire(row);
+    // Feature 014: the first-reply measurement rides on the detail so the UI needs no second call.
+    const sla = await this.sla.getState(ctx.accountId, req.id);
+    return {
+      ...toDetailWire(row),
+      firstReplySla: sla
+        ? {
+            outcome: `SLA_OUTCOME_${sla.outcome.toUpperCase()}`,
+            startedAt: sla.started_at.toISOString(),
+            deadlineAt: sla.deadline_at.toISOString(),
+            targetMinutes: sla.target_minutes,
+            firstReplyAt: sla.first_reply_at ? sla.first_reply_at.toISOString() : '',
+            firstReplySeconds: sla.first_reply_seconds ?? 0,
+          }
+        : undefined,
+    };
   }
 }

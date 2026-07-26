@@ -7,6 +7,12 @@ import {
   SEED_CONVERSATION_UNASSIGNED_ID,
   SEED_MACRO_ID,
   SEED_MACRO_ASSIGN_ID,
+  SEED_AUTOMATION_KEYWORD_ID,
+  SEED_AUTOMATION_ASSIGN_ID,
+  SEED_AUTOMATION_SELF_ID,
+  SEED_AUTOMATION_BREACH_ID,
+  SEED_AUTOMATION_KEYWORD,
+  SEED_CONVERSATION_SLA_ID,
 } from '@crm/common';
 
 /**
@@ -95,5 +101,114 @@ describe('chats seed builder', () => {
         expect.not.arrayContaining(['conversation_id', 'message_id', 'player_id']),
       );
     }
+  });
+});
+
+/**
+ * T030 (feature 014) — the automation + SLA fixtures. FAILS before the seed delta, PASSES after.
+ *
+ * These fixtures exist so Track B can prove behaviour that no mocked test can: a rule firing with no
+ * operator present, and a breach detected by a timer. So the assertions here are about the fixtures
+ * being *usable for that purpose* — every definition must be valid, each rule must have the exact
+ * shape its scenario needs, and the ones that mutate shared state must ship DISABLED so a leftover
+ * enabled rule from a previous run cannot masquerade as a product defect.
+ */
+describe('chats seed — feature 014 (automations + first-reply SLA)', () => {
+  const seed = buildSeed();
+  const rule = (id: string) => seed.automations.find((a) => a.id === id)!;
+  const defOf = (id: string) =>
+    rule(id).definition as {
+      trigger: string;
+      conditions: { field: string; op: string; value: string }[];
+      actions: { type: string; value: string }[];
+    };
+
+  it('ships the four scenario rules', () => {
+    expect(seed.automations.map((a) => a.id).sort()).toEqual(
+      [
+        SEED_AUTOMATION_KEYWORD_ID,
+        SEED_AUTOMATION_ASSIGN_ID,
+        SEED_AUTOMATION_SELF_ID,
+        SEED_AUTOMATION_BREACH_ID,
+      ].sort(),
+    );
+  });
+
+  it('every rule names an author — a rule with no authority could only ever be refused (FR-024)', () => {
+    for (const r of seed.automations) expect(r.author_user_id.length).toBeGreaterThan(0);
+  });
+
+  it('every definition is well formed: a known trigger, a non-empty action list, prefixed wire values', () => {
+    for (const r of seed.automations) {
+      const d = r.definition as { trigger: string; actions: { type: string; value: string }[] };
+      expect(d.trigger.startsWith('AUTOMATION_TRIGGER_')).toBe(true);
+      expect(d.trigger).not.toBe('AUTOMATION_TRIGGER_UNSPECIFIED');
+      expect(d.actions.length).toBeGreaterThan(0);
+      for (const a of d.actions) {
+        expect(a.type.startsWith('MACRO_ACTION_TYPE_')).toBe(true);
+        expect(a.value.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('the keyword rule matches message text AND requires an unassigned conversation', () => {
+    const d = defOf(SEED_AUTOMATION_KEYWORD_ID);
+    expect(d.trigger).toBe('AUTOMATION_TRIGGER_MESSAGE_RECEIVED');
+    expect(d.conditions.map((c) => c.field).sort()).toEqual(
+      ['CONDITION_FIELD_ASSIGNEE', 'CONDITION_FIELD_MESSAGE_TEXT'].sort(),
+    );
+    expect(d.conditions.find((c) => c.field === 'CONDITION_FIELD_MESSAGE_TEXT')!.value).toBe(
+      SEED_AUTOMATION_KEYWORD,
+    );
+    expect(rule(SEED_AUTOMATION_KEYWORD_ID).active).toBe(true);
+  });
+
+  it('the ASSIGN rule is the permission-refusal fixture and ships DISABLED', () => {
+    expect(defOf(SEED_AUTOMATION_ASSIGN_ID).actions.map((a) => a.type)).toContain(
+      'MACRO_ACTION_TYPE_ASSIGN',
+    );
+    expect(rule(SEED_AUTOMATION_ASSIGN_ID).active).toBe(false);
+  });
+
+  it('the self-satisfying rule really is self-satisfying (and ships DISABLED)', () => {
+    const d = defOf(SEED_AUTOMATION_SELF_ID);
+    expect(d.trigger).toBe('AUTOMATION_TRIGGER_STATUS_CHANGED');
+    // Its own action re-satisfies its own trigger — the worst case for SC-004, on purpose.
+    expect(d.actions.map((a) => a.type)).toEqual(['MACRO_ACTION_TYPE_SET_STATUS']);
+    expect(rule(SEED_AUTOMATION_SELF_ID).active).toBe(false);
+  });
+
+  it('the breach rule reacts to a missed target with a label + a priority raise', () => {
+    const d = defOf(SEED_AUTOMATION_BREACH_ID);
+    expect(d.trigger).toBe('AUTOMATION_TRIGGER_FIRST_REPLY_BREACHED');
+    expect(d.actions.map((a) => a.type).sort()).toEqual(
+      ['MACRO_ACTION_TYPE_ADD_LABEL', 'MACRO_ACTION_TYPE_SET_PRIORITY'].sort(),
+    );
+    expect(rule(SEED_AUTOMATION_BREACH_ID).active).toBe(true);
+  });
+
+  it('rules reference labels that the seed actually creates (else they would refuse at run time)', () => {
+    const labelIds = new Set(seed.labels.map((l) => l.id));
+    for (const r of seed.automations) {
+      const d = r.definition as { actions: { type: string; value: string }[] };
+      for (const a of d.actions) {
+        if (a.type === 'MACRO_ACTION_TYPE_ADD_LABEL') expect(labelIds.has(a.value)).toBe(true);
+      }
+    }
+  });
+
+  it('ships ONE account-level SLA target using the "*" sentinels, not NULLs (research R7)', () => {
+    expect(seed.slaPolicies).toHaveLength(1);
+    const p = seed.slaPolicies[0]!;
+    expect(p.scope_priority).toBe('*');
+    expect(p.scope_brand_id).toBe('*');
+    expect(p.target_minutes).toBeGreaterThan(0);
+  });
+
+  it('ships an SLA conversation with NO messages, so its clock starts from a known state', () => {
+    const conv = seed.conversations.find((c) => c.id === SEED_CONVERSATION_SLA_ID);
+    expect(conv).toBeDefined();
+    expect(conv!.assignee_operator_id).toBeNull();
+    expect(seed.messages.some((m) => m.conversation_id === SEED_CONVERSATION_SLA_ID)).toBe(false);
   });
 });

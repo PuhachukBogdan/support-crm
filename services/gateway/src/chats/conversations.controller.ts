@@ -18,7 +18,7 @@ import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
 import { callChats } from './rpc';
-import { toStatusWire, toStatusWireRequired } from './wire';
+import { toStatusWire, toStatusWireRequired, toSlaOutcomeWire } from './wire';
 
 interface ConversationPageWire {
   conversations: unknown[];
@@ -74,6 +74,8 @@ export class ConversationsController implements OnModuleInit {
       brandId?: string;
       pageToken?: string;
       pageSize?: string;
+      /** Feature 014 (R10): running | met | breached — the "what did we miss" filter. */
+      slaOutcome?: string;
     },
     @Req() req: ChatsReq,
   ) {
@@ -85,6 +87,10 @@ export class ConversationsController implements OnModuleInit {
           assigneeOperatorId: q.assigneeOperatorId ?? '',
           playerId: q.playerId ?? '',
           brandId: q.brandId ?? '',
+          // Fail-closed like every other filter: an unknown value is a 400, never a silently widened
+          // query (the feature-012 lesson — a mistyped filter that returns EVERYTHING is worse than an
+          // error, because it looks like it worked).
+          slaOutcome: toSlaOutcomeWire(q.slaOutcome),
           pageToken: q.pageToken ?? '',
           pageSize: q.pageSize ? Number(q.pageSize) : 0,
         },

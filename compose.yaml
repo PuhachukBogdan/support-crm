@@ -100,6 +100,9 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       GRPC_URL: 0.0.0.0:50053
       DATABASE_URL: postgresql://chats_user:${CHATS_DB_PASSWORD:?}@postgres:5432/chats_db
+      # Feature 014: an automation rule acts with its AUTHOR's current permissions, resolved from
+      # auth on every evaluation (FR-023). Acyclic — auth never calls chats.
+      AUTH_GRPC_TARGET: auth:50051
 
   brands:
     <<: *service-base
@@ -116,6 +119,13 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       GRPC_URL: 0.0.0.0:50055
       REDIS_URL: redis://redis:6379
+      # Feature 014: the worker's first real job (first-reply SLA sweep, roadmap 4.7). Scheduling
+      # only — chats owns the data and the verdict (research R1/R2). Breach-detection latency is
+      # bounded by the interval by design; override it to a few seconds on a test box so a breach is
+      # observable in seconds instead of half a minute.
+      CHATS_GRPC_TARGET: chats:50053
+      SLA_SWEEP_INTERVAL_MS: ${SLA_SWEEP_INTERVAL_MS:-30000}
+      SLA_SWEEP_BATCH: ${SLA_SWEEP_BATCH:-500}
 
 volumes:
   pgdata:

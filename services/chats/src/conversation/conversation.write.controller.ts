@@ -6,6 +6,7 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext, mayAccessBrand } from '../security/actor-context';
 import { toDetailWire, wireToStatus, isValidStatusWire } from '../shared/wire';
+import { DomainEventPublisher } from '../events/events.publisher';
 import { ConversationRepository } from './conversation.repository';
 
 interface CreateConversationRequestWire {
@@ -24,11 +25,18 @@ interface SetConversationStatusRequestWire {
  * ChatsWriteService — conversation writes (feature 012, US1). `CreateConversation` seeds/tests +
  * future channel ingress; `SetConversationStatus` is the 4.1 lifecycle change. Gated by
  * `crm.conversation.reply` at both tiers; account scope via `forAccount`; brand resource-checked (R3).
+ *
+ * Feature 014 publishes `conversation.created` and `conversation.status_changed` from here. Publishing
+ * sits at the controller and nowhere else, so an automation's own status write emits nothing and
+ * cannot cascade (FR-006 / research R4) — a self-satisfying rule is bounded by construction.
  */
 @Controller()
 @UseGuards(ChatsAccessGuard)
 export class ConversationWriteController {
-  constructor(@Inject(ConversationRepository) private readonly repo: ConversationRepository) {}
+  constructor(
+    @Inject(ConversationRepository) private readonly repo: ConversationRepository,
+    @Inject(DomainEventPublisher) private readonly events: DomainEventPublisher,
+  ) {}
 
   @GrpcMethod('ChatsWriteService', 'CreateConversation')
   @RequiresChatsPermission('crm.conversation.reply')
@@ -44,7 +52,11 @@ export class ConversationWriteController {
       channel: req.channel || undefined,
       assigneeOperatorId: req.assigneeOperatorId || undefined,
     });
-    return toDetailWire(row);
+    await this.events.conversationCreated(ctx.accountId, row.id);
+    // Re-read: a rule may have changed status/priority/assignee, and the caller should see the
+    // conversation as it actually is now rather than as it was a moment before the rules ran.
+    const fresh = await this.repo.getById(ctx.accountId, row.id);
+    return toDetailWire(fresh ?? row);
   }
 
   @GrpcMethod('ChatsWriteService', 'SetConversationStatus')
@@ -59,8 +71,16 @@ export class ConversationWriteController {
     if (!existing || !mayAccessBrand(ctx, existing.brand_id)) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
-    const updated = await this.repo.setStatus(ctx.accountId, req.conversationId, wireToStatus(req.status)!);
+    const newStatus = wireToStatus(req.status)!;
+    const updated = await this.repo.setStatus(ctx.accountId, req.conversationId, newStatus);
     if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
-    return toDetailWire(updated);
+    await this.events.statusChanged(
+      ctx.accountId,
+      req.conversationId,
+      newStatus,
+      updated.updated_at,
+    );
+    const fresh = await this.repo.getById(ctx.accountId, req.conversationId);
+    return toDetailWire(fresh ?? updated);
   }
 }

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 /**
  * T034 (feature 012) — no PII in logs (Principle IV / SEC-26 / SC-007). Structural guard: scan the
@@ -8,11 +8,16 @@ import { join, resolve } from 'node:path';
  * player/author id would fail this.
  */
 const SRC = resolve(__dirname, '..', 'src');
-const LOG_CALL = /(console\.\w+|logInfo|logError|logWarn|logDebug)\s*\(/;
+// Feature 014: the automation engine, the dispatcher, the clock and the sweep all use the Nest Logger,
+// so `this.logger.*` joins the scan — a rule that matched on message text must log THAT it matched,
+// never what it matched on.
+const LOG_CALL = /(console\.\w+|logInfo|logError|logWarn|logDebug|logger\.(log|warn|error|debug|verbose))\s*\(/;
 // Feature 013 adds more things that must never reach a log line: canned-response text, macro action
 // values (a macro carries operator ids and label ids), and the operator id an assignment writes.
+// Feature 014 adds the condition inputs — `messageText` is the customer's own words, and `facts` is the
+// object carrying them, so neither may appear in a log line even indirectly.
 const SENSITIVE =
-  /\b(body|mentions|author_id|authorId|player_id|playerId|operator_id|operatorId|assignee_operator_id|assigneeOperatorId|definition|actions)\b/;
+  /\b(body|mentions|author_id|authorId|player_id|playerId|operator_id|operatorId|assignee_operator_id|assigneeOperatorId|definition|actions|messageText|message_text|facts)\b/;
 
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -58,5 +63,61 @@ describe('chats — no PII in logs (SC-007)', () => {
       });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * T051 (feature 014) — the new paths, and the one that could genuinely leak: a keyword rule matches
+ * against **message text**. So the text must exist only in memory during matching, and never reach a
+ * log line, a run record or an error payload (FR-020 / SC-010).
+ */
+describe('chats — feature 014: automations + SLA carry no PII', () => {
+  const files = tsFiles(SRC);
+  const read = (suffix: string) =>
+    readFileSync(files.find((f) => f.endsWith(suffix))!, 'utf8');
+
+  it('no log line in the automation/SLA/event code interpolates the matched text or the facts', () => {
+    const offenders: string[] = [];
+    for (const file of files) {
+      // Normalise Windows separators so the folder match works on both platforms.
+      if (!/\/(automation|sla|events)\//u.test(file.split(sep).join('/'))) continue;
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          if (LOG_CALL.test(line) && SENSITIVE.test(line)) {
+            offenders.push(`${file}:${i + 1}  ${line.trim()}`);
+          }
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  // The run record is a diagnostic, and a diagnostic must not become a PII sink. The row simply has no
+  // column that could hold text — asserted at the schema level as well as here.
+  it('the run-record writer stores ids, an outcome and a short reason — nothing else', () => {
+    const src = read('automations.repository.ts');
+    const runData = src.slice(src.indexOf('function runData'));
+    for (const forbidden of ['body', 'messageText', 'facts', 'player_id']) {
+      expect(runData).not.toContain(forbidden);
+    }
+  });
+
+  it('the matched text never leaves the matcher (conditions.ts holds no logging at all)', () => {
+    const src = read('conditions.ts');
+    expect(LOG_CALL.test(src)).toBe(false);
+  });
+
+  it('the refusal reasons the engine records are permission keys and static phrases', () => {
+    const src = read('engine.ts');
+    // Every recorded reason must be a template of static text + a PERMISSION KEY, never a fact value.
+    for (const m of src.matchAll(/record\([^)]*'(refused|not_matched)'[^)]*\)/gs)) {
+      expect(m[0]).not.toMatch(/facts|messageText|body/);
+    }
+  });
+
+  it('the sweep answers with counts only — no id fields in its response shape', () => {
+    const src = read('sla.grpc.controller.ts');
+    const ret = src.slice(src.indexOf('return { checked'));
+    expect(ret.slice(0, 120)).not.toMatch(/conversation_id|account_id/);
   });
 });

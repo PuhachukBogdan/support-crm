@@ -13,4 +13,10 @@ export const SCOPED_MODELS = [
   // Feature 013 (roadmap 4.4/4.5).
   'CannedResponse',
   'RoundRobinState',
+  // Feature 014 (roadmap 4.6/4.7). NOTE: ConversationSlaState is scoped like every other tenant
+  // table — the sweep's single unscoped read (sla/sla-sweep.repository.ts) is an exception at the
+  // METHOD level, deliberately not at the model level, so every other access stays fail-closed.
+  'AutomationRun',
+  'FirstReplySlaPolicy',
+  'ConversationSlaState',
 ] as const;

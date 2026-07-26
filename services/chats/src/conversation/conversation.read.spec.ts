@@ -1,6 +1,7 @@
 import { Metadata } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
+import type { SlaRepository } from '../sla/sla.repository';
 import { ConversationRepository } from './conversation.repository';
 import { ConversationReadController } from './conversation.grpc.controller';
 import { MAX_PAGE_SIZE } from '../shared/cursor';
@@ -35,10 +36,22 @@ function md(accountId = 'acc-1', brands?: string[]): Metadata {
   return m;
 }
 
+/**
+ * Feature 014 added the SLA repository to the read controller (the `slaOutcome` inbox filter and the
+ * first-reply state on the detail). These specs predate it and are about account/brand scope + paging,
+ * so it is stubbed: no filter requested ⇒ never consulted; no clock ⇒ no state on the detail.
+ */
+function noSla() {
+  return {
+    conversationIdsByOutcome: jest.fn(async () => [] as string[]),
+    getState: jest.fn(async () => null),
+  } as unknown as SlaRepository;
+}
+
 describe('ConversationReadController.listConversations (US1)', () => {
   it('scopes to the caller account and builds the filter where-clause', async () => {
     const { prisma, findMany, forAccount } = fakePrisma([row()]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma));
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
 
     const res = await ctrl.listConversations(
       { status: 'CONVERSATION_STATUS_OPEN', priority: 'high', playerId: 'p1' },
@@ -55,14 +68,14 @@ describe('ConversationReadController.listConversations (US1)', () => {
 
   it('applies no brand filter when the caller brand scope is absent (Phase-5 defer)', async () => {
     const { prisma, findMany } = fakePrisma([row()]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma));
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
     await ctrl.listConversations({}, md('acc-1')); // no brands metadata
     expect(findMany.mock.calls[0][0].where.brand_id).toBeUndefined();
   });
 
   it('narrows to the requested brand only when it is permitted (else empty result set)', async () => {
     const { prisma, findMany } = fakePrisma([]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma));
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
     await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1', ['brand-a']));
     expect(findMany.mock.calls[0][0].where.brand_id).toEqual({ in: [] }); // asked a brand they can't serve
   });
@@ -73,7 +86,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       row({ id: `c${i}`, created_at: new Date(Date.now() - i * 1000) }),
     );
     const { prisma, findMany } = fakePrisma(rows);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma));
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
     const res = await ctrl.listConversations({ pageSize: 10_000 }, md('acc-1'));
     expect(findMany.mock.calls[0][0].take).toBe(MAX_PAGE_SIZE + 1);
     expect(res.conversations).toHaveLength(MAX_PAGE_SIZE);
@@ -82,7 +95,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
 
   it('rejects a malformed page token with INVALID_ARGUMENT (no unfiltered fallback)', async () => {
     const { prisma } = fakePrisma([]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma));
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
     await expect(ctrl.listConversations({ pageToken: 'garbage-$$$' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
     );

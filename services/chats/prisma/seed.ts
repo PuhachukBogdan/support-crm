@@ -37,6 +37,23 @@ async function run(): Promise<void> {
         create: canned,
         update: canned,
       });
+    // feature 014 (roadmap 4.6/4.7): automation rules + the first-reply SLA target.
+    //
+    // Rule state is reset on every seed run (`update` carries `active` and the definition), which is
+    // deliberate: the Track-B script enables/disables individual rules, and a leftover enabled rule
+    // from a previous run reads as a product defect (the 013 harness lesson).
+    for (const rule of seed.automations)
+      await db.automation.upsert({
+        where: { id: rule.id },
+        create: rule as never,
+        update: rule as never,
+      });
+    for (const policy of seed.slaPolicies)
+      await db.firstReplySlaPolicy.upsert({
+        where: { id: policy.id },
+        create: policy,
+        update: policy,
+      });
     console.log('chats seed: ok');
   } finally {
     await base.$disconnect();

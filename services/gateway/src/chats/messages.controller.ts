@@ -10,18 +10,15 @@ import {
   Req,
 } from '@nestjs/common';
 import { type ClientGrpc } from '@nestjs/microservices';
-import { firstValueFrom, type Observable } from 'rxjs';
+import { type Observable } from 'rxjs';
 import type { Request } from 'express';
 import type { EffectivePermissions } from '@crm/common';
 import { CHATS_CLIENT } from '../grpc/clients.module';
 import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
-
-const toProjectionWire = (p?: string): string =>
-  p === 'customer' ? 'THREAD_PROJECTION_CUSTOMER' : 'THREAD_PROJECTION_STAFF';
-const toKindWire = (k?: string): string =>
-  k === 'note' ? 'MESSAGE_KIND_PRIVATE_NOTE' : 'MESSAGE_KIND_PUBLIC_REPLY';
+import { callChats } from './rpc';
+import { toKindWire, toProjectionWire } from './wire';
 
 interface MessagePageWire {
   messages: unknown[];
@@ -68,7 +65,7 @@ export class MessagesController implements OnModuleInit {
     @Query() q: { projection?: string; pageToken?: string; pageSize?: string },
     @Req() req: ChatsReq,
   ) {
-    return firstValueFrom(
+    return callChats(
       this.read.getThread(
         {
           conversationId: id,
@@ -88,7 +85,7 @@ export class MessagesController implements OnModuleInit {
     @Body() body: { kind?: string; body?: string; mentions?: string[] },
     @Req() req: ChatsReq,
   ) {
-    return firstValueFrom(
+    return callChats(
       this.write.postMessage(
         {
           conversationId: id,

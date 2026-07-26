@@ -3,6 +3,10 @@ import { GrpcClientsModule } from '../grpc/clients.module';
 import { ConversationsController } from './conversations.controller';
 import { MessagesController } from './messages.controller';
 import { FeedController } from './feed.controller';
+import { AssignmentController } from './assignment.controller';
+import { LabelsController } from './labels.controller';
+import { MacrosController } from './macros.controller';
+import { CannedController } from './canned.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -12,6 +16,15 @@ import { FeedController } from './feed.controller';
  */
 @Module({
   imports: [GrpcClientsModule],
-  controllers: [ConversationsController, MessagesController, FeedController],
+  controllers: [
+    ConversationsController,
+    MessagesController,
+    FeedController,
+    // Feature 013 (roadmap 4.4/4.5).
+    AssignmentController,
+    LabelsController,
+    MacrosController,
+    CannedController,
+  ],
 })
 export class ChatsModule {}

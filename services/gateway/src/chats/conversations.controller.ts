@@ -10,22 +10,15 @@ import {
   Req,
 } from '@nestjs/common';
 import { type ClientGrpc } from '@nestjs/microservices';
-import { firstValueFrom, type Observable } from 'rxjs';
+import { type Observable } from 'rxjs';
 import type { Request } from 'express';
 import type { EffectivePermissions } from '@crm/common';
 import { CHATS_CLIENT } from '../grpc/clients.module';
 import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
-
-const STATUS_TO_WIRE: Record<string, string> = {
-  open: 'CONVERSATION_STATUS_OPEN',
-  pending: 'CONVERSATION_STATUS_PENDING',
-  resolved: 'CONVERSATION_STATUS_RESOLVED',
-  snoozed: 'CONVERSATION_STATUS_SNOOZED',
-};
-const toStatusWire = (s?: string): string =>
-  (s && STATUS_TO_WIRE[s]) || 'CONVERSATION_STATUS_UNSPECIFIED';
+import { callChats } from './rpc';
+import { toStatusWire, toStatusWireRequired } from './wire';
 
 interface ConversationPageWire {
   conversations: unknown[];
@@ -84,7 +77,7 @@ export class ConversationsController implements OnModuleInit {
     },
     @Req() req: ChatsReq,
   ) {
-    return firstValueFrom(
+    return callChats(
       this.read.listConversations(
         {
           status: toStatusWire(q.status),
@@ -103,15 +96,15 @@ export class ConversationsController implements OnModuleInit {
   @Get(':id')
   @RequiresPermission('crm.inbox.view')
   async get(@Param('id') id: string, @Req() req: ChatsReq) {
-    return firstValueFrom(this.read.getConversation({ id }, this.meta(req)));
+    return callChats(this.read.getConversation({ id }, this.meta(req)));
   }
 
   @Patch(':id/status')
   @RequiresPermission('crm.conversation.reply')
   async setStatus(@Param('id') id: string, @Body() body: { status: string }, @Req() req: ChatsReq) {
-    return firstValueFrom(
+    return callChats(
       this.write.setConversationStatus(
-        { conversationId: id, status: toStatusWire(body?.status) },
+        { conversationId: id, status: toStatusWireRequired(body?.status) },
         this.meta(req),
       ),
     );

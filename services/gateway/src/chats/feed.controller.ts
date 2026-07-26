@@ -8,13 +8,14 @@ import {
   Req,
 } from '@nestjs/common';
 import { type ClientGrpc } from '@nestjs/microservices';
-import { firstValueFrom, type Observable } from 'rxjs';
+import { type Observable } from 'rxjs';
 import type { Request } from 'express';
 import type { EffectivePermissions } from '@crm/common';
 import { CHATS_CLIENT } from '../grpc/clients.module';
 import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
+import { callChats } from './rpc';
 
 interface ConversationPageWire {
   conversations: unknown[];
@@ -49,7 +50,7 @@ export class FeedController implements OnModuleInit {
     @Req() req: ChatsReq,
   ) {
     const md = buildActorMetadata(req.claims!, req.effective?.permissionKeys ?? []);
-    return firstValueFrom(
+    return callChats(
       this.read.getPlayerFeed(
         {
           playerId,

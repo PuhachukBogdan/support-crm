@@ -19,6 +19,11 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   { category: 'crm', key: 'crm.contact.view', label: 'View contact card' },
   { category: 'crm', key: 'crm.contact.read_pii', label: 'Read contact PII' },
   { category: 'crm', key: 'crm.macros.use', label: 'Use macros' },
+  // CRM — conversation workflow (feature 013, roadmap 4.4/4.5). `crm.macros.use` above stays the
+  // APPLY-a-macro key; authoring templates is a separate, lead/admin-level capability (research R2).
+  { category: 'crm', key: 'crm.conversation.assign', label: 'Assign conversations' },
+  { category: 'crm', key: 'crm.labels.manage', label: 'Manage & apply labels' },
+  { category: 'crm', key: 'crm.templates.manage', label: 'Author macros & canned responses' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -46,13 +51,23 @@ const ALL_KEYS = SYSTEM_CATALOGUE.map((e) => e.key);
  * SYSTEM_CATALOGUE.
  */
 export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
-  support_agent: ['crm.inbox.view', 'crm.conversation.reply', 'crm.contact.view', 'crm.macros.use'],
+  support_agent: [
+    'crm.inbox.view',
+    'crm.conversation.reply',
+    'crm.contact.view',
+    'crm.macros.use',
+    // Feature 013 — routing + labelling are everyday agent actions; authoring templates is not.
+    'crm.conversation.assign',
+    'crm.labels.manage',
+  ],
   vip_support: [
     'crm.inbox.view',
     'crm.conversation.reply',
     'crm.contact.view',
     'crm.macros.use',
     'users.portfolio.view',
+    'crm.conversation.assign',
+    'crm.labels.manage',
   ],
   am: [
     'crm.inbox.view',
@@ -63,6 +78,8 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'users.portfolio.view',
     'users.am_notes.edit',
     'analytics.dashboard.view',
+    'crm.conversation.assign',
+    'crm.labels.manage',
   ],
   shift_am: [
     'crm.inbox.view',
@@ -74,6 +91,8 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'users.am_notes.edit',
     'analytics.dashboard.view',
     'analytics.reports.view',
+    'crm.conversation.assign',
+    'crm.labels.manage',
   ],
   teamlead: [
     'crm.inbox.view',
@@ -83,6 +102,10 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'analytics.dashboard.view',
     'analytics.reports.view',
     'users.list.view',
+    'crm.conversation.assign',
+    'crm.labels.manage',
+    // Authoring macros / canned responses is a lead-level configuration task (R2).
+    'crm.templates.manage',
   ],
   // admin gets everything EXCEPT the two super-admin exclusives: role management (FR-018) and
   // the view-as preview (US5 — God/super-admin only).

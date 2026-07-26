@@ -33,6 +33,16 @@ export const SEED_CONVERSATION_OPEN_ID = 'seed-conv-open-0000-000000000001';
 export const SEED_CONVERSATION_RESOLVED_ID = 'seed-conv-resolved-0000-00000001';
 export const SEED_CONVERSATION_PENDING_ID = 'seed-conv-pending-0000-000000001'; // feature 012: mixed-status fixture
 export const SEED_CONVERSATION_BRAND2_ID = 'seed-conv-brand2-0000-000000001'; // feature 012: same player, 2nd brand (union)
+// feature 013 (workflow, roadmap 4.4/4.5) fixtures.
+/** Unassigned conversation — the assign/reassign/unassign fixture (US1). */
+export const SEED_CONVERSATION_UNASSIGNED_ID = 'seed-conv-unassigned-0000-00001';
+export const SEED_LABEL_ID_2 = 'seed-label-0000-0000-000000000002';
+/** Macro with only self-contained actions (set status + add label). */
+export const SEED_MACRO_ID = 'seed-macro-0000-0000-000000000001';
+/** Macro containing an ASSIGN action — the permission-blocked / all-or-nothing fixture. */
+export const SEED_MACRO_ASSIGN_ID = 'seed-macro-0000-0000-000000000002';
+export const SEED_CANNED_RESPONSE_ID = 'seed-canned-0000-0000-00000000001';
+
 export const SEED_MESSAGE_PLAYER_ID = 'seed-msg-0000-0000-000000000001';
 export const SEED_MESSAGE_REPLY_ID = 'seed-msg-0000-0000-000000000002';
 export const SEED_MESSAGE_NOTE_ID = 'seed-msg-0000-0000-000000000003';

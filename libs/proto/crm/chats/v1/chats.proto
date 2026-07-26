@@ -89,6 +89,11 @@ service ChatsReadService {
   rpc GetConversation(GetConversationRequest) returns (Conversation);
   rpc GetThread(GetThreadRequest) returns (MessagePage);
   rpc GetPlayerFeed(GetPlayerFeedRequest) returns (ConversationPage); // brand-union within account (US3)
+  // ── Feature 013 (workflow, roadmap 4.4–4.5) — additive ──
+  rpc ListConversationLabels(ConversationIdRequest) returns (LabelList);
+  rpc ListLabels(Empty) returns (LabelList);
+  rpc ListMacros(Empty) returns (MacroList);
+  rpc ListCannedResponses(Empty) returns (CannedResponseList);
 }
 
 message ListConversationsRequest {
@@ -136,6 +141,15 @@ service ChatsWriteService {
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   // Internal/seed + future channel ingress (Phase 6) path for inbound customer messages:
   rpc RecordIncomingMessage(RecordIncomingMessageRequest) returns (Message);
+  // ── Feature 013 (workflow, roadmap 4.4–4.5) — additive ──
+  rpc AssignConversation(AssignConversationRequest) returns (Conversation);
+  rpc AutoAssignConversation(AutoAssignRequest) returns (AutoAssignResult);
+  rpc AttachLabel(LabelLinkRequest) returns (Ack);
+  rpc DetachLabel(LabelLinkRequest) returns (Ack);
+  rpc CreateLabel(CreateLabelRequest) returns (Label);
+  rpc DefineMacro(DefineMacroRequest) returns (Macro);
+  rpc ApplyMacro(ApplyMacroRequest) returns (Conversation);
+  rpc CreateCannedResponse(CreateCannedResponseRequest) returns (CannedResponse);
 }
 
 message PostMessageRequest {
@@ -162,4 +176,99 @@ message RecordIncomingMessageRequest {
   string conversation_id = 1;
   string body = 2;
   string author_id = 3;               // player id
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Feature 013 — Conversation workflow (roadmap 4.4 assignment + 4.5 labels/macros/
+// canned). ADDITIVE ONLY: nothing above is renumbered (Principle VIII, buf
+// breaking=FILE). Caller context still rides in metadata (x-actor-*), never in a body.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// A macro's action set (v1, research R4). Richer actions (send message, SLA, automation)
+// belong to roadmap 4.6/4.7 — an unknown type is rejected at define AND at apply.
+enum MacroActionType {
+  MACRO_ACTION_TYPE_UNSPECIFIED = 0;
+  MACRO_ACTION_TYPE_SET_STATUS = 1;   // value = ConversationStatus name
+  MACRO_ACTION_TYPE_ADD_LABEL = 2;    // value = label_id
+  MACRO_ACTION_TYPE_ASSIGN = 3;       // value = operator_id
+}
+
+message MacroAction {
+  MacroActionType type = 1;
+  string value = 2;
+}
+
+message Label {
+  string id = 1;
+  string name = 2;
+  string color = 3;                   // "" when unset
+}
+message LabelList { repeated Label labels = 1; }
+
+message Macro {
+  string id = 1;
+  string name = 2;
+  repeated MacroAction actions = 3;
+}
+message MacroList { repeated Macro macros = 1; }
+
+// Reusable reply text. Text ONLY — never sends a message by itself (FR-009).
+message CannedResponse {
+  string id = 1;
+  string name = 2;
+  string body = 3;
+}
+message CannedResponseList { repeated CannedResponse canned = 1; }
+
+message Ack { bool ok = 1; }
+
+// Round-robin candidate. Supplied BY THE CALLER until the Users service resolves teams +
+// capacity (roadmap 5.3 / research R3) — the chats service makes no Users call here.
+message RoundRobinCandidate {
+  string operator_id = 1;
+  int32 capacity = 2;
+  int32 current_load = 3;
+}
+
+message ConversationIdRequest { string conversation_id = 1; }
+message Empty {}
+
+message AssignConversationRequest {
+  string conversation_id = 1;
+  string operator_id = 2;             // "" = unassign
+}
+
+message AutoAssignRequest {
+  string conversation_id = 1;
+  string group_key = 2;                        // opaque; rotation state keyed by (account, group_key)
+  repeated RoundRobinCandidate candidates = 3; // caller-supplied until Phase 5
+}
+message AutoAssignResult {
+  bool assigned = 1;
+  string operator_id = 2;                      // "" when none available
+  Conversation conversation = 3;               // populated when assigned
+  // "" on success; a machine-readable reason when assigned=false, e.g.
+  // NO_OPERATOR_AVAILABLE | GROUP_ROUTING_NOT_AVAILABLE (spec US3 #3/#4).
+  string reason = 4;
+}
+
+message LabelLinkRequest {
+  string conversation_id = 1;
+  string label_id = 2;
+}
+message CreateLabelRequest {
+  string name = 1;
+  string color = 2;
+}
+message DefineMacroRequest {
+  string name = 1;
+  repeated MacroAction actions = 2;
+}
+message ApplyMacroRequest {
+  string conversation_id = 1;
+  string macro_id = 2;
+}
+message CreateCannedResponseRequest {
+  string name = 1;
+  string body = 2;
 }

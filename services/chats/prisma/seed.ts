@@ -24,6 +24,19 @@ async function run(): Promise<void> {
         create: cl,
         update: {},
       });
+    // feature 013 (roadmap 4.5): macro definitions + the canned-response library.
+    for (const macro of seed.macros)
+      await db.macro.upsert({
+        where: { id: macro.id },
+        create: macro as never,
+        update: macro as never,
+      });
+    for (const canned of seed.cannedResponses)
+      await db.cannedResponse.upsert({
+        where: { id: canned.id },
+        create: canned,
+        update: canned,
+      });
     console.log('chats seed: ok');
   } finally {
     await base.$disconnect();

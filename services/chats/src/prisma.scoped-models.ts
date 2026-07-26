@@ -4,4 +4,13 @@
  * scoped through its in-schema parents. Cross-checked against schema.prisma by
  * tests/data-model/account-scope-coverage.spec.ts.
  */
-export const SCOPED_MODELS = ['Conversation', 'Message', 'Label', 'Macro', 'Automation'] as const;
+export const SCOPED_MODELS = [
+  'Conversation',
+  'Message',
+  'Label',
+  'Macro',
+  'Automation',
+  // Feature 013 (roadmap 4.4/4.5).
+  'CannedResponse',
+  'RoundRobinState',
+] as const;

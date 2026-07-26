@@ -33,6 +33,24 @@ describe('auth seed builder', () => {
     for (const p of seed.permissions) expect(p.account_id).toBe(SEED_ACCOUNT_ID);
   });
 
+  it('seeds the feature-013 workflow keys with their role defaults', () => {
+    const NEW_KEYS = ['crm.conversation.assign', 'crm.labels.manage', 'crm.templates.manage'];
+    for (const key of NEW_KEYS) {
+      expect(seed.permissions.some((p) => p.key === key)).toBe(true);
+    }
+    const roleId = (k: string) => seed.roles.find((r) => r.key === k)!.id;
+    const holds = (role: string, key: string) =>
+      seed.rolePermissions.some(
+        (rp) => rp.role_id === roleId(role) && rp.permission_id === `seed-perm-${key}`,
+      );
+    // Operational roles route + label; authoring templates is lead/admin only (research R2).
+    expect(holds('support_agent', 'crm.conversation.assign')).toBe(true);
+    expect(holds('support_agent', 'crm.labels.manage')).toBe(true);
+    expect(holds('support_agent', 'crm.templates.manage')).toBe(false);
+    expect(holds('teamlead', 'crm.templates.manage')).toBe(true);
+    expect(holds('admin', 'crm.templates.manage')).toBe(true);
+  });
+
   it('the default matrix is coherent: only super_admin holds platform.role.manage (FR-018)', () => {
     const superAdmin = seed.roles.find((r) => r.key === 'super_admin')!;
     const others = seed.roles.filter((r) => r.key !== 'super_admin');

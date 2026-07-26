@@ -15,4 +15,10 @@ export const SCOPED_MODELS = [
   // login lookup) — a scoped read would fail-closed with no account context.
   'SuperadminWhitelist',
   'Invitation',
+  // Feature 011 (RBAC). Only the tables that declare account_id are enrolled; the join/child
+  // tables (RolePermission, UserPermissionEntry) carry no account_id and are scoped via their
+  // in-schema parents (Role / User + Permission) — like UserRole.
+  'Permission',
+  'UserPermissionSet',
+  'PrivilegeAudit',
 ] as const;

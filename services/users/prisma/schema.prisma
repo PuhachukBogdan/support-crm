@@ -70,3 +70,20 @@ model PlayerBrand {
   @@id([player_id, brand_id])
   @@index([brand_id]) // for ListPlayersByBrand (users.proto)
 }
+
+/// Contact-field-view audit (feature 011, US4 — SEC-AP3 / ADR 0019). One row per read that
+/// surfaces a maskable contact-field tier. Records WHO read WHICH contact's WHICH field category
+/// and WHEN — never the value (Principle IV). `actor_user_id` is a soft ref to auth.User.id
+/// (resolved via gRPC metadata, never joined). Under a view-as preview the actor is the real
+/// caller (God), never the impersonated role (FR-021).
+model ContactViewAudit {
+  id             String   @id @default(uuid())
+  account_id     String
+  actor_user_id  String // soft ref to auth.User.id (the reader)
+  player_id      String // target contact (domain key)
+  field_category String // 'masked_pii' | 'am_only' | 'operational' — tier surfaced, NOT the value
+  created_at     DateTime @default(now())
+
+  @@index([account_id, created_at])
+  @@index([account_id, player_id])
+}

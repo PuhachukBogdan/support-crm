@@ -17,8 +17,18 @@ The system's **single ingress** and API edge. Serves **REST + WebSocket on one h
   from the validated claims, never the body), `POST /auth/register/start` + `/auth/register/complete`
   (public). Forwards to `AuthService`; sets the session on activation/registration success; maps
   weak-password → **422**, hierarchy → **403**, rate-limit → **429**, other auth failures → **401**.
+- **RBAC edge (feature 011):** a `PermissionGuard` + `@RequiresPermission('key')` decorator enforce
+  per-route permissions — it resolves the caller's effective set from a **Redis projection**
+  (`EffectivePermsCache`), calling `AuthService.ResolveEffectivePermissions` only on a cache miss and
+  invalidating on any change (the JWT carries roles, not permissions — R-1); missing permission → 403.
+  **Access-Management REST** (`/admin/access/*`, super-admin-gated) proxies role/permission
+  management to auth (catalogue/defaults reads; personalize user/group/role + reset + assign-role
+  writes; cross-role group → 409, `super_admin` via UI → 403). **View-as preview** (`POST`/`DELETE
+  /admin/view-as`, requires `platform.view_as`) sets a transient Redis-backed preview context; while
+  active, reads are shaped to the previewed role and **every mutating request is refused (403)** —
+  strictly read-only (SC-009). See `src/security/` + `src/rbac/` + `src/auth/view-as.controller.ts`.
 - `GET /health` (+ `/health/ready`) and `GET /ping` — unauthenticated infra surfaces (`@Public()`).
-- Owns **no database**. Holds a Redis connection for its own readiness check.
+- Owns **no database**. Holds a Redis connection for its readiness check + the effective-permission cache.
 
 ## Interfaces
 - gRPC **client** of: `auth` (full `AuthService` — login/verify/refresh/logout/validate), plus

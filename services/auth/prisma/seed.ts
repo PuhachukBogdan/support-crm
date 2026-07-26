@@ -14,6 +14,15 @@ async function run(): Promise<void> {
   const seed = buildSeed();
   try {
     for (const role of seed.roles) await db.role.upsert({ where: { id: role.id }, create: role, update: role });
+    // Feature 011 — permission catalogue + role default matrix (roles must exist first for the FK).
+    for (const perm of seed.permissions)
+      await db.permission.upsert({ where: { id: perm.id }, create: perm, update: perm });
+    for (const rp of seed.rolePermissions)
+      await db.rolePermission.upsert({
+        where: { role_id_permission_id: { role_id: rp.role_id, permission_id: rp.permission_id } },
+        create: rp,
+        update: {},
+      });
     for (const user of seed.users) await db.user.upsert({ where: { id: user.id }, create: user, update: user });
     for (const cred of seed.credentials)
       await db.credential.upsert({ where: { id: cred.id }, create: cred, update: cred });

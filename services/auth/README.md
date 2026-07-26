@@ -3,8 +3,11 @@
 Authentication / identity service. **State:** a bootable **gRPC microservice** that owns `auth_db`
 and implements the **login & session engine** (feature 009) plus the **account lifecycle** (feature
 010) — two-step login, JWT issuance, rotating sessions, lockout, super-admin whitelist onboarding,
-admin invites, and invited-user registration — alongside `HealthService.Check`. RBAC enforcement +
-the full role matrix + the "view-as-role" preview are **feature 011**.
+admin invites, and invited-user registration — alongside `HealthService.Check`. It also **owns the
+RBAC model** (feature 011): the permission registry, role defaults/templates, copy-on-write per-user
+overrides, privilege-change audit, and effective-permission resolution. Enforcement runs in the
+shared policy lib at the gateway + owning services; contact-field masking lives in `users`; the
+"view-as-role" preview is at the gateway.
 
 ## Responsibility & boundaries
 - gRPC server (`GRPC_URL`, compose port **50051**) hosting `AuthService` + `HealthService`.
@@ -22,10 +25,18 @@ the full role matrix + the "view-as-role" preview are **feature 011**.
   matching email + fresh emailed code + policy password. Set-time **password policy** (min length +
   upper/digit/symbol, configurable) is enforced at every set-password surface. Codes reuse `LoginCode`
   (purpose `activation`/`registration`); the target `User` is pre-created non-active (`pending`/`invited`).
+- **RBAC (feature 011):** owns the permission model — `ListPermissionCatalogue`/`ListRoleDefaults`
+  (registry by category, versioned; role templates), the copy-on-write personalization
+  (`PersonalizeUser`/`PersonalizeGroup`, single-role group, `ResetToDefault`), `AssignRole`
+  (refuses `super_admin` — whitelist only), and `ResolveEffectivePermissions` (the resolver the
+  gateway calls on a cache miss). Management RPCs are super-admin-gated server-side (FR-018); every
+  mutation writes a `PrivilegeAudit` (references only, no PII — 0019/SEC-29). Role defaults come from
+  `src/rbac/catalogue.ts` (`ROLE_DEFAULTS`), also the whole-role reset source. See `src/rbac/`.
 - Data model: `User` (+ `failed_login_count`/`locked_until`; statuses `active`/`disabled`/`pending`/`invited`),
   `Credential` (argon2id `secret_hash`), `Role`/`UserRole`, feature-009 `LoginCode` / `RefreshToken`,
-  and feature-010 `SuperadminWhitelist` / `Invitation` — every tenant table carries an indexed
-  `account_id` seam (ADR 0003).
+  feature-010 `SuperadminWhitelist` / `Invitation`, and **feature-011** `Permission` / `RolePermission`
+  / `UserPermissionSet` / `UserPermissionEntry` / `PrivilegeAudit` — every tenant table carries an
+  indexed `account_id` seam (ADR 0003).
 - Isolation (feature 007): tenant data flows via `PrismaService.forAccount(accountId)` (fail-closed) —
   see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts). The **pre-login
   credential lookup runs unscoped** (it *establishes* `account_id` — research R7); minted tokens are
@@ -35,7 +46,9 @@ the full role matrix + the "view-as-role" preview are **feature 011**.
 - Owned gRPC contract: [`libs/proto/crm/auth/v1/auth.proto`](../../libs/proto/crm/auth/v1/auth.proto)
   (`AuthService`: `Login`→`LoginChallenge`, `VerifyLoginCode`, `ValidateToken`, `Refresh`, `Logout`,
   `ResendLoginCode`; **feature 010:** `RequestActivation`, `CompleteActivation`, `CreateInvitation`,
-  `StartRegistration`, `CompleteRegistration`) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto).
+  `StartRegistration`, `CompleteRegistration`; **feature 011:** `ResolveEffectivePermissions`,
+  `ListPermissionCatalogue`, `ListRoleDefaults`, `SetRoleDefault`, `PersonalizeUser`,
+  `PersonalizeGroup`, `ResetToDefault`, `AssignRole`) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto).
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `auth_db`.
 - Outbound seams: `EmailPort` (dev in-memory outbox now; worker→SMTP + egress allow-list later) and
   `AdminNotificationPort` (identity-only lockout alert) — `src/auth/ports/`.

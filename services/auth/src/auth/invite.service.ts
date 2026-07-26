@@ -21,8 +21,9 @@ export type InviteOutcome =
 
 /**
  * Whodunnit rule (FR-008 / research R8): super-admin may invite admins + any non-super role; admin
- * may invite non-super, non-admin roles; nobody may invite a super-admin. `role_key` is an opaque
- * string here — the concrete catalog is feature 011 (N1).
+ * may invite non-super, non-admin roles; nobody may invite a super-admin. This checks the HIERARCHY
+ * only; the target role must ALSO exist in the account's catalogue (feature 011) — validated in
+ * `createInvitation`, so an unknown/empty `role_key` is rejected rather than silently created.
  */
 export function canInvite(callerRoles: string[], roleKey: string): boolean {
   if (roleKey === 'super_admin') return false; // super-admins originate only from the whitelist.
@@ -53,6 +54,12 @@ export class InviteService {
 
   async createInvitation(inviter: Inviter, email: string, roleKey: string): Promise<InviteOutcome> {
     if (!canInvite(inviter.roles, roleKey)) return { status: 'forbidden' };
+    // The target role MUST exist in this account's catalogue (feature 011 seeds the 7 roles). An
+    // unknown/empty role_key is rejected here — never silently upserted into a blank-key Role.
+    const targetRole = await this.prisma.role.findUnique({
+      where: { account_id_key: { account_id: inviter.accountId, key: roleKey } },
+    });
+    if (!targetRole) return { status: 'forbidden' };
     if (
       !this.rate.allow(`invite:${inviter.userId}`, this.cfg.INVITE_RATE_MAX, this.cfg.INVITE_RATE_WINDOW)
     ) {
@@ -73,7 +80,7 @@ export class InviteService {
       },
     });
 
-    await this.ensureInvitedUser(email, inviter.accountId, roleKey);
+    await this.ensureInvitedUser(email, inviter.accountId, targetRole.id);
 
     await this.email.sendInvite({
       to: email,
@@ -84,18 +91,14 @@ export class InviteService {
     return { status: 'created', invitationId: row.id };
   }
 
-  /** Pre-create the invited User (non-active) + role, unless an account already exists for the email. */
-  private async ensureInvitedUser(email: string, accountId: string, roleKey: string): Promise<void> {
+  /** Pre-create the invited User (non-active) + bind the (already-validated) role, unless an account
+   * already exists for the email. `roleId` is a catalogue role validated in `createInvitation`. */
+  private async ensureInvitedUser(email: string, accountId: string, roleId: string): Promise<void> {
     const existing = await this.prisma.user.findFirst({ where: { email } });
     if (existing) return; // do not duplicate or escalate an existing account.
     const user = await this.prisma.user.create({
       data: { account_id: accountId, email, status: 'invited' },
     });
-    const role = await this.prisma.role.upsert({
-      where: { account_id_key: { account_id: accountId, key: roleKey } },
-      create: { account_id: accountId, key: roleKey },
-      update: {},
-    });
-    await this.prisma.userRole.create({ data: { user_id: user.id, role_id: role.id } });
+    await this.prisma.userRole.create({ data: { user_id: user.id, role_id: roleId } });
   }
 }

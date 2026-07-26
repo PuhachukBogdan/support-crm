@@ -24,6 +24,10 @@ describe('RegistrationService', () => {
     const otp = new OtpService(cfg, clock, prisma as never, outbox);
     const invites = new InviteService(cfg, clock, prisma as never, tokens, new RateLimiter(clock), outbox);
     const registration = new RegistrationService(cfg, clock, prisma as never, otp, tokens);
+    // Feature 011: invites now require the target role to exist in the account catalogue — seed it.
+    if (!prisma._tables.roles.find((r) => r.key === role)) {
+      prisma._tables.roles.push({ id: `role-${role}`, account_id: 'acct-1', key: role });
+    }
     await invites.createInvitation(superAdmin, email, role);
     const token = outbox.inviteOutbox[0]!.inviteToken;
     return { registration, outbox, tokens, token, prisma };

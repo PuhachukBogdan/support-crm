@@ -35,6 +35,8 @@ model User {
   roles       UserRole[]
   loginCodes  LoginCode[]
   refreshTokens RefreshToken[]
+  permissionSet     UserPermissionSet? // feature 011 — copy-on-write personalization state
+  permissionEntries UserPermissionEntry[] // feature 011 — standalone snapshot rows
 
   @@unique([account_id, email])
   @@index([account_id])
@@ -67,7 +69,8 @@ model Role {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  users UserRole[]
+  users           UserRole[]
+  rolePermissions RolePermission[] // feature 011 — this role's default (template) permission set
 
   @@unique([account_id, key])
   @@index([account_id])
@@ -161,4 +164,81 @@ model Invitation {
   @@index([account_id])
   @@index([email])
   @@index([expires_at])
+}
+
+// --- Feature 011: RBAC (roadmap 3.3/3.6/3.7; ADR 0004 filled by 0034) ---
+
+/// The extensible, versioned permission registry (FR-001). A permission is identified by
+/// (account_id, category, key); `introduced_version` records the catalogue version it was added at.
+/// A newly-added permission is in NO role default → OFF for everyone until granted (R-2 corollary).
+model Permission {
+  id                 String   @id @default(uuid())
+  account_id         String
+  category           String // logical group: crm | analytics | users | reports | platform | …
+  key                String // e.g. contact.read_pii | role.manage | settings.manage
+  label              String? // human label (never a brand identity — Principle VI).
+  introduced_version Int      @default(1)
+  created_at         DateTime @default(now())
+
+  rolePermissions RolePermission[]
+  userEntries     UserPermissionEntry[]
+
+  @@unique([account_id, category, key])
+  @@index([account_id])
+}
+
+/// Role → permission (the role's DEFAULT/template set = its matrix row). No account_id — scoped
+/// via its Role parent. Editing these rows is the "whole-role" management action + reset target.
+model RolePermission {
+  role_id       String
+  permission_id String
+
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+  @@index([permission_id])
+}
+
+/// Per-user personalization state (copy-on-write, R-2). Absent row / mode="inherited" → the user
+/// live-inherits the role default. mode="standalone" → effective = the user's UserPermissionEntry
+/// snapshot (role-template changes no longer propagate until reset). account_id is the tenant seam.
+model UserPermissionSet {
+  user_id          String   @id
+  account_id       String
+  mode             String   @default("inherited") // inherited | standalone
+  snapshot_role_id String? // the role snapshotted at personalization time (audit/debug).
+  updated_at       DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([account_id])
+}
+
+/// A standalone snapshot row — present ONLY when the user's set is "standalone". The materialized
+/// effective grant. No account_id — scoped via its User/Permission parents.
+model UserPermissionEntry {
+  user_id       String
+  permission_id String
+  granted       Boolean @default(true)
+
+  user       User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, permission_id])
+  @@index([user_id])
+}
+
+/// Privilege-change audit (FR-013; 0019/SEC-29). One row per management action. NEVER holds a
+/// secret or PII — only references + the changed permission keys/scope (Principle IV).
+model PrivilegeAudit {
+  id            String   @id @default(uuid())
+  account_id    String
+  actor_user_id String // who performed it (God preview tagged, never the impersonated role).
+  action        String // role_assign | role_change | role_revoke | perm_grant | perm_revoke | reset
+  target_ref    String // affected user id(s) or role id (reference only).
+  detail_json   Json? // permission keys / scope (user|group|role) — no values, no PII.
+  created_at    DateTime @default(now())
+
+  @@index([account_id, created_at])
 }

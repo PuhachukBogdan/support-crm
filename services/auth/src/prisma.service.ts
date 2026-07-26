@@ -5,6 +5,11 @@ import { withAccountScope } from '@crm/common';
 import { PrismaClient } from './generated/prisma';
 import { SCOPED_MODELS } from './prisma.scoped-models';
 
+// Re-export the generated `Prisma` namespace type so other auth files (e.g. the RBAC audit writer)
+// can name Prisma input types WITHOUT importing the generated client directly — the cross-service
+// guard (tests/data-model/no-cross-service-access) allows the generated import only here.
+export type { Prisma } from './generated/prisma';
+
 /**
  * Per-service Prisma client (spec 003, US5 / FR-011). Reads DATABASE_URL from the env
  * (each service has its OWN database + role — isolation). Backed by auth_db

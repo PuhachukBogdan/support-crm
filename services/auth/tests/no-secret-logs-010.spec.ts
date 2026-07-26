@@ -26,6 +26,8 @@ describe('account-lifecycle flows never log secrets (FR-016 / SC-006)', () => {
       users: [{ id: 'sa-boot', account_id: 'acct-A', email: 'admin-boot@example.test', status: 'active' }],
       userRoles: [{ user_id: 'sa-boot', roleKey: 'super_admin' }],
     });
+    // Feature 011: invites require the target role to exist in the account catalogue (acct-A here).
+    prisma._tables.roles.push({ id: 'role-manager', account_id: 'acct-A', key: 'manager' });
     const clock = new FixedClock();
     const email = new OutboxEmailAdapter();
     const p = prisma as unknown as PrismaService;

@@ -45,6 +45,24 @@ export {
   RegistrationStatus,
   RegistrationChallenge,
   CompleteRegistrationRequest,
+  // Feature 011 — RBAC. US1: effective-permission resolution. US2: catalogue / role defaults.
+  // US3: management mutations (super-admin only).
+  PermissionMode,
+  ResolveRequest,
+  ResolveResponse,
+  CatalogueRequest,
+  CataloguePermission,
+  CatalogueCategory,
+  CatalogueResponse,
+  RoleDefaultsRequest,
+  RoleDefaultsResponse,
+  RbacStatus,
+  RbacMutationResult,
+  SetRoleDefaultRequest,
+  PersonalizeRequest,
+  PersonalizeGroupRequest,
+  ResetRequest,
+  AssignRoleRequest,
 } from '../gen/crm/auth/v1/auth';
 
 // Chats <-> Users (players/operators, read-only)

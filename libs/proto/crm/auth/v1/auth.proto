@@ -58,6 +58,26 @@ service AuthService {
   // Finish registration: verify token + code + password policy → create/activate the user with
   // the invited role, consume the invite, and issue a session.
   rpc CompleteRegistration(CompleteRegistrationRequest) returns (TokenPair);
+
+  // --- Feature 011: RBAC (roadmap 3.3/3.6/3.7). ADDITIVE. ---
+  // See specs/011-rbac-role-matrix/contracts/auth-grpc.md. US1 wires ONLY the resolver; the
+  // management / catalogue RPCs (SetRoleDefault, PersonalizeUser, …) land in US2/US3.
+
+  // Resolve a user's EFFECTIVE permission set (hot path — the gateway calls this on a cache miss,
+  // R-1). Inherited users resolve to their role's default set; standalone users to their snapshot.
+  // `preview_role` (view-as, US5) shapes the resolved set to that role and marks it read-only.
+  rpc ResolveEffectivePermissions(ResolveRequest) returns (ResolveResponse);
+
+  // --- US2: catalogue / role defaults (super-admin admin-panel reads) ---
+  rpc ListPermissionCatalogue(CatalogueRequest) returns (CatalogueResponse);
+  rpc ListRoleDefaults(RoleDefaultsRequest) returns (RoleDefaultsResponse);
+
+  // --- US3: management (super-admin only; each writes PrivilegeAudit) ---
+  rpc SetRoleDefault(SetRoleDefaultRequest) returns (RbacMutationResult);
+  rpc PersonalizeUser(PersonalizeRequest) returns (RbacMutationResult);
+  rpc PersonalizeGroup(PersonalizeGroupRequest) returns (RbacMutationResult);
+  rpc ResetToDefault(ResetRequest) returns (RbacMutationResult);
+  rpc AssignRole(AssignRoleRequest) returns (RbacMutationResult);
 }
 
 message ValidateTokenRequest {
@@ -182,4 +202,124 @@ message CompleteRegistrationRequest {
   string email = 2;
   string code = 3; // emailed verification code (LoginCode, purpose="registration")
   string password = 4; // must satisfy the password policy
+}
+
+// --- Feature 011 messages (RBAC) ---
+
+// Whether a user's effective permissions are the live role default or a personalized snapshot.
+// NB (proto3 trap): enum values share the package scope → every value is PREFIXED.
+enum PermissionMode {
+  PERMISSION_MODE_UNSPECIFIED = 0;
+  PERMISSION_MODE_INHERITED = 1; // effective = the role's current default set (live).
+  PERMISSION_MODE_STANDALONE = 2; // effective = the user's materialized snapshot (copy-on-write).
+}
+
+message ResolveRequest {
+  string account_id = 1;
+  string user_id = 2;
+  string preview_role = 3; // view-as (US5); empty for normal resolution.
+}
+
+message ResolveResponse {
+  string role_key = 1;
+  repeated string permission_keys = 2; // the effective permission keys.
+  PermissionMode mode = 3;
+  bool is_preview = 4; // true when preview_role shaped the result (US5).
+  bool read_only = 5; // true under preview — no mutation may proceed (US5).
+}
+
+// --- US2: catalogue / role defaults ---
+
+message CatalogueRequest {
+  string account_id = 1;
+}
+
+message CataloguePermission {
+  string key = 1;
+  string label = 2;
+  int32 introduced_version = 3;
+}
+
+message CatalogueCategory {
+  string category = 1;
+  repeated CataloguePermission permissions = 2;
+}
+
+message CatalogueResponse {
+  repeated CatalogueCategory categories = 1;
+}
+
+message RoleDefaultsRequest {
+  string account_id = 1;
+  string role_key = 2;
+}
+
+message RoleDefaultsResponse {
+  repeated string permission_keys = 1;
+}
+
+// --- US3: management (super-admin only) ---
+
+// Outcome of an RBAC mutation. `affected_user_ids` feeds the gateway's cache invalidation (R-1).
+// NB (proto3 trap): enum values share the package scope → every value is PREFIXED.
+enum RbacStatus {
+  RBAC_STATUS_UNSPECIFIED = 0;
+  RBAC_STATUS_OK = 1; // applied.
+  RBAC_STATUS_FORBIDDEN = 2; // caller is not super-admin (FR-018).
+  RBAC_STATUS_CROSS_ROLE = 3; // group selection spans >1 role (FR-011).
+  RBAC_STATUS_SUPER_ADMIN_UI_FORBIDDEN = 4; // attempt to assign super_admin via UI (0033).
+  RBAC_STATUS_NOT_FOUND = 5; // role/user/permission not found (account-scoped).
+}
+
+message RbacMutationResult {
+  RbacStatus status = 1;
+  string message = 2;
+  repeated string affected_user_ids = 3; // whose effective-permission cache the gateway invalidates.
+}
+
+// Caller identity — populated by the gateway from the VALIDATED access JWT (Principle II).
+message SetRoleDefaultRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string role_key = 4;
+  string permission_key = 5;
+  bool grant = 6; // true = add to the role template; false = remove.
+}
+
+message PersonalizeRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string user_id = 4;
+  string permission_key = 5;
+  bool grant = 6;
+}
+
+message PersonalizeGroupRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  repeated string user_ids = 4; // must all share one role (else CROSS_ROLE).
+  string permission_key = 5;
+  bool grant = 6;
+}
+
+message ResetRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string scope = 4; // user | group | role
+  string user_id = 5; // scope=user
+  repeated string user_ids = 6; // scope=group
+  string role_key = 7; // scope=role
+}
+
+message AssignRoleRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string user_id = 4;
+  string role_key = 5; // never "super_admin" (whitelist only — 0033).
+  string op = 6; // assign | revoke
 }

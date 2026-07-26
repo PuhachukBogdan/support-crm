@@ -94,12 +94,50 @@ export interface FakeInvitation {
   created_at: Date;
 }
 
+// Feature 011 (RBAC) fixtures.
+export interface FakePermission {
+  id: string;
+  account_id: string;
+  category: string;
+  key: string;
+  label: string | null;
+  introduced_version: number;
+}
+export interface FakeUserPermissionSet {
+  user_id: string;
+  account_id: string;
+  mode: string; // inherited | standalone
+  snapshot_role_id: string | null;
+}
+export interface FakePrivilegeAudit {
+  id: string;
+  account_id: string;
+  actor_user_id: string;
+  action: string;
+  target_ref: string;
+  detail_json: unknown;
+  created_at: Date;
+}
+
 export interface FakeSeed {
   users?: Partial<FakeUser>[];
   credentials?: Partial<FakeCredential>[];
   userRoles?: { user_id: string; roleKey: string }[];
   whitelist?: Partial<FakeWhitelistEntry>[];
   invitations?: Partial<FakeInvitation>[];
+  // Feature 011 (RBAC). Roles are addressed by key; a role's fake id is `role-<key>` and a
+  // permission's fake id is `perm-<key>` so fixtures stay readable.
+  permissions?: { key: string; category?: string; account_id?: string; label?: string }[];
+  rolePermissions?: { roleKey: string; permKey: string }[];
+  // Roles addressable by key (fake id = `role-<key>`); also auto-derived from userRoles/rolePermissions.
+  roles?: { key: string }[];
+  userPermissionSets?: {
+    user_id: string;
+    mode?: string;
+    account_id?: string;
+    snapshot_role_id?: string | null;
+  }[];
+  userPermissionEntries?: { user_id: string; permKey: string; granted?: boolean }[];
 }
 
 /** A minimal, stateful stand-in for the auth PrismaService (only the methods the services use). */
@@ -142,6 +180,40 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
     consumed_at: v.consumed_at ?? null,
     created_at: v.created_at ?? new Date(),
   }));
+  // Feature 011 (RBAC) fixture tables.
+  const permissions: FakePermission[] = (seed.permissions ?? []).map((p) => ({
+    id: `perm-${p.key}`,
+    account_id: p.account_id ?? 'acct-1',
+    category: p.category ?? 'crm',
+    key: p.key,
+    label: p.label ?? null,
+    introduced_version: 1,
+  }));
+  const rolePermissions: { role_id: string; permission_id: string }[] = (
+    seed.rolePermissions ?? []
+  ).map((rp) => ({ role_id: `role-${rp.roleKey}`, permission_id: `perm-${rp.permKey}` }));
+  const userPermissionSets: FakeUserPermissionSet[] = (seed.userPermissionSets ?? []).map((s) => ({
+    user_id: s.user_id,
+    account_id: s.account_id ?? 'acct-1',
+    mode: s.mode ?? 'inherited',
+    snapshot_role_id: s.snapshot_role_id ?? null,
+  }));
+  const userPermissionEntries: { user_id: string; permission_id: string; granted: boolean }[] = (
+    seed.userPermissionEntries ?? []
+  ).map((e) => ({ user_id: e.user_id, permission_id: `perm-${e.permKey}`, granted: e.granted ?? true }));
+  const privilegeAudits: FakePrivilegeAudit[] = [];
+
+  // Roles addressable by key (fake id convention: `role-<key>`) — union of every place a role key
+  // appears, so services can resolve/assign roles hermetically. role.findFirst returns null for keys
+  // never seeded (so not-found is testable).
+  for (const key of new Set<string>([
+    ...(seed.roles ?? []).map((r) => r.key),
+    ...userRoles.map((ur) => ur.roleKey),
+    ...(seed.rolePermissions ?? []).map((rp) => rp.roleKey),
+  ])) {
+    roles.push({ id: `role-${key}`, account_id: 'acct-1', key });
+  }
+
   let lc = 0;
   let rt = 0;
   let uc = users.length;
@@ -300,17 +372,51 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         }
         return r;
       },
+      findFirst: async ({ where }: { where: { key?: string; id?: string } }) =>
+        roles.find((r) => (where.key !== undefined ? r.key === where.key : r.id === where.id)) ?? null,
+      findUnique: async ({
+        where,
+      }: {
+        where: { id?: string; account_id_key?: { account_id: string; key: string } };
+      }) => {
+        // Match real Prisma: findUnique accepts either the id or the @@unique([account_id, key]).
+        if (where.account_id_key) {
+          const { account_id, key } = where.account_id_key;
+          return roles.find((r) => r.account_id === account_id && r.key === key) ?? null;
+        }
+        return roles.find((r) => r.id === where.id) ?? null;
+      },
     },
     userRole: {
-      findMany: async ({ where }: { where: { user_id: string } }) =>
+      findMany: async ({ where }: { where?: { user_id?: string; role_id?: string } } = {}) =>
         userRoles
-          .filter((ur) => ur.user_id === where.user_id)
-          .map((ur) => ({ user_id: ur.user_id, role: { key: ur.roleKey } })),
+          .filter(
+            (ur) =>
+              (where?.user_id === undefined || ur.user_id === where.user_id) &&
+              (where?.role_id === undefined || `role-${ur.roleKey}` === where.role_id),
+          )
+          .map((ur) => ({
+            user_id: ur.user_id,
+            role_id: `role-${ur.roleKey}`,
+            role: { id: `role-${ur.roleKey}`, key: ur.roleKey },
+          })),
       create: async ({ data }: { data: { user_id: string; role_id: string } }) => {
         const r = roles.find((x) => x.id === data.role_id);
-        const roleKey = r?.key ?? data.role_id;
+        const roleKey = r?.key ?? data.role_id.replace(/^role-/, '');
         userRoles.push({ user_id: data.user_id, roleKey });
         return { user_id: data.user_id, role_id: data.role_id };
+      },
+      deleteMany: async ({ where }: { where: { user_id?: string; role_id?: string } }) => {
+        const before = userRoles.length;
+        for (let i = userRoles.length - 1; i >= 0; i--) {
+          const ur = userRoles[i]!;
+          if (
+            (where.user_id === undefined || ur.user_id === where.user_id) &&
+            (where.role_id === undefined || `role-${ur.roleKey}` === where.role_id)
+          )
+            userRoles.splice(i, 1);
+        }
+        return { count: before - userRoles.length };
       },
     },
     superadminWhitelist: {
@@ -338,8 +444,157 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         return v;
       },
     },
+    // --- Feature 011 (RBAC) ---
+    permission: {
+      findFirst: async ({ where }: { where: { key?: string; id?: string } }) =>
+        permissions.find((p) => (where.key !== undefined ? p.key === where.key : p.id === where.id)) ??
+        null,
+      findMany: async ({
+        where,
+      }: { where?: { id?: { in: string[] }; key?: { in: string[] } } } = {}) => {
+        if (where?.id?.in) return permissions.filter((p) => where.id!.in.includes(p.id));
+        if (where?.key?.in) return permissions.filter((p) => where.key!.in.includes(p.key));
+        return permissions;
+      },
+    },
+    rolePermission: {
+      findMany: async ({ where }: { where?: { role_id?: string } } = {}) =>
+        rolePermissions.filter((rp) => !where?.role_id || rp.role_id === where.role_id),
+      upsert: async ({
+        where,
+        create,
+      }: {
+        where: { role_id_permission_id: { role_id: string; permission_id: string } };
+        create: { role_id: string; permission_id: string };
+      }) => {
+        const k = where.role_id_permission_id;
+        if (
+          !rolePermissions.some(
+            (rp) => rp.role_id === k.role_id && rp.permission_id === k.permission_id,
+          )
+        )
+          rolePermissions.push({ role_id: create.role_id, permission_id: create.permission_id });
+        return { role_id: k.role_id, permission_id: k.permission_id };
+      },
+      create: async ({ data }: { data: { role_id: string; permission_id: string } }) => {
+        rolePermissions.push({ role_id: data.role_id, permission_id: data.permission_id });
+        return data;
+      },
+      deleteMany: async ({ where }: { where: { role_id?: string; permission_id?: string } }) => {
+        const before = rolePermissions.length;
+        for (let i = rolePermissions.length - 1; i >= 0; i--) {
+          const rp = rolePermissions[i]!;
+          if (
+            (where.role_id === undefined || rp.role_id === where.role_id) &&
+            (where.permission_id === undefined || rp.permission_id === where.permission_id)
+          )
+            rolePermissions.splice(i, 1);
+        }
+        return { count: before - rolePermissions.length };
+      },
+    },
+    userPermissionSet: {
+      findUnique: async ({ where }: { where: { user_id: string } }) =>
+        userPermissionSets.find((s) => s.user_id === where.user_id) ?? null,
+      upsert: async ({
+        where,
+        create,
+        update,
+      }: {
+        where: { user_id: string };
+        create: FakeUserPermissionSet;
+        update: Partial<FakeUserPermissionSet>;
+      }) => {
+        const existing = userPermissionSets.find((s) => s.user_id === where.user_id);
+        if (existing) {
+          Object.assign(existing, update);
+          return existing;
+        }
+        const row: FakeUserPermissionSet = {
+          user_id: create.user_id,
+          account_id: create.account_id ?? 'acct-1',
+          mode: create.mode ?? 'inherited',
+          snapshot_role_id: create.snapshot_role_id ?? null,
+        };
+        userPermissionSets.push(row);
+        return row;
+      },
+    },
+    userPermissionEntry: {
+      findMany: async ({ where }: { where: { user_id: string; granted?: boolean } }) =>
+        userPermissionEntries.filter(
+          (e) =>
+            e.user_id === where.user_id &&
+            (where.granted === undefined || e.granted === where.granted),
+        ),
+      upsert: async ({
+        where,
+        create,
+        update,
+      }: {
+        where: { user_id_permission_id: { user_id: string; permission_id: string } };
+        create: { user_id: string; permission_id: string; granted?: boolean };
+        update: { granted?: boolean };
+      }) => {
+        const k = where.user_id_permission_id;
+        const existing = userPermissionEntries.find(
+          (e) => e.user_id === k.user_id && e.permission_id === k.permission_id,
+        );
+        if (existing) {
+          if (update.granted !== undefined) existing.granted = update.granted;
+          return existing;
+        }
+        const row = {
+          user_id: create.user_id,
+          permission_id: create.permission_id,
+          granted: create.granted ?? true,
+        };
+        userPermissionEntries.push(row);
+        return row;
+      },
+      deleteMany: async ({ where }: { where: { user_id?: string; permission_id?: string } }) => {
+        const before = userPermissionEntries.length;
+        for (let i = userPermissionEntries.length - 1; i >= 0; i--) {
+          const e = userPermissionEntries[i]!;
+          if (
+            (where.user_id === undefined || e.user_id === where.user_id) &&
+            (where.permission_id === undefined || e.permission_id === where.permission_id)
+          )
+            userPermissionEntries.splice(i, 1);
+        }
+        return { count: before - userPermissionEntries.length };
+      },
+    },
+    privilegeAudit: {
+      create: async ({ data }: { data: Omit<FakePrivilegeAudit, 'id' | 'created_at'> }) => {
+        const row: FakePrivilegeAudit = {
+          id: `pa-${privilegeAudits.length + 1}`,
+          created_at: new Date(),
+          ...data,
+        };
+        privilegeAudits.push(row);
+        return row;
+      },
+    },
+    // The account-scoped client (feature 007) — in tests the fake IS already single-account, so
+    // `forAccount` just returns itself (the resolver calls `prisma.forAccount(accountId).<model>`).
+    forAccount: () => prisma,
     // Expose the backing arrays for assertions.
-    _tables: { users, credentials, loginCodes, refreshTokens, roles, userRoles, whitelist, invitations },
+    _tables: {
+      users,
+      credentials,
+      loginCodes,
+      refreshTokens,
+      roles,
+      userRoles,
+      whitelist,
+      invitations,
+      permissions,
+      rolePermissions,
+      userPermissionSets,
+      userPermissionEntries,
+      privilegeAudits,
+    },
   };
   return prisma;
 }

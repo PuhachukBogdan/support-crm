@@ -5,6 +5,12 @@
 // Player is keyed by player_id and unifies 1..N brands (ADR 0032 §0.1 "Player-lite").
 // GR8 fields are NOT in this contract — the GR8 projection is deferred to 7.4.
 //
+// Feature 011 (RBAC): the caller's effective-permission CONTEXT rides in gRPC METADATA
+// (not message fields) — keys `x-actor-user-id`, `x-actor-account-id`, `x-actor-role`,
+// `x-actor-permissions` (comma-joined), `x-is-preview`. The service-tier guard re-checks it
+// independently so a call that skips the gateway is refused (US1). Field-level masking of the
+// Player DTO by tier is applied server-side in US4 (allow-list build; masked fields ABSENT).
+//
 // Generated TS message types (git-ignored): libs/proto/gen/crm/users/v1/users.ts
 
 syntax = "proto3";

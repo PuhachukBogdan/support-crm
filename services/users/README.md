@@ -11,7 +11,16 @@ model + the Player read path in place. Users domain gRPC (`UsersReadService`) ar
 - Data model (feature 006): `Operator`; `Player` ("Player-lite", ADR 0032 §0.1) keyed by `player_id`,
   unified across 1..N brands via the `PlayerBrand` edge (soft `brand_id`, no cross-service FK), with an
   **opaque** GR8-cache seam (`gr8_snapshot`/`gr8_fetched_at`/`gr8_stale` — GR8's typed projection is 7.4).
+  Feature 011 adds `ContactViewAudit` (actor/player/tier/timestamp — no value; SEC-AP3).
 - Read path: [`src/player/player.repository.ts`](src/player/player.repository.ts) `getPlayerById(accountId, playerId)`.
+- **Anti-pitching masking (feature 011, US4):** the owning service masks contact fields in the policy
+  layer — `maskPlayer(player, roleKey)` builds the response by ALLOW-LIST from the caller's role tier,
+  so fields a role may not see are **structurally absent** (not nulled — FR-014). Tiers live in
+  `@crm/common` `field-tiers` (`open`/`operational`/`am_only`/`masked_pii`; unclassified ⇒ fail-closed
+  `masked_pii`). Every read that surfaces a maskable tier writes a `ContactViewAudit` (tier name only,
+  never a value — SEC-AP3); `assertCanMassExport(roleKey)` blocks bulk export for linear roles
+  (SEC-AP2). These are the tested units the `UsersReadService` player handlers call when they land
+  (Phase 5). See [`src/player/`](src/player).
 - Isolation (feature 007): tenant data is read/written ONLY via `PrismaService.forAccount(accountId)`
   (account-scoped client; fail-closed) — see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
   The player-union (brands) is preserved under scope — the brand carve-out is brand-level, never

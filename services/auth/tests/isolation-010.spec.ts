@@ -25,6 +25,8 @@ describe('account-lifecycle isolation (Principle I / FR-018)', () => {
       users: [{ id: 'sa-b', account_id: 'acct-B', email: 'god@acct-b.test', status: 'active' }],
       userRoles: [{ user_id: 'sa-b', roleKey: 'super_admin' }],
     });
+    // Feature 011: invites require the target role to exist in the account catalogue (acct-A here).
+    prisma._tables.roles.push({ id: 'role-manager', account_id: 'acct-A', key: 'manager' });
     const clock = new FixedClock();
     const email = new OutboxEmailAdapter();
     const p = prisma as unknown as PrismaService;

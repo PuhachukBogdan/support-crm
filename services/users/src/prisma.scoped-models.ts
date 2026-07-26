@@ -5,4 +5,4 @@
  * level — see data-model.md). Cross-checked against schema.prisma by
  * tests/data-model/account-scope-coverage.spec.ts.
  */
-export const SCOPED_MODELS = ['Operator', 'Player'] as const;
+export const SCOPED_MODELS = ['Operator', 'Player', 'ContactViewAudit'] as const;

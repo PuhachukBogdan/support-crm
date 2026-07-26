@@ -43,7 +43,7 @@ describe('InviteService', () => {
   const superAdmin: Inviter = { userId: 'sa-1', accountId: 'acct-1', roles: ['super_admin'] };
 
   it('super-admin invites an admin → created, single-use token emailed, only hash at rest', async () => {
-    const prisma = makeFakePrisma();
+    const prisma = makeFakePrisma({ roles: [{ key: 'admin' }] });
     const { service, email } = build(prisma);
 
     const outcome = await service.createInvitation(superAdmin, 'newadmin@example.test', 'admin');
@@ -88,8 +88,20 @@ describe('InviteService', () => {
     expect(outcome.status).toBe('forbidden');
   });
 
+  it('unknown/empty role → forbidden; no blank-key Role or invited user created (Track-B finding)', async () => {
+    const prisma = makeFakePrisma({ roles: [{ key: 'admin' }] }); // catalogue has 'admin', not 'ghost'
+    const { service, email } = build(prisma);
+    const outcome = await service.createInvitation(superAdmin, 'ghost@example.test', 'ghost');
+    expect(outcome.status).toBe('forbidden');
+    expect(email.inviteOutbox).toHaveLength(0);
+    expect(prisma._tables.invitations).toHaveLength(0);
+    // the pre-011 bug created a blank/unknown Role + user here — must not happen now
+    expect(prisma._tables.roles.find((r) => r.key === 'ghost')).toBeUndefined();
+    expect(prisma._tables.users.find((u) => u.email === 'ghost@example.test')).toBeUndefined();
+  });
+
   it('rate-limited after the configured max in the window', async () => {
-    const prisma = makeFakePrisma();
+    const prisma = makeFakePrisma({ roles: [{ key: 'manager' }] });
     const { service } = build(prisma, makeAuthConfig({ INVITE_RATE_MAX: 2, INVITE_RATE_WINDOW: 3600 }));
     expect((await service.createInvitation(superAdmin, 'a@example.test', 'manager')).status).toBe('created');
     expect((await service.createInvitation(superAdmin, 'b@example.test', 'manager')).status).toBe('created');
@@ -99,6 +111,7 @@ describe('InviteService', () => {
   it('does not duplicate or escalate an existing account', async () => {
     const prisma = makeFakePrisma({
       users: [{ id: 'u9', email: 'exists@example.test', account_id: 'acct-1', status: 'active' }],
+      roles: [{ key: 'manager' }],
     });
     const { service } = build(prisma);
     const before = prisma._tables.users.length;

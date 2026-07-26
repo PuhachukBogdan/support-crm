@@ -29,6 +29,10 @@ import { SlaRepository } from './sla/sla.repository';
 import { SlaSweepRepository } from './sla/sla-sweep.repository';
 import { FirstReplyClock } from './sla/first-reply.clock';
 import { SlaController, SlaMaintenanceController } from './sla/sla.grpc.controller';
+// Feature 015 (roadmap 4.8): the audit trail — this service's source of the federated log.
+import { AuditRepository } from './audit/audit.repository';
+import { AuditReadController } from './audit/audit.grpc.controller';
+import { AuditAccessGuard } from './audit/audit.guard';
 
 // Phase 1 (spec 003): health probe. Feature 012 (roadmap 4.1–4.3): the chats-core domain —
 // ChatsReadService / ChatsWriteService over chats_db, account-scoped (forAccount) with a
@@ -55,6 +59,8 @@ import { SlaController, SlaMaintenanceController } from './sla/sla.grpc.controll
     // R3) — it is the only caller of the single unscoped id-only read.
     SlaController,
     SlaMaintenanceController,
+    // Feature 015.
+    AuditReadController,
   ],
   providers: [
     PrismaService,
@@ -75,6 +81,9 @@ import { SlaController, SlaMaintenanceController } from './sla/sla.grpc.controll
     SlaRepository,
     SlaSweepRepository,
     FirstReplyClock,
+    // Feature 015.
+    AuditRepository,
+    AuditAccessGuard,
   ],
 })
 export class AppModule implements OnModuleInit {

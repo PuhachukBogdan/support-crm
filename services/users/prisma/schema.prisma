@@ -71,19 +71,40 @@ model PlayerBrand {
   @@index([brand_id]) // for ListPlayersByBrand (users.proto)
 }
 
-/// Contact-field-view audit (feature 011, US4 — SEC-AP3 / ADR 0019). One row per read that
-/// surfaces a maskable contact-field tier. Records WHO read WHICH contact's WHICH field category
-/// and WHEN — never the value (Principle IV). `actor_user_id` is a soft ref to auth.User.id
-/// (resolved via gRPC metadata, never joined). Under a view-as preview the actor is the real
-/// caller (God), never the impersonated role (FR-021).
-model ContactViewAudit {
+/// Audit trail entry (feature 015, roadmap 4.8 — ADR 0019; SEC-29/SEC-30; extended by 0032/SEC-AP3).
+///
+/// ⚠️ This model is INTENTIONALLY IDENTICAL in auth_db, users_db and chats_db. The table cannot be shared
+/// (one database per service, Principle VIII) and the entry must be written inside the transaction of the
+/// action it describes (spec Q3 — action and entry succeed together), so the entry lives beside its action.
+/// `tests/data-model/audit-entry-identity.spec.ts` asserts the three definitions never drift apart.
+///
+/// APPEND-ONLY, structurally: no repository method and no controller updates or deletes a row, for any
+/// role including the owner. Audit integrity is not a permission anyone can hold — the ABSENCE of the path
+/// is the guarantee, and a structural test asserts it.
+///
+/// There is deliberately NO unique constraint. Feature 014 needed one because a scheduler could redeliver
+/// an event; nothing redelivers a sensitive action. A retry is a NEW act by the operator and deserves its
+/// own entry — two grant attempts, one failed, is exactly what a reviewer needs to see.
+///
+/// PII-free: `detail_json` is validated against a per-action-class key allow-list (libs/common/audit)
+/// before the write, so a contact value or a message body is not expressible here. `target_ref` identifies,
+/// never copies. Growth is unbounded until retention exists (ADR 0015 defers it; a trim job belongs with
+/// the worker catalogue 7.3 — and must itself be audited as `audit.trim`).
+model AuditEntry {
   id             String   @id @default(uuid())
   account_id     String
-  actor_user_id  String // soft ref to auth.User.id (the reader)
-  player_id      String // target contact (domain key)
-  field_category String // 'masked_pii' | 'am_only' | 'operational' — tier surfaced, NOT the value
+  actor_user_id  String // the REAL actor; soft ref to auth.User.id — never joined
+  actor_kind     String   @default("user") // user | system
+  actor_ref      String? // system actors only: which rule, under whose authority
+  under_preview  Boolean  @default(false) // owner view-as marker; the previewed ROLE is never the actor
+  action         String // from the closed catalogue — refused if unknown, never free text
+  target_ref     String // user / rule / player / export id — identified, NEVER copied
+  detail_json    Json? // PII-free, per-class allow-list validated
   created_at     DateTime @default(now())
 
-  @@index([account_id, created_at])
-  @@index([account_id, player_id])
+  // The read surface orders by (created_at DESC, id DESC) so two entries in the same instant still page
+  // deterministically — hence `id` in the ordering index.
+  @@index([account_id, created_at, id])
+  @@index([account_id, actor_user_id, created_at]) // "what did this user do"
+  @@index([account_id, target_ref, created_at]) // "what happened to this record" / "who accessed this player"
 }

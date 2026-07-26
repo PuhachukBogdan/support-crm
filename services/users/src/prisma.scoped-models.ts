@@ -5,4 +5,10 @@
  * level — see data-model.md). Cross-checked against schema.prisma by
  * tests/data-model/account-scope-coverage.spec.ts.
  */
-export const SCOPED_MODELS = ['Operator', 'Player', 'ContactViewAudit'] as const;
+export const SCOPED_MODELS = [
+  'Operator',
+  'Player',
+  // Feature 015 (roadmap 4.8): the general audit trail. Identical model in all three services —
+  // the table cannot be shared (Principle VIII) and the entry lives in its action's transaction.
+  'AuditEntry',
+] as const;

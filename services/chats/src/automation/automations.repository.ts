@@ -174,6 +174,27 @@ export class AutomationsRepository {
     return res.count > 0;
   }
 
+  /**
+   * Delete a rule AND its audit entry in one transaction (feature 015 / spec Q3): removing a rule that acts
+   * by itself is a sensitive act, so the deletion and its record commit together or neither happens. The
+   * caller supplies the already-built audit statement so this repository stays free of audit knowledge.
+   *
+   * ⚠️ The caller MUST have established that the rule exists in this account first. `deleteMany` reports a
+   * count of 0 for an id that is not there, but the transaction still commits — so calling this blind would
+   * file an audit entry for a deletion that never happened. A trail that records non-events is worse than
+   * one with a gap: a reader cannot tell the difference. Hence: read, then delete+record.
+   *
+   * Returns the number of rows removed (1 when the pre-checked rule was deleted).
+   */
+  async removeAudited(accountId: string, id: string, auditStatement: unknown): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.automation.deleteMany({ where: { id } }),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
+  }
+
   // ── Evaluation ─────────────────────────────────────────────────────────────────────────────────
 
   /**

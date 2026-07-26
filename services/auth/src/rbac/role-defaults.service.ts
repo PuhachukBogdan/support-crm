@@ -54,19 +54,52 @@ export class RoleDefaultsService {
     return { status: 'ok', affectedUserIds: await this.usersOfRole(db, role.id) };
   }
 
-  async resetRoleToDefault(accountId: string, roleKey: string): Promise<RoleMutationOutcome> {
+  /**
+   * Plan a role reset: do the reads, return the WRITES for the caller to execute.
+   *
+   * Split out by feature 015 (roadmap 4.8) so the reset's audit entry can share the caller's transaction.
+   * Without this the role-scope reset could not be strict — its writes lived here and the audit entry
+   * lived in OverrideService, in two transactions, so a failing audit would leave a silently unrecorded
+   * reset of an entire role's permissions.
+   */
+  async planResetRole(
+    accountId: string,
+    roleKey: string,
+  ): Promise<
+    | { status: 'not_found' }
+    | { status: 'ok'; affectedUserIds: string[]; statements: unknown[] }
+  > {
     const db = this.prisma.forAccount(accountId);
     const role = await db.role.findFirst({ where: { key: roleKey } });
     if (!role) return { status: 'not_found' };
     const defaults = ROLE_DEFAULTS[roleKey];
     if (!defaults) return { status: 'not_found' };
 
-    await db.rolePermission.deleteMany({ where: { role_id: role.id } });
+    // Both reads happen BEFORE any write is executed — the ids do not depend on the delete.
     const ids = await this.idsFor(db, [...defaults]);
-    for (const permission_id of ids) {
-      await db.rolePermission.create({ data: { role_id: role.id, permission_id } });
-    }
-    return { status: 'ok', affectedUserIds: await this.usersOfRole(db, role.id) };
+    const affectedUserIds = await this.usersOfRole(db, role.id);
+
+    return {
+      status: 'ok',
+      affectedUserIds,
+      statements: [
+        db.rolePermission.deleteMany({ where: { role_id: role.id } }),
+        ...ids.map((permission_id) =>
+          db.rolePermission.create({ data: { role_id: role.id, permission_id } }),
+        ),
+      ],
+    };
+  }
+
+  /**
+   * Reset a role on its own (no audit entry). Kept for callers that are not composing a transaction; the
+   * audited path goes through {@link planResetRole} so action and entry commit together.
+   */
+  async resetRoleToDefault(accountId: string, roleKey: string): Promise<RoleMutationOutcome> {
+    const plan = await this.planResetRole(accountId, roleKey);
+    if (plan.status === 'not_found') return { status: 'not_found' };
+    await this.prisma.forAccount(accountId).$transaction(plan.statements as never);
+    return { status: 'ok', affectedUserIds: plan.affectedUserIds };
   }
 
   /** Users currently assigned this role — whose inherited effective set changes. */

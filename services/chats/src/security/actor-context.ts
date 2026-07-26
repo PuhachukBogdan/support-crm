@@ -13,6 +13,13 @@ export interface ActorContext {
   userId: string;
   /** Permitted brand ids; undefined = brand scope not populated yet → no brand restriction. */
   brands?: string[];
+  /**
+   * Feature 015: the caller is previewing another role (owner view-as, `x-is-preview`). An audit entry
+   * records the REAL user plus this marker — never the previewed role, which nobody performed anything as.
+   * Preview is read-only, so this should never be true on a mutation; recording it anyway means a regression
+   * in that rule shows up in the trail instead of being invisible.
+   */
+  underPreview?: boolean;
 }
 
 function readStr(md: Metadata | undefined, key: string): string {
@@ -31,7 +38,8 @@ export function readActorContext(md: Metadata | undefined): ActorContext {
   }
   const brandsRaw = readStr(md, 'x-actor-brands');
   const brands = brandsRaw ? brandsRaw.split(',').filter(Boolean) : undefined;
-  return { accountId, userId, ...(brands ? { brands } : {}) };
+  const underPreview = readStr(md, 'x-is-preview') === 'true';
+  return { accountId, userId, ...(brands ? { brands } : {}), ...(underPreview ? { underPreview } : {}) };
 }
 
 /**

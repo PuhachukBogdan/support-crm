@@ -44,3 +44,41 @@ Runs as part of `docker compose up` (see [`deploy/local/README.md`](../../deploy
 ## Gotchas
 - Hosts two gRPC packages from one microservice (`package`/`protoPath` arrays in `main.ts`).
 - Does **not** connect to Postgres at boot — a downed DB degrades health, not startup.
+
+## Audit trail (feature 015, roadmap 4.8)
+
+This service is one **source** of the product's single audit trail (ADR 0019; SEC-29/SEC-30; extended by
+0032/SEC-AP3). The trail is one logical log physically living in three databases — an entry must be written
+inside the transaction of the action it describes (spec Q3: action and entry succeed together), and a
+cross-service database write is forbidden (Principle VIII). So the **table is duplicated** and the vocabulary
+is shared from [`libs/common/src/audit`](../../libs/common/src/audit);
+`tests/data-model/audit-entry-identity.spec.ts` asserts the three definitions never drift apart.
+
+- **Append-only, structurally.** No repository method and no controller updates or deletes an entry, for any
+  role including the owner. Audit integrity is not a permission anyone can hold — the guarantee is the
+  ABSENCE of the path, and `tests/audit/append-only.spec.ts` asserts that absence across every service and
+  the gateway.
+- **Strict, not best-effort.** Every v1 class refuses its action if the entry cannot be written. Before this
+  feature the privilege trail was best-effort **by accident** (written after the mutation, outside any
+  transaction), so `tests/audit/no-best-effort.spec.ts` guards the decision structurally.
+- **PII-free by construction.** `detail_json` is validated against a per-action-class key allow-list; a
+  contact value or a message body is not expressible. `target_ref` identifies, never copies.
+- **Read** via `ListAuditEntries`, gated by `platform.audit.view` at this tier and at the gateway. The
+  gateway fans out to all three sources and merges them into one ordered log
+  (`services/gateway/src/audit`). There is **no** write/update/delete RPC anywhere.
+- **Growth** is unbounded until retention exists (ADR 0015 defers it; a trim job belongs with the worker
+  catalogue 7.3 — and must itself be audited as `audit.trim`, or the one operation able to destroy history
+  would be the one with no record).
+
+**Writer in this service:** `contact.reveal` — one entry per read that surfaces a maskable tier, recording the
+most sensitive tier surfaced and never a field value (SEC-AP3). This absorbed feature 011's `ContactViewAudit`,
+which is gone.
+
+⚠️ **No live caller yet.** The player-read gRPC handlers that call `ContactViewAuditService` are Phase 5
+(roadmap 5.1). When they land they must call **this** writer rather than invent a second store — inventing one
+is exactly how feature 011 ended up with two audit tables, which feature 015 then had to merge.
+
+Its failure behaviour is deliberately strict and outranked a later decision: feature 015 initially planned
+best-effort recording for data-access classes, and this path's existing choice (*a failed write is not
+swallowed*) changed that. An unaudited PII reveal is the harvesting vector SEC-AP3 exists to detect, not a
+lost statistic.

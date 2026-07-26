@@ -6,6 +6,7 @@ import { AuthEdgeModule } from './auth/auth.module';
 import { SecurityModule } from './security/security.module';
 import { AccessManagementModule } from './rbac/access-management.module';
 import { ChatsModule } from './chats/chats.module';
+import { AuditModule } from './audit/audit.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -23,6 +24,8 @@ import { ChatsModule } from './chats/chats.module';
     SecurityModule,
     AccessManagementModule,
     ChatsModule,
+    // Feature 015 (roadmap 4.8): the federated audit read surface.
+    AuditModule,
   ],
 })
 export class AppModule {}

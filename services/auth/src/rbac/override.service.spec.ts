@@ -1,17 +1,14 @@
 import { OverrideService } from './override.service';
 import { RoleDefaultsService } from './role-defaults.service';
 import { RbacResolverService } from './resolver.service';
-import { PrivilegeAuditService } from './privilege-audit.service';
+import { AuditRepository } from '../audit/audit.repository';
 import type { PrismaService } from '../prisma.service';
-import type { Clock } from '../auth/ports/clock';
 import { makeFakePrisma } from '../../tests/support/auth-test-doubles';
-
-const CLOCK: Clock = { now: () => new Date('2026-07-21T00:00:00.000Z') };
 
 function make(seed: Parameters<typeof makeFakePrisma>[0]) {
   const fake = makeFakePrisma(seed);
   const prisma = fake as unknown as PrismaService;
-  const audit = new PrivilegeAuditService(prisma, CLOCK);
+  const audit = new AuditRepository(prisma);
   const roleDefaults = new RoleDefaultsService(prisma);
   const overrides = new OverrideService(prisma, audit, roleDefaults);
   const resolver = new RbacResolverService(prisma);
@@ -36,7 +33,7 @@ describe('OverrideService (copy-on-write)', () => {
   it('personalize snapshots the role + grants, and leaves other users unaffected (SC-002)', async () => {
     const { overrides, resolver, fake } = make(baseSeed);
 
-    const res = await overrides.personalizeUser('acct-1', 'god', 'u-1', 'reports.export', true);
+    const res = await overrides.personalizeUser('acct-1', { userId: 'god' }, 'u-1', 'reports.export', true);
 
     expect(res.status).toBe('ok');
     const u1 = await resolver.resolve('acct-1', 'u-1');
@@ -45,14 +42,14 @@ describe('OverrideService (copy-on-write)', () => {
     expect(u1.permissionKeys.sort()).toEqual(['crm.inbox.view', 'reports.export']); // snapshot + grant
     expect(u2.mode).toBe('inherited');
     expect(u2.permissionKeys).toEqual(['crm.inbox.view']); // untouched
-    expect(fake._tables.privilegeAudits).toHaveLength(1);
+    expect(fake._tables.auditEntries).toHaveLength(1);
   });
 
   it('revoke on a personalized user drops just that permission', async () => {
     const { overrides, resolver } = make(baseSeed);
-    await overrides.personalizeUser('acct-1', 'god', 'u-1', 'reports.export', true);
+    await overrides.personalizeUser('acct-1', { userId: 'god' }, 'u-1', 'reports.export', true);
 
-    await overrides.personalizeUser('acct-1', 'god', 'u-1', 'crm.inbox.view', false);
+    await overrides.personalizeUser('acct-1', { userId: 'god' }, 'u-1', 'crm.inbox.view', false);
 
     const u1 = await resolver.resolve('acct-1', 'u-1');
     expect(u1.permissionKeys).toEqual(['reports.export']);
@@ -60,9 +57,9 @@ describe('OverrideService (copy-on-write)', () => {
 
   it('reset re-inherits the live role default (SC-004)', async () => {
     const { overrides, resolver } = make(baseSeed);
-    await overrides.personalizeUser('acct-1', 'god', 'u-1', 'reports.export', true);
+    await overrides.personalizeUser('acct-1', { userId: 'god' }, 'u-1', 'reports.export', true);
 
-    const res = await overrides.resetToDefault('acct-1', 'god', { scope: 'user', userId: 'u-1' });
+    const res = await overrides.resetToDefault('acct-1', { userId: 'god' }, { scope: 'user', userId: 'u-1' });
 
     expect(res.status).toBe('ok');
     const u1 = await resolver.resolve('acct-1', 'u-1');
@@ -75,7 +72,7 @@ describe('OverrideService (copy-on-write)', () => {
       users: [{ id: 'orphan' }],
       permissions: [{ key: 'crm.inbox.view' }],
     });
-    const res = await overrides.personalizeUser('acct-1', 'god', 'orphan', 'crm.inbox.view', true);
+    const res = await overrides.personalizeUser('acct-1', { userId: 'god' }, 'orphan', 'crm.inbox.view', true);
     expect(res.status).toBe('not_found');
   });
 });

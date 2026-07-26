@@ -109,10 +109,13 @@ export interface FakeUserPermissionSet {
   mode: string; // inherited | standalone
   snapshot_role_id: string | null;
 }
-export interface FakePrivilegeAudit {
+export interface FakeAuditEntry {
   id: string;
   account_id: string;
   actor_user_id: string;
+  actor_kind: string;
+  actor_ref: string | null;
+  under_preview: boolean;
   action: string;
   target_ref: string;
   detail_json: unknown;
@@ -201,7 +204,7 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
   const userPermissionEntries: { user_id: string; permission_id: string; granted: boolean }[] = (
     seed.userPermissionEntries ?? []
   ).map((e) => ({ user_id: e.user_id, permission_id: `perm-${e.permKey}`, granted: e.granted ?? true }));
-  const privilegeAudits: FakePrivilegeAudit[] = [];
+  const auditEntries: FakeAuditEntry[] = [];
 
   // Roles addressable by key (fake id convention: `role-<key>`) — union of every place a role key
   // appears, so services can resolve/assign roles hermetically. role.findFirst returns null for keys
@@ -565,17 +568,27 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         return { count: before - userPermissionEntries.length };
       },
     },
-    privilegeAudit: {
-      create: async ({ data }: { data: Omit<FakePrivilegeAudit, 'id' | 'created_at'> }) => {
-        const row: FakePrivilegeAudit = {
-          id: `pa-${privilegeAudits.length + 1}`,
+    // Feature 015: the unified audit trail replaced PrivilegeAudit.
+    auditEntry: {
+      create: async ({ data }: { data: Omit<FakeAuditEntry, 'id' | 'created_at'> }) => {
+        const row: FakeAuditEntry = {
+          id: `ae-${auditEntries.length + 1}`,
           created_at: new Date(),
           ...data,
         };
-        privilegeAudits.push(row);
+        auditEntries.push(row);
         return row;
       },
+      findMany: async () => [...auditEntries].reverse(),
     },
+    /**
+     * Batch `$transaction`. The fake's model methods execute eagerly, so this awaits what has already been
+     * applied — enough for the state assertions these specs make. Atomicity itself (a failing statement
+     * leaving nothing behind) needs a lazy fake and is asserted separately in the strict-write specs, which
+     * build their own.
+     */
+    $transaction: async (statements: unknown) =>
+      Array.isArray(statements) ? Promise.all(statements) : statements,
     // The account-scoped client (feature 007) — in tests the fake IS already single-account, so
     // `forAccount` just returns itself (the resolver calls `prisma.forAccount(accountId).<model>`).
     forAccount: () => prisma,
@@ -593,7 +606,7 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
       rolePermissions,
       userPermissionSets,
       userPermissionEntries,
-      privilegeAudits,
+      auditEntries,
     },
   };
   return prisma;

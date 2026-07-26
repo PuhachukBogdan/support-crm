@@ -1,0 +1,88 @@
+// Audit trail contract (roadmap 4.8, feature 015 — ADR 0019; SEC-29 / SEC-30 / SEC-41; extended by
+// ADR 0032 / SEC-AP3).
+//
+// ONE logical trail, physically living beside the actions it records. That is not a preference: an audit
+// entry must be written inside the transaction of the action it describes (spec Q3 — action and entry
+// succeed together), and a cross-service database write is forbidden (Principle VIII). So the SHAPE and
+// the VOCABULARY are shared here, while each service owns its own table, and the gateway composes the
+// sources into one ordered log at read time.
+//
+// This file is imported by auth.proto / users.proto / chats.proto, each of which adds exactly one RPC:
+//   rpc ListAuditEntries(ListAuditEntriesRequest) returns (AuditEntryPage);
+//
+// There is deliberately NO write, update or delete RPC anywhere — see the bottom of this file.
+//
+// Caller context (account / user / role / permissions / preview) rides in gRPC METADATA, never in a
+// message body (the feature-012 R1/R3 convention), so no message here carries an account or an actor
+// identity as an input.
+//
+// Generated TS message types (git-ignored): libs/proto/gen/crm/audit/v1/audit.ts
+
+syntax = "proto3";
+
+package crm.audit.v1;
+
+// Who acted. SYSTEM exists so a caller-less action (feature 014's automation engine writes with no human
+// present) has an honest actor instead of an empty one — "the system did it" is not an accountable
+// answer, so the rule and the authority it used ride in `actor_ref`.
+enum ActorKind {
+  ACTOR_KIND_UNSPECIFIED = 0; // refused at write time
+  ACTOR_KIND_USER = 1;
+  ACTOR_KIND_SYSTEM = 2;
+}
+
+message AuditEntry {
+  string id = 1;
+  // The REAL actor. Under owner view-as preview this is the previewing user and `under_preview` is set —
+  // the previewed ROLE is never recorded as the actor, because nobody performed anything as it.
+  string actor_user_id = 2;
+  ActorKind actor_kind = 3;
+  string actor_ref = 4;   // system actors only: which rule, under whose authority. "" for a human.
+  bool under_preview = 5;
+  // From the closed catalogue in libs/common (AUDIT_ACTIONS) — never free text. Free-text actions are
+  // what make an audit log unqueryable later: every reader would need to know every spelling used.
+  string action = 6;
+  string target_ref = 7;  // a user / rule / player / export id — identified, NEVER copied
+  // PII-free by construction: validated against a per-action-class key allow-list before the write.
+  // Carried as a JSON string because proto-loader has no first-class struct we want here.
+  string detail_json = 8;
+  string created_at = 9;  // RFC3339
+  // Which service contributed this entry. Present so a reader can see the log is federated and so the
+  // read surface can attribute a page; NOT a filter dimension (a reader thinks in actions and targets).
+  string source = 10;
+}
+
+message ListAuditEntriesRequest {
+  // All filters optional; any combination. "" = no filter on that dimension. An unrecognised value is
+  // REFUSED, never ignored — a mistyped filter that silently returns everything is worse than an error
+  // because it looks like it worked (the feature-012 lesson).
+  string actor_user_id = 1;
+  string action = 2;       // an exact action, e.g. "permission.grant"
+  string action_class = 3; // or a whole class, e.g. "privilege" — mutually exclusive with `action`
+  string target_ref = 4;
+  string from = 5;         // RFC3339, inclusive
+  string to = 6;           // RFC3339, exclusive
+  string page_token = 7;   // per-source keyset cursor (the gateway holds the composite one)
+  int32 page_size = 8;     // server-capped (100 max, 50 default)
+}
+
+message AuditEntryPage {
+  repeated AuditEntry entries = 1;
+  string next_page_token = 2; // "" = no more from THIS source
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// What is deliberately ABSENT, and why
+// ─────────────────────────────────────────────────────────────────────────────────
+//
+// * No WriteAuditEntry RPC. A cross-service audit write would break "the action and its entry succeed
+//   together" (there is no distributed transaction available, and inventing one is not worth it), and it
+//   would make the audit subsystem a single point of failure for every sensitive action in the product.
+//   Writers are always in-process, inside the transaction of the action they describe.
+//
+// * No UpdateAuditEntry / DeleteAuditEntry, for any caller including the owner. Audit integrity is not a
+//   permission anyone can hold: the ABSENCE of the path is the guarantee, and a structural test asserts
+//   that absence across every service and the gateway.
+//
+// * No count / total. Reads are keyset-paginated; an exact total over a federated log would mean querying
+//   every source exhaustively to render a badge (Principle VII).

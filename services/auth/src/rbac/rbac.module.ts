@@ -6,7 +6,7 @@ import { PermissionRegistryService } from './permission-registry.service';
 import { RoleDefaultsService } from './role-defaults.service';
 import { OverrideService } from './override.service';
 import { RoleAssignmentService } from './role-assignment.service';
-import { PrivilegeAuditService } from './privilege-audit.service';
+import { AuditRepository } from '../audit/audit.repository';
 import { RbacGrpcController } from './rbac.grpc.controller';
 
 /**
@@ -25,7 +25,7 @@ import { RbacGrpcController } from './rbac.grpc.controller';
     RoleDefaultsService,
     OverrideService,
     RoleAssignmentService,
-    PrivilegeAuditService,
+    AuditRepository,
   ],
 })
 export class RbacModule {}

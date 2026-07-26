@@ -1,5 +1,6 @@
 import { maskPlayer } from './player.masking';
 import { ContactViewAuditService } from './contact-view-audit.service';
+import { AuditRepository } from '../audit/audit.repository';
 import type { PrismaService } from '../prisma.service';
 
 /**
@@ -40,7 +41,8 @@ describe('masking + contact-view audit leak no PII value (FR-014/016/023)', () =
     const rows: Record<string, unknown>[] = [];
     const prisma = {
       forAccount: () => ({
-        contactViewAudit: {
+        // Feature 015: the row lands in the unified AuditEntry trail.
+        auditEntry: {
           create: async ({ data }: { data: Record<string, unknown> }) => {
             rows.push(data);
             return data;
@@ -48,7 +50,7 @@ describe('masking + contact-view audit leak no PII value (FR-014/016/023)', () =
         },
       }),
     } as unknown as PrismaService;
-    const svc = new ContactViewAuditService(prisma);
+    const svc = new ContactViewAuditService(new AuditRepository(prisma));
 
     const sinks = ['log', 'info', 'warn', 'error', 'debug'] as const;
     const captured: string[] = [];
@@ -64,7 +66,9 @@ describe('masking + contact-view audit leak no PII value (FR-014/016/023)', () =
     }
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.field_category).toBe('am_only');
+    // Feature 015: the tier moved into detail_json — same guarantee, unified shape.
+    expect(rows[0]!.detail_json).toEqual({ tier: 'am_only' });
+    expect(rows[0]!.action).toBe('contact.reveal');
     for (const secret of SENSITIVE) expect(JSON.stringify(rows[0])).not.toContain(secret);
     expect(captured.join('\n')).not.toMatch(/SECRET/);
   });

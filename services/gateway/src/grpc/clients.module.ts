@@ -6,6 +6,8 @@ import {
   AUTH_PROTO,
   CHATS_PACKAGE,
   CHATS_PROTO,
+  USERS_PACKAGE,
+  USERS_PROTO,
   HEALTH_PACKAGE,
   HEALTH_PROTO,
   PING_PACKAGE,
@@ -20,6 +22,9 @@ export const AUTH_CLIENT = 'AUTH_CLIENT';
 // Feature 012: the chats-core client (ChatsReadService + ChatsWriteService) — the inbox/
 // conversation/message/feed edge dials this.
 export const CHATS_CLIENT = 'CHATS_CLIENT';
+// Feature 015: the audit read is federated across auth + users + chats, so the gateway needs a FULL users
+// client — until now it dialed users only for ping and health.
+export const USERS_CLIENT = 'USERS_CLIENT';
 export const AUTH_HEALTH_CLIENT = 'AUTH_HEALTH_CLIENT';
 export const USERS_HEALTH_CLIENT = 'USERS_HEALTH_CLIENT';
 export const CHATS_HEALTH_CLIENT = 'CHATS_HEALTH_CLIENT';
@@ -57,6 +62,12 @@ const HEALTH_TARGETS: Array<[string, string]> = [
         name: CHATS_CLIENT,
         useFactory: () =>
           grpcClientOptions(CHATS_PACKAGE, CHATS_PROTO, process.env.CHATS_GRPC_TARGET as string),
+      },
+      {
+        // Users read surface (feature 015) — currently only ListAuditEntries; the player reads land in Phase 5.
+        name: USERS_CLIENT,
+        useFactory: () =>
+          grpcClientOptions(USERS_PACKAGE, USERS_PROTO, process.env.USERS_GRPC_TARGET as string),
       },
       ...HEALTH_TARGETS.map(([token, envVar]) => ({
         name: token,

@@ -20,5 +20,7 @@ export const SCOPED_MODELS = [
   // in-schema parents (Role / User + Permission) — like UserRole.
   'Permission',
   'UserPermissionSet',
-  'PrivilegeAudit',
+  // Feature 015 (roadmap 4.8): the general audit trail. Identical model in all three services —
+  // the table cannot be shared (Principle VIII) and the entry lives in its action's transaction.
+  'AuditEntry',
 ] as const;

@@ -17,11 +17,18 @@ syntax = "proto3";
 
 package crm.users.v1;
 
+import "crm/audit/v1/audit.proto";
+
 service UsersReadService {
   rpc GetPlayer(GetPlayerRequest) returns (Player);
   rpc GetOperator(GetOperatorRequest) returns (Operator);
   // Keyset pagination (Principle VII): opaque page_token, never offset/total.
   rpc ListPlayersByBrand(ListPlayersByBrandRequest) returns (PlayerPage);
+
+  // ── Feature 015 (audit trail, roadmap 4.8) — additive. One RPC per source; the gateway fans out
+  // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
+  // exists anywhere — append-only means there is no mutation path to expose.
+  rpc ListAuditEntries(crm.audit.v1.ListAuditEntriesRequest) returns (crm.audit.v1.AuditEntryPage);
 }
 
 message GetPlayerRequest {

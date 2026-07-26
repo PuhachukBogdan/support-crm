@@ -16,6 +16,7 @@ import {
   type AutomationRow,
   type AutomationRunRow,
 } from './automations.repository';
+import { AuditRepository } from '../audit/audit.repository';
 
 interface DefinitionWire {
   trigger?: string;
@@ -103,7 +104,10 @@ const invalid = (message: string) =>
 @Controller()
 @UseGuards(ChatsAccessGuard)
 export class AutomationsController {
-  constructor(@Inject(AutomationsRepository) private readonly automations: AutomationsRepository) {}
+  constructor(
+    @Inject(AutomationsRepository) private readonly automations: AutomationsRepository,
+    @Inject(AuditRepository) private readonly audit: AuditRepository,
+  ) {}
 
   @GrpcMethod('ChatsReadService', 'ListAutomations')
   @RequiresChatsPermission('crm.automations.manage')
@@ -210,8 +214,28 @@ export class AutomationsController {
     const ctx = readActorContext(metadata);
     const id = (req?.id ?? '').trim();
     if (!id) throw invalid('id is required');
-    const removed = await this.automations.remove(ctx.accountId, id);
-    if (!removed) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    // Read FIRST. Deleting a rule that acts by itself is a sensitive act, so the delete and its audit entry
+    // commit together (feature 015 / spec Q3) — but `deleteMany` reports 0 for an absent id while the
+    // transaction still commits, so calling it blind would file an entry for a deletion that never happened.
+    // A trail that records non-events is worse than one with a gap: a reader cannot tell them apart.
+    const existing = await this.automations.getById(ctx.accountId, id);
+    if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    const removed = await this.automations.removeAudited(
+      ctx.accountId,
+      id,
+      this.audit.statement(ctx.accountId, {
+        action: 'automation.delete',
+        actorUserId: ctx.userId,
+        underPreview: ctx.underPreview,
+        targetRef: id,
+        // The rule's own operator-authored name — not customer data. Without it a reader sees an id and has
+        // to go looking for a row that no longer exists.
+        detail: { name: existing.name, revision: existing.revision },
+      }),
+    );
+    if (removed === 0) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     return { ok: true };
   }
 

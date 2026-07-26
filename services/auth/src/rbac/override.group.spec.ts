@@ -1,15 +1,12 @@
 import { OverrideService } from './override.service';
 import { RoleDefaultsService } from './role-defaults.service';
-import { PrivilegeAuditService } from './privilege-audit.service';
+import { AuditRepository } from '../audit/audit.repository';
 import type { PrismaService } from '../prisma.service';
-import type { Clock } from '../auth/ports/clock';
 import { makeFakePrisma } from '../../tests/support/auth-test-doubles';
-
-const CLOCK: Clock = { now: () => new Date('2026-07-21T00:00:00.000Z') };
 
 function make(seed: Parameters<typeof makeFakePrisma>[0]) {
   const prisma = makeFakePrisma(seed) as unknown as PrismaService;
-  const audit = new PrivilegeAuditService(prisma, CLOCK);
+  const audit = new AuditRepository(prisma);
   const overrides = new OverrideService(prisma, audit, new RoleDefaultsService(prisma));
   return { overrides };
 }
@@ -30,7 +27,7 @@ describe('OverrideService.personalizeGroup (single-role constraint)', () => {
       ],
     });
 
-    const res = await overrides.personalizeGroup('acct-1', 'god', ['a', 'b'], 'reports.export', true);
+    const res = await overrides.personalizeGroup('acct-1', { userId: 'god' }, ['a', 'b'], 'reports.export', true);
 
     expect(res.status).toBe('ok');
     if (res.status === 'ok') expect(res.affectedUserIds.sort()).toEqual(['a', 'b']);
@@ -46,7 +43,7 @@ describe('OverrideService.personalizeGroup (single-role constraint)', () => {
       ],
     });
 
-    const res = await overrides.personalizeGroup('acct-1', 'god', ['a', 'c'], 'reports.export', true);
+    const res = await overrides.personalizeGroup('acct-1', { userId: 'god' }, ['a', 'c'], 'reports.export', true);
 
     expect(res.status).toBe('cross_role');
   });

@@ -19,11 +19,17 @@ export const PING_PACKAGE = 'crm.ping.v1';
 export const HEALTH_PACKAGE = 'crm.health.v1';
 export const AUTH_PACKAGE = 'crm.auth.v1';
 export const CHATS_PACKAGE = 'crm.chats.v1';
+// Feature 015: the audit read surface is federated, so the gateway needs a FULL users client (it had
+// only ping + health) and every service's proto now imports the shared audit shapes.
+export const USERS_PACKAGE = 'crm.users.v1';
+export const AUDIT_PACKAGE = 'crm.audit.v1';
 
 export const PING_PROTO = join(PROTO_ROOT, 'crm', 'ping', 'v1', 'ping.proto');
 export const HEALTH_PROTO = join(PROTO_ROOT, 'crm', 'health', 'v1', 'health.proto');
 export const AUTH_PROTO = join(PROTO_ROOT, 'crm', 'auth', 'v1', 'auth.proto');
 export const CHATS_PROTO = join(PROTO_ROOT, 'crm', 'chats', 'v1', 'chats.proto');
+export const USERS_PROTO = join(PROTO_ROOT, 'crm', 'users', 'v1', 'users.proto');
+export const AUDIT_PROTO = join(PROTO_ROOT, 'crm', 'audit', 'v1', 'audit.proto');
 
 /**
  * proto-loader options shared by every server and client. `keepCase: false` makes the
@@ -35,6 +41,12 @@ export const GRPC_LOADER = {
   enums: String,
   defaults: true,
   oneofs: true,
+  // Feature 015: the first cross-file proto import (auth/users/chats each import the shared audit shapes).
+  // Without this, proto-loader resolves `import "crm/audit/v1/audit.proto"` relative to the IMPORTING file's
+  // directory and fails with a path like `crm/auth/v1/crm/audit/v1/audit.proto`. Caught by the existing
+  // gateway boot tests, which is exactly what they are for.
+  // Mutable array (not `readonly`) because proto-loader's option type demands `string[]`.
+  includeDirs: [PROTO_ROOT] as string[],
 } as const;
 
 /** Options for `NestFactory.createMicroservice` — a service hosting one or more gRPC packages. */

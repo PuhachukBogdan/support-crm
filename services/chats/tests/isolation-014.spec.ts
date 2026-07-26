@@ -2,6 +2,7 @@ import { Metadata } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../src/prisma.service';
 import { AutomationsRepository } from '../src/automation/automations.repository';
+import { AuditRepository } from '../src/audit/audit.repository';
 import { AutomationsController } from '../src/automation/automations.grpc.controller';
 import { AutomationEngine } from '../src/automation/engine';
 import { LabelsRepository } from '../src/labels/labels.repository';
@@ -141,6 +142,12 @@ function scopedFor(acc: string) {
         return Promise.resolve({ count: 1 });
       },
     },
+    auditEntry: {
+      create: (a: { data: Row }) => {
+        writes.push({ table: 'auditEntry', account: acc, data: a.data });
+        return Promise.resolve({ ...a.data, id: 'new' });
+      },
+    },
     automationRun: {
       findMany: () => Promise.resolve(own(runs)),
       create: (a: { data: Row }) => {
@@ -183,7 +190,9 @@ function md(accountId: string, perms: string[] = ['crm.automations.manage']): Me
   return m;
 }
 
-const controller = () => new AutomationsController(new AutomationsRepository(prisma));
+// Feature 015: the controller also writes an audit entry inside the delete's transaction.
+const controller = () =>
+  new AutomationsController(new AutomationsRepository(prisma), new AuditRepository(prisma));
 
 beforeEach(() => {
   writes.length = 0;

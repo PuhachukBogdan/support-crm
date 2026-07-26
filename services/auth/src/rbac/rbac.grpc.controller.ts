@@ -23,6 +23,13 @@ interface CallerCtx {
   callerAccountId: string;
   callerUserId: string;
   callerRoles: string[];
+  /**
+   * Feature 015: whether the caller was previewing another role (owner view-as). The audit entry records
+   * the REAL user with this marker — never the previewed role, which nobody performed anything as.
+   * View-as is read-only, so this should always be false on a mutation; recording it anyway means a
+   * regression in that rule shows up in the trail instead of being invisible.
+   */
+  callerUnderPreview?: boolean;
 }
 interface SetRoleDefaultRequest extends CallerCtx {
   roleKey: string;
@@ -141,7 +148,7 @@ export class RbacGrpcController {
     if (!isSuperAdmin(req.callerRoles)) return result(FORBIDDEN);
     const r = await this.overrides.personalizeUser(
       req.callerAccountId,
-      req.callerUserId,
+      { userId: req.callerUserId, underPreview: req.callerUnderPreview === true },
       req.userId,
       req.permissionKey,
       req.grant,
@@ -154,7 +161,7 @@ export class RbacGrpcController {
     if (!isSuperAdmin(req.callerRoles)) return result(FORBIDDEN);
     const r = await this.overrides.personalizeGroup(
       req.callerAccountId,
-      req.callerUserId,
+      { userId: req.callerUserId, underPreview: req.callerUnderPreview === true },
       req.userIds ?? [],
       req.permissionKey,
       req.grant,
@@ -165,7 +172,10 @@ export class RbacGrpcController {
   @GrpcMethod('AuthService', 'ResetToDefault')
   async resetRpc(req: ResetRequest) {
     if (!isSuperAdmin(req.callerRoles)) return result(FORBIDDEN);
-    const r = await this.overrides.resetToDefault(req.callerAccountId, req.callerUserId, {
+    const r = await this.overrides.resetToDefault(
+      req.callerAccountId,
+      { userId: req.callerUserId, underPreview: req.callerUnderPreview === true },
+      {
       scope: (req.scope as 'user' | 'group' | 'role') || 'user',
       userId: req.userId,
       userIds: req.userIds ?? [],
@@ -179,7 +189,7 @@ export class RbacGrpcController {
     if (!isSuperAdmin(req.callerRoles)) return result(FORBIDDEN);
     const r = await this.roleAssignment.assignRole(
       req.callerAccountId,
-      req.callerUserId,
+      { userId: req.callerUserId, underPreview: req.callerUnderPreview === true },
       req.userId,
       req.roleKey,
       req.op === 'revoke' ? 'revoke' : 'assign',

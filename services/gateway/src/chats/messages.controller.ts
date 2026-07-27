@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -82,7 +83,7 @@ export class MessagesController implements OnModuleInit {
   @RequiresPermission('crm.conversation.reply')
   async post(
     @Param('id') id: string,
-    @Body() body: { kind?: string; body?: string; mentions?: string[] },
+    @Body() body: { kind?: string; body?: string; mentions?: string[]; uploadIds?: unknown },
     @Req() req: ChatsReq,
   ) {
     return callChats(
@@ -92,9 +93,36 @@ export class MessagesController implements OnModuleInit {
           kind: toKindWire(body?.kind),
           body: body?.body ?? '',
           mentions: body?.mentions ?? [],
+          uploadIds: readUploadIds(body?.uploadIds),
         },
         this.meta(req),
       ),
     );
   }
+}
+
+/**
+ * Feature 016 — the REST edge must not COERCE (the feature-012 lesson).
+ *
+ * That lesson cost a real defect: the edge silently turned an unknown `kind` into a public reply, so
+ * `{"kind":"private_note"}` published an internal note to the customer. The failure was not that the
+ * value was wrong; it was that a malformed value became a valid one. So anything that is not an
+ * array of non-empty strings is a 400 here, never a silently emptied list — an upload the caller
+ * believes they attached must not vanish into a successful-looking reply.
+ *
+ * The cap is enforced again in chats and again in users. Three tiers, because a caller can reach the
+ * second and third directly.
+ */
+const MAX_UPLOAD_IDS = 50;
+
+function readUploadIds(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new BadRequestException('uploadIds must be an array');
+  if (raw.length > MAX_UPLOAD_IDS) throw new BadRequestException('too many uploadIds');
+  for (const id of raw) {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new BadRequestException('uploadIds must be non-empty strings');
+    }
+  }
+  return raw as string[];
 }

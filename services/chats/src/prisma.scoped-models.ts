@@ -22,4 +22,8 @@ export const SCOPED_MODELS = [
   // Feature 015 (roadmap 4.8): the general audit trail. Identical model in all three services —
   // the table cannot be shared (Principle VIII) and the entry lives in its action's transaction.
   'AuditEntry',
+  // Feature 016 (roadmap 4.9): the message→upload link. Carries account_id of its own even though
+  // it hangs off Message — an attachment must be unreachable across the boundary on its own terms,
+  // not only through its parent.
+  'MessageAttachment',
 ] as const;

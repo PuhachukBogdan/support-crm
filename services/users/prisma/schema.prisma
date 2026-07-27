@@ -71,6 +71,53 @@ model PlayerBrand {
   @@index([brand_id]) // for ListPlayersByBrand (users.proto)
 }
 
+/// One stored byte stream (feature 016, roadmap 4.9 — SEC-1/SEC-10/SEC-39).
+///
+/// The record that makes bytes accountable. It DESCRIBES a stored object; it never holds one — the
+/// bytes live in a private S3-compatible bucket that only this service can reach (research R1/R2).
+///
+/// `content_type` is the type VERIFIED from the file's own content (FR-006). What the client
+/// declared is compared against it and then discarded: storing the declared value would create a
+/// column that looks authoritative and is not, and if the two disagreed the upload was refused, so
+/// it has no readers — only future misuse.
+///
+/// `storage_key` is system-generated as `{account_id}/{purpose}/{uuid}` (FR-008). ⚠️ The account
+/// prefix is OPERATIONAL LEGIBILITY in the bucket, never authorization. Authorization is the
+/// `account_id` column plus `forAccount`; treating a path prefix as a security boundary is how
+/// bucket-privacy bugs happen.
+///
+/// `checksum_sha256` is NOT NULL deliberately. The bytes are already in memory when the row is
+/// written, so it costs nothing, and a nullable checksum nobody fills is dead weight. It detects a
+/// corrupted read — it is NOT an integrity chain against someone holding storage credentials (spec
+/// Assumptions), exactly as feature 015 said of the audit log.
+///
+/// `display_name` is a sanitized filename for display only. It can itself be PII
+/// (`john_smith_passport.jpg`) → it MUST NOT appear in logs or error payloads (FR-020 / SEC-26).
+///
+/// NOT audited, and no audit action is defined either (spec Q2). An upload is ordinary work, like
+/// posting a message; the message already answers "who sent this to the customer".
+model Upload {
+  id                   String    @id @default(uuid())
+  account_id           String
+  purpose              String // from the closed catalogue (libs/common/uploads) — never free text
+  uploader_user_id     String // soft ref to auth.User.id — never joined (Principle VIII)
+  content_type         String // VERIFIED from content; the declared type is never stored
+  byte_size            Int
+  checksum_sha256      String
+  storage_key          String    @unique
+  display_name         String? // sanitized, display only — never a storage identity, never logged
+  derivative_key       String? // the small re-encoded copy; null for non-image purposes
+  derivative_byte_size Int?
+  state                String    @default("pending") // pending | claimed (FR-016)
+  claimed_at           DateTime?
+  created_at           DateTime  @default(now())
+
+  @@index([account_id, created_at, id]) // keyset order; `id` breaks same-instant ties (the 015 lesson)
+  // THE FUTURE RECLAIM PREDICATE (ADR 0015). Added now, while the table is empty — adding it later
+  // means adding it to a large table. An abandoned upload is normal, not an error (spec Edge Cases).
+  @@index([account_id, state, created_at])
+}
+
 /// Audit trail entry (feature 015, roadmap 4.8 — ADR 0019; SEC-29/SEC-30; extended by 0032/SEC-AP3).
 ///
 /// ⚠️ This model is INTENTIONALLY IDENTICAL in auth_db, users_db and chats_db. The table cannot be shared

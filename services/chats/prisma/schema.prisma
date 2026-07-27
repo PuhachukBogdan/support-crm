@@ -61,10 +61,40 @@ model Message {
   mentions        String[] @default([])
   created_at      DateTime @default(now())
 
-  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  conversation Conversation  @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  attachments  MessageAttachment[]
 
   @@index([conversation_id, created_at]) // keyset thread paging
   @@index([account_id])
+}
+
+/// A message's link to an upload (feature 016, roadmap 4.9 / FR-014).
+///
+/// `upload_id` is a SOFT ref to `users.Upload.id` — no cross-service FK (Principle VIII). The
+/// metadata behind it is fetched over gRPC per thread page and deliberately NOT denormalized into
+/// chats_db: that keeps the PII-capable `display_name` in exactly one database.
+///
+/// THE PRIVATE-NOTE PROPERTY IS INHERITED, NOT RE-IMPLEMENTED. Attachments load through their
+/// message via this relation, and the customer projection already excludes private messages AT THE
+/// QUERY (feature 012). So a private note's attachments never enter the projection — provided
+/// nothing ever fetches attachments by a separate query. `private-note-attachments.spec.ts` asserts
+/// the outcome including that attachment and upload IDs are absent, not merely the bytes: the 012
+/// lesson was that the id and the mentions leaked alongside the body (SEC-13 / SC-008).
+model MessageAttachment {
+  id         String   @id @default(uuid())
+  account_id String
+  message_id String
+  upload_id  String // soft ref to users.Upload.id — resolved via gRPC, never joined
+  position   Int      @default(0) // stable display order
+  created_at DateTime @default(now())
+
+  message Message @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  // An INDEX, not an application check: "have I attached this already?" followed by a write is a
+  // race, and the 014 discipline is to let the database decide (FR-014).
+  @@unique([message_id, upload_id])
+  @@index([account_id])
+  @@index([message_id, position])
 }
 
 /// A tag definition.

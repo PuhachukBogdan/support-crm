@@ -12,6 +12,9 @@ export * from './account-scope';
 export * from './seed-constants';
 export * from './policy';
 export * from './audit';
+// Feature 016 (roadmap 4.9): the upload purpose catalogue, magic-byte detection and filename
+// sanitising — shared by the gateway (parse limit, first tier) and users (enforcement).
+export * from './uploads';
 // Re-export zod so services build their config schemas without each declaring the dep.
 export { z } from 'zod';
 

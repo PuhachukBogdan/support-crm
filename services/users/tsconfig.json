@@ -7,7 +7,11 @@
       "jest"
     ]
   },
+  // `tests/**` is included deliberately (the feature-015 trap): a spec outside `include` is run by
+  // Jest but never seen by `tsc`, so it can drift out of sync with the code it guards and still
+  // appear green. Green Jest is not green tsc — see gotchas/swc-jest-no-typecheck.
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "tests/**/*"
   ]
 }

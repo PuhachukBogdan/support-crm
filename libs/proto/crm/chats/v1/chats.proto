@@ -79,6 +79,18 @@ message Conversation {
   FirstReplySlaState first_reply_sla = 14;
 }
 
+// Feature 016 (roadmap 4.9) — rendering metadata for a file attached to a message. The bytes are
+// served by the uploads path (users), never inlined here. `upload_id` is a soft ref across a
+// database boundary; the values beside it are fetched from users per thread page, deliberately NOT
+// denormalized into chats_db — that keeps the PII-capable display_name in exactly one database.
+message Attachment {
+  string upload_id = 1;
+  string content_type = 2;            // the VERIFIED type
+  int64 byte_size = 3;
+  string display_name = 4;            // sanitized; may be "" when the client sent nothing usable
+  bool has_derivative = 5;
+}
+
 message Message {
   string id = 1;
   string conversation_id = 2;
@@ -87,6 +99,11 @@ message Message {
   string body = 5;
   repeated string mentions = 6;       // operator-id soft refs; only on PRIVATE_NOTE; resolution deferred (R6)
   string created_at = 7;
+  // Feature 016 — additive. ABSENT from the CUSTOMER projection for a private note, because the
+  // note itself is excluded at query level (SEC-13) and attachments load THROUGH the message.
+  // Nothing fetches attachments by a separate query; SC-008 asserts the ids are absent too, not
+  // merely the bytes — the 012 lesson was that the id and the mentions leaked alongside the body.
+  repeated Attachment attachments = 8;
 }
 
 service ChatsReadService {
@@ -180,6 +197,11 @@ message PostMessageRequest {
   MessageKind kind = 2;               // PUBLIC_REPLY | PRIVATE_NOTE only (validated)
   string body = 3;
   repeated string mentions = 4;       // honored only for PRIVATE_NOTE (R6)
+  // Feature 016 — additive. Validated and CLAIMED via users.ClaimUploads BEFORE the message row is
+  // written (feature 013's ordering discipline: a refused attachment leaves no partial message).
+  // Capped at 50 like every other id list on this contract — an unbounded `repeated string` on an
+  // authenticated path is an unbounded request (Principle VII).
+  repeated string upload_ids = 5;     // max 50
 }
 
 message SetConversationStatusRequest {

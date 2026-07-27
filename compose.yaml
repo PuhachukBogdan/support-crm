@@ -49,6 +49,52 @@ services:
       timeout: 5s
       retries: 10
 
+  # Object store for uploaded bytes (feature 016, roadmap 4.9 — spec Q1 / research R6).
+  # MinIO here and on beton-test; a managed private bucket in production — ONE client
+  # (@aws-sdk/client-s3) for both, so Track B exercises the shape that actually ships.
+  # ONLY the users service holds these credentials (research R2): the gateway proxies bytes
+  # and gains no storage configuration at all, which is what makes "one validated path"
+  # (FR-001) checkable rather than a convention.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+    volumes:
+      - miniodata:/data
+    # Host-bound to 127.0.0.1 so SC-010/SEC-39 can be asserted directly against the store
+    # (Track B B4: an anonymous GET of an object URL must be denied).
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: create the bucket and assert it is PRIVATE. `mc anonymous set none` is
+  # deliberate rather than relying on MinIO's default — SEC-39 is a posture we assert, not
+  # one we inherit. No public read policy is set anywhere, ever.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - >
+        mc alias set store http://minio:9000 "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" &&
+        mc mb --ignore-existing "store/$$S3_BUCKET" &&
+        mc anonymous set none "store/$$S3_BUCKET" &&
+        echo "bucket ready (private)"
+    restart: 'no'
+
   gateway:
     <<: *service-base
     build:
@@ -88,10 +134,27 @@ services:
   users:
     <<: *service-base
     build: { context: ., dockerfile: deploy/docker/users.Dockerfile }
+    # Restated in full: a YAML merge key does not deep-merge `depends_on`, it replaces it.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       GRPC_URL: 0.0.0.0:50052
       DATABASE_URL: postgresql://users_user:${USERS_DB_PASSWORD:?}@postgres:5432/users_db
+      # Feature 016: the ONLY service holding object-store credentials (research R2/R10).
+      # Its config guard is refuse-to-start, so a missing key is a boot failure, never a
+      # runtime surprise. The gateway deliberately gains nothing here.
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
 
   chats:
     <<: *service-base
@@ -103,6 +166,10 @@ services:
       # Feature 014: an automation rule acts with its AUTHOR's current permissions, resolved from
       # auth on every evaluation (FR-023). Acyclic — auth never calls chats.
       AUTH_GRPC_TARGET: auth:50051
+      # Feature 016: attachments are claimed and described over the users contract (research R8).
+      # Acyclic — users never calls chats. Chats holds NO storage credentials: it references an
+      # upload by id and never sees a byte.
+      USERS_GRPC_TARGET: users:50052
 
   brands:
     <<: *service-base
@@ -129,3 +196,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:

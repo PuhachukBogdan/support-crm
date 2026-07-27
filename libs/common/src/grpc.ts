@@ -49,22 +49,75 @@ export const GRPC_LOADER = {
   includeDirs: [PROTO_ROOT] as string[],
 } as const;
 
+/**
+ * Per-channel gRPC tuning (feature 016).
+ *
+ * Added because the two helpers below had FIXED signatures exposing no message-size setting, so the
+ * uploads path could not raise its limit at the call site — the change had to happen here or not at
+ * all. The parameter is OPTIONAL so the defaults for the other five services are untouched: a
+ * repo-wide 12 MB ceiling would be a memory decision made for six services to serve one.
+ */
+export type GrpcChannelOptions = Record<string, unknown>;
+
+/**
+ * The uploads path's message ceiling (feature 016, research R2).
+ *
+ * 12 MB = the 10 MB attachment cap plus room for the protobuf framing and the request's other
+ * fields. The memory arithmetic, so the number is not a mystery later: transport costs at most
+ * `cap × 2 hops × concurrency` ≈ 10 MB × 2 × ~10 concurrent uploads ≈ **200 MB**, bounded and
+ * stated rather than discovered.
+ *
+ * Applied ONLY to the users server and the clients that dial it for uploads. **Trigger to switch to
+ * client-streaming**: a purpose needing more than 10 MB, or upload concurrency materially above the
+ * agent count. The contract's header/bytes shape is already stream-compatible, so that is a
+ * migration rather than a redesign.
+ */
+export const UPLOAD_CHANNEL_BYTES = 12 * 1024 * 1024;
+
+export const UPLOAD_SERVER_CHANNEL_OPTIONS: GrpcChannelOptions = {
+  'grpc.max_receive_message_length': UPLOAD_CHANNEL_BYTES,
+  'grpc.max_send_message_length': UPLOAD_CHANNEL_BYTES,
+};
+
+export const UPLOAD_CLIENT_CHANNEL_OPTIONS: GrpcChannelOptions = {
+  'grpc.max_send_message_length': UPLOAD_CHANNEL_BYTES,
+  'grpc.max_receive_message_length': UPLOAD_CHANNEL_BYTES,
+};
+
 /** Options for `NestFactory.createMicroservice` — a service hosting one or more gRPC packages. */
 export function grpcServerOptions(
   pkg: string | string[],
   protoPath: string | string[],
   url: string,
+  channelOptions?: GrpcChannelOptions,
 ): GrpcOptions {
   return {
     transport: Transport.GRPC,
-    options: { package: pkg, protoPath, url, loader: GRPC_LOADER },
+    options: {
+      package: pkg,
+      protoPath,
+      url,
+      loader: GRPC_LOADER,
+      ...(channelOptions ? { channelOptions } : {}),
+    },
   };
 }
 
 /** Options object for a `ClientsModule.register` entry (the gateway dialing a service). */
-export function grpcClientOptions(pkg: string, protoPath: string, url: string): GrpcOptions {
+export function grpcClientOptions(
+  pkg: string,
+  protoPath: string,
+  url: string,
+  channelOptions?: GrpcChannelOptions,
+): GrpcOptions {
   return {
     transport: Transport.GRPC,
-    options: { package: pkg, protoPath, url, loader: GRPC_LOADER },
+    options: {
+      package: pkg,
+      protoPath,
+      url,
+      loader: GRPC_LOADER,
+      ...(channelOptions ? { channelOptions } : {}),
+    },
   };
 }

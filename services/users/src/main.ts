@@ -9,6 +9,7 @@ import {
   PING_PROTO,
   USERS_PACKAGE,
   USERS_PROTO,
+  UPLOAD_SERVER_CHANNEL_OPTIONS,
   logInfo,
 } from '@crm/common';
 import { AppModule } from './app.module';
@@ -29,6 +30,10 @@ async function bootstrap(): Promise<void> {
       [HEALTH_PACKAGE, PING_PACKAGE, USERS_PACKAGE],
       [HEALTH_PROTO, PING_PROTO, USERS_PROTO],
       cfg.GRPC_URL,
+      // Feature 016: this server receives whole files on `UploadsService.CreateUpload`, so its
+      // message ceiling is raised to 12 MB — on this service only. The arithmetic behind the number
+      // is in `UPLOAD_CHANNEL_BYTES` (research R2).
+      UPLOAD_SERVER_CHANNEL_OPTIONS,
     ),
   );
   await app.listen();

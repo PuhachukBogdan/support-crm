@@ -2,6 +2,7 @@ import { Metadata } from '@grpc/grpc-js';
 import type { PrismaService } from '../prisma.service';
 import { MessageRepository } from './message.repository';
 import { MessageReadController } from './message.grpc.controller';
+import type { UploadsClient } from '../uploads/uploads.client';
 
 function md(accountId = 'acc-1', brands = ['brand-a']): Metadata {
   const m = new Metadata();
@@ -61,10 +62,26 @@ function fakePrisma() {
   return { prisma: { forAccount } as unknown as PrismaService, findMany };
 }
 
+/**
+ * Feature 016 gave the read controller an uploads client (attachment metadata is fetched once per
+ * thread page). These 012 messages carry no attachments, so it must never be consulted — a NAMED
+ * stub that throws says so, where a permissive mock would hide a future N+1 or an unnecessary hop.
+ */
+function noUploads() {
+  return {
+    describe: () => {
+      throw new Error('a page with no attachments must not consult the uploads service');
+    },
+    claim: () => {
+      throw new Error('a read must never claim');
+    },
+  } as unknown as UploadsClient;
+}
+
 describe('GetThread projection — SEC-13 / SC-002 (zero tolerance)', () => {
   it('STAFF projection includes the private note', async () => {
     const { prisma } = fakePrisma();
-    const ctrl = new MessageReadController(new MessageRepository(prisma));
+    const ctrl = new MessageReadController(new MessageRepository(prisma), noUploads());
     const res = await ctrl.getThread(
       { conversationId: 'c1', projection: 'THREAD_PROJECTION_STAFF' },
       md(),
@@ -76,7 +93,7 @@ describe('GetThread projection — SEC-13 / SC-002 (zero tolerance)', () => {
 
   it('CUSTOMER projection is STRUCTURALLY ABSENT the private note (query-level, not a flag)', async () => {
     const { prisma, findMany } = fakePrisma();
-    const ctrl = new MessageReadController(new MessageRepository(prisma));
+    const ctrl = new MessageReadController(new MessageRepository(prisma), noUploads());
     const res = await ctrl.getThread(
       { conversationId: 'c1', projection: 'THREAD_PROJECTION_CUSTOMER' },
       md(),
@@ -92,7 +109,7 @@ describe('GetThread projection — SEC-13 / SC-002 (zero tolerance)', () => {
 
   it('reads the thread in chronological order (FR-009)', async () => {
     const { prisma, findMany } = fakePrisma();
-    const ctrl = new MessageReadController(new MessageRepository(prisma));
+    const ctrl = new MessageReadController(new MessageRepository(prisma), noUploads());
     await ctrl.getThread({ conversationId: 'c1', projection: 'THREAD_PROJECTION_STAFF' }, md());
     expect(findMany.mock.calls[0]![0].orderBy).toEqual([{ created_at: 'asc' }, { id: 'asc' }]);
   });

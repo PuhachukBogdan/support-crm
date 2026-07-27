@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "types": ["node", "jest"]
+    // "multer" pulls in @types/multer's global augmentation (`Express.Multer.File`). Without it
+    // listed here the `types` array excludes it and strict TS cannot compile the upload route —
+    // the file type is a GLOBAL namespace, not an importable module (feature 016).
+    "types": ["node", "jest", "multer"]
   },
   "include": ["src/**/*"]
 }

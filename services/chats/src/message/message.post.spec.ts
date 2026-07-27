@@ -5,6 +5,7 @@ import { MessageRepository } from './message.repository';
 import type { DomainEventPublisher } from '../events/events.publisher';
 import type { FirstReplyClock } from '../sla/first-reply.clock';
 import { MessageWriteController } from './message.grpc.controller';
+import type { UploadsClient } from '../uploads/uploads.client';
 
 function md(accountId = 'acc-1', userId = 'op-1', brands?: string[]): Metadata {
   const m = new Metadata();
@@ -56,10 +57,26 @@ function noClock() {
   } as unknown as FirstReplyClock;
 }
 
+/**
+ * Feature 016 gave the write controller an uploads client. These 012 specs post messages with NO
+ * attachments, so the client is never consulted — but the constructor needs one.
+ *
+ * A NAMED stub whose methods throw, rather than a loosened constructor or a silently permissive
+ * mock: if a future edit makes the no-attachment path call users, these specs fail loudly instead of
+ * passing against a fake that answered anyway. Same reasoning features 014/015 used for their own
+ * stubs.
+ */
+function noUploads() {
+  const unexpected = () => {
+    throw new Error('a message with no attachments must not consult the uploads service');
+  };
+  return { describe: unexpected, claim: unexpected } as unknown as UploadsClient;
+}
+
 describe('MessageWriteController.postMessage (US2)', () => {
   it('posts a public reply authored by the acting operator', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi' },
       md('acc-1', 'op-1', ['brand-a']),
@@ -75,7 +92,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('posts a private note and captures @mentions (R6)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'psst', mentions: ['op-2'] },
       md('acc-1', 'op-1', ['brand-a']),
@@ -86,7 +103,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('drops mentions on a public reply (mentions belong to private notes)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi', mentions: ['op-2'] },
       md('acc-1', 'op-1', ['brand-a']),
@@ -96,7 +113,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('rejects a non-postable kind (incoming/system/unspecified)', async () => {
     const { prisma } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     await expect(
       ctrl.postMessage({ conversationId: 'c1', kind: 'MESSAGE_KIND_INCOMING_CUSTOMER', body: 'x' }, md()),
     ).rejects.toBeInstanceOf(RpcException);
@@ -104,7 +121,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('is NOT_FOUND when the conversation is absent / brand not permitted', async () => {
     const { prisma } = fakePrisma(null); // conversation not found in account
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     await expect(
       ctrl.postMessage({ conversationId: 'nope', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' }, md('acc-1', 'op-1', ['brand-a'])),
     ).rejects.toBeInstanceOf(RpcException);
@@ -112,7 +129,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('RecordIncomingMessage yields an INCOMING_CUSTOMER message (FR-009)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     const res = await ctrl.recordIncomingMessage(
       { conversationId: 'c1', body: 'help', authorId: 'player-9' },
       md('acc-1', 'op-1', ['brand-a']),

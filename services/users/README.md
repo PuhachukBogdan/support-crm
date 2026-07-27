@@ -33,7 +33,8 @@ model + the Player read path in place. Users domain gRPC (`UsersReadService`) ar
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `users_db`.
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`. Validated at boot by [`src/config.ts`](src/config.ts).
+`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, and the six `S3_*` keys (feature 016 — see below).
+Validated at boot by [`src/config.ts`](src/config.ts); the error names the KEY, never the value.
 
 ## Run / test
 ```bash
@@ -82,3 +83,50 @@ Its failure behaviour is deliberately strict and outranked a later decision: fea
 best-effort recording for data-access classes, and this path's existing choice (*a failed write is not
 swallowed*) changed that. An unaudited PII reveal is the harvesting vector SEC-AP3 exists to detect, not a
 lost statistic.
+
+## The upload store (feature 016, roadmap 4.9) — SEC-1
+
+⚠️ **This is the only service in the product that can reach the object store.** That is the load-bearing
+property of the whole feature, not an implementation detail: "one validated path" (FR-001) is checkable
+only because validation and storage are the *same* component. If the gateway could write to the bucket,
+any future gateway code could, and the single-path guarantee would be a convention again — which is
+exactly the SEC-1 defect this closed.
+
+The property is enforced structurally, not by review:
+[`tests/uploads/single-ingest-path.spec.ts`](../../tests/uploads/single-ingest-path.spec.ts) fails the
+build if a second file imports `@aws-sdk/client-s3`, if a second service declares `S3_*`, if any other
+proto message grows a `bytes` field, or if anything anywhere signs a URL.
+
+- **Owns** the `Upload` table in `users_db`, the object-store credentials, the content validation and the
+  image codec. Bytes live in a **private** S3-compatible bucket (MinIO locally and on `beton-test`, a
+  managed bucket in production — one client, `endpoint` + `forcePathStyle` is the whole difference).
+- **Code:** [`src/uploads/`](src/uploads) — `object-store.ts` (the sole SDK importer, plus an in-memory
+  fake so Track A needs no Docker), `validate.ts` (purpose → size → magic bytes → decode),
+  `image.ts` (sharp; **untrusted-input handling**, not a formatting utility), `uploads.repository.ts`,
+  `uploads.grpc.controller.ts`.
+- **Vocabulary is shared, enforcement is here:** the closed purpose catalogue and the magic-byte table
+  live in [`libs/common/src/uploads`](../../libs/common/src/uploads) because the gateway needs the parse
+  limit and the first-tier permission. **Adding a consumer is adding a catalogue ROW** — a test asserts no
+  validation code branches on a purpose name.
+- **gRPC surface** (additive, in the owned contract): `UploadsService.CreateUpload` / `ReadUpload` /
+  `ClaimUploads` / `DescribeUploads`. Deliberately absent: no update, no delete, no presign, no
+  upload-on-behalf-of. Both id-list RPCs are capped at 50 — an unbounded `repeated string` on an
+  authenticated path is an unbounded request.
+- **Reads are brokered, never signed.** Authorization is evaluated at request time against the caller's
+  current account and permissions (FR-010), which is why a leaked link is worth nothing: a signed URL
+  would move that decision to link-creation time, i.e. the SEC-10 case.
+- **The decoder cuts both ways, on purpose.** It is attack surface, but re-encoding is the only
+  *structural* answer to a polyglot file. `limitInputPixels` is **mandatory** — a byte cap limits what we
+  accept, never the memory needed to decode it, and a 40 KB PNG can declare 50 000². Re-encoding also
+  strips EXIF (GPS included) from the derivative; the *original* still carries it and is served only on a
+  deliberate open.
+- **Not audited, and no action is defined either** (spec Q2). An upload is ordinary work, like posting a
+  message, and the message already answers "who sent this to the customer". A catalogue entry added "in
+  case" is an invitation — so its absence is asserted by a test.
+- **Failure direction, chosen not defaulted:** the object is put *last* before the row, and a failed row
+  write deletes it and logs a discrepancy (keys only, never a filename — a filename can itself be PII).
+  Across the chats boundary the claim comes *before* the message write: wasted bytes beat a dangling
+  reference a future reclaim job would delete.
+- **Growth is bytes, not rows** — the first thing in this product for which that is true. The
+  `(account_id, state, created_at)` index exists so the eventual retention job (ADR 0015) is a cheap
+  query rather than a table scan.

@@ -8,6 +8,9 @@ import { ContactViewAuditService } from './player/contact-view-audit.service';
 import { AuditRepository } from './audit/audit.repository';
 import { AuditReadController } from './audit/audit.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
+// Feature 016 (roadmap 4.9): the one validated upload path. `users` is the only service holding
+// object-store credentials (research R1/R2) — SEC-1.
+import { UploadsModule } from './uploads/uploads.module';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
@@ -16,6 +19,7 @@ import { AuditAccessGuard } from './audit/audit.guard';
 // Feature 011 (US4): anti-pitching masking (player.masking) + the contact-view audit
 // (ContactViewAuditService) — the masking + audit units the player-read handlers call in Phase 5.
 @Module({
+  imports: [UploadsModule],
   controllers: [HealthGrpcController, PingGrpcController, AuditReadController],
   providers: [PrismaService, PlayerRepository, ContactViewAuditService, AuditRepository, AuditAccessGuard],
 })

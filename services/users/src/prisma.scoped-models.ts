@@ -11,4 +11,8 @@ export const SCOPED_MODELS = [
   // Feature 015 (roadmap 4.8): the general audit trail. Identical model in all three services —
   // the table cannot be shared (Principle VIII) and the entry lives in its action's transaction.
   'AuditEntry',
+  // Feature 016 (roadmap 4.9): upload records. Every read and write goes through `forAccount`, so
+  // "not yours" and "does not exist" are the same query result rather than two branches a future
+  // edit could separate (FR-011). The storage key's account prefix is legibility, NOT authorization.
+  'Upload',
 ] as const;

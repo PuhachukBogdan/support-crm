@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import type { Cursor } from '../shared/cursor';
 import type { MessageRow, Projection } from '../shared/wire';
 
+/**
+ * Feature 016: attachment links are selected THROUGH the message, as a nested select. That is the
+ * whole of FR-013 for attachments — the customer projection excludes private-note ROWS at the query,
+ * so their attachment rows are never loaded either. Nothing anywhere fetches attachments by a
+ * separate query, and `private-note-attachments.spec.ts` asserts the outcome.
+ */
 const MESSAGE_SELECT = {
   id: true,
   conversation_id: true,
@@ -12,6 +19,7 @@ const MESSAGE_SELECT = {
   private: true,
   mentions: true,
   created_at: true,
+  attachments: { select: { upload_id: true, position: true }, orderBy: { position: 'asc' } },
 } as const;
 
 export interface PostInput {
@@ -21,6 +29,8 @@ export interface PostInput {
   body: string;
   isPrivate: boolean;
   mentions: string[];
+  /** Feature 016 — already validated and CLAIMED by the caller before this is reached (research R8). */
+  uploadIds?: string[];
 }
 
 /**
@@ -84,19 +94,50 @@ export class MessageRepository {
     return { rows: kept, nextCursor };
   }
 
+  /**
+   * Write the message and, when the caller supplied already-claimed uploads, its attachment rows —
+   * in ONE batch `$transaction` (feature 016, T037).
+   *
+   * ── Why the batch form, and why the id is generated here ───────────────────────────────────────
+   * The batch form is the one that CANNOT reproduce feature 013's live-only defect: there is no
+   * `$transaction` pulled into a variable to lose its `this` on. It also cannot reference a row it is
+   * about to create, which is why the message id is generated up front — that turns two dependent
+   * writes into two independent statements, which is exactly what makes the safe form usable here.
+   *
+   * Validation is NOT done here. Everything that can refuse has already run (research R8 / the 013
+   * ordering discipline), so by the time this executes the only possible outcome is both rows or
+   * neither.
+   */
   async post(accountId: string, input: PostInput): Promise<MessageRow> {
-    return (await this.prisma.forAccount(accountId).message.create({
-      data: {
-        account_id: accountId, // also injected by the scoped client; set explicitly for the type
-        conversation_id: input.conversationId,
-        author_type: input.authorType,
-        author_id: input.authorId,
-        body: input.body,
-        private: input.isPrivate,
-        // mentions are meaningful only on a private note (R6); empty otherwise.
-        mentions: input.isPrivate ? input.mentions : [],
-      },
-      select: MESSAGE_SELECT,
-    })) as MessageRow;
+    const db = this.prisma.forAccount(accountId);
+    const data = {
+      account_id: accountId, // also injected by the scoped client; set explicitly for the type
+      conversation_id: input.conversationId,
+      author_type: input.authorType,
+      author_id: input.authorId,
+      body: input.body,
+      private: input.isPrivate,
+      // mentions are meaningful only on a private note (R6); empty otherwise.
+      mentions: input.isPrivate ? input.mentions : [],
+    };
+
+    const uploadIds = [...new Set(input.uploadIds ?? [])];
+    if (uploadIds.length === 0) {
+      return (await db.message.create({ data, select: MESSAGE_SELECT })) as MessageRow;
+    }
+
+    const messageId = randomUUID();
+    const [row] = (await db.$transaction([
+      db.message.create({ data: { id: messageId, ...data }, select: MESSAGE_SELECT }),
+      db.messageAttachment.createMany({
+        data: uploadIds.map((upload_id, position) => ({
+          account_id: accountId,
+          message_id: messageId,
+          upload_id,
+          position,
+        })),
+      }),
+    ] as never)) as unknown as [MessageRow];
+    return row;
   }
 }

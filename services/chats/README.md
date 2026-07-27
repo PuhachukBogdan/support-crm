@@ -92,18 +92,23 @@ conversations, messages incl. protected private notes, player feed) and the **wo
   [`prisma/migrations/`](prisma/migrations) (Track B: `prisma migrate deploy`). Feature 013 adds two
   account-scoped tables — `CannedResponse` and `RoundRobinState` (rotation cursor). Feature 014 gives
   the reserved `Automation` model meaning (+ author, position, revision) and adds `AutomationRun`,
-  `FirstReplySlaPolicy` and `ConversationSlaState`. All are enrolled in
+  `FirstReplySlaPolicy` and `ConversationSlaState`. Feature 016 adds `MessageAttachment`. All are enrolled in
   [`src/prisma.scoped-models.ts`](src/prisma.scoped-models.ts), cross-checked against the schema by
   `tests/data-model/account-scope-coverage.spec.ts`.
 - Isolation extension: [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`AUTH_GRPC_TARGET`**. Validated at boot by
-[`src/config.ts`](src/config.ts).
+`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`AUTH_GRPC_TARGET`**, **`USERS_GRPC_TARGET`**. Validated at boot
+by [`src/config.ts`](src/config.ts).
 
 **Cross-service dependency (new in 014):** chats → **auth** (`ResolveEffectivePermissions`) to resolve a
 rule author's live permissions. Acyclic — auth never calls chats. Without the dial target every rule
 would refuse (fail-closed), which is safe but useless, so it is a boot requirement.
+
+**Cross-service dependency (new in 016):** chats → **users** (`ClaimUploads` / `DescribeUploads`) for
+message attachments. Acyclic — users never calls chats. Because the config guard is refuse-to-start,
+adding a cross-service client to chats is always a **two-file change**: this key and the matching entry
+in `compose.yaml`. Omitting either is a boot failure rather than a runtime surprise, which is the point.
 
 ## Run / test
 ```bash
@@ -176,3 +181,35 @@ the delete and its entry commit in one transaction. The rule is **read first**: 
 0 for an absent id while the transaction still commits, so a blind delete-and-record would file an entry for a
 deletion that never happened. A trail that records non-events is worse than one with a gap — a reader cannot
 tell them apart.
+
+## Attachments (feature 016, roadmap 4.9)
+
+Chats holds a **soft `upload_id`** and nothing else. The bytes, the validation and the object-store
+credentials all live in `users` — the second consumer of the upload path is the profile avatar (8.10),
+which has nothing to do with conversations, so owning uploads here would make every avatar read a chats
+call (research R1).
+
+- **`MessageAttachment`** (`chats_db`): `account_id` + `message_id` (FK, cascade) + a soft `upload_id`
+  reference across the database boundary, plus `position` for stable display order. The
+  `@@unique([message_id, upload_id])` IS the "attached twice" guarantee — a check-then-write would be a
+  race; a unique index is not (the 014 discipline).
+- **Claim BEFORE the write** ([`src/message/message.grpc.controller.ts`](src/message/message.grpc.controller.ts)).
+  Everything that can refuse — conversation access, id shape and cap, the cross-service describe and
+  claim — runs before the first row is written, so a refused attachment leaves **no partial message**
+  (FR-015, the 013 ordering discipline). Two databases and no distributed transaction means a failure
+  direction had to be chosen: claiming first fails toward wasted bytes, claiming last fails toward a
+  *referenced* upload a future reclaim job would delete. Wasted storage beats data loss.
+- **Message and attachment rows are written in ONE batch `$transaction`.** The message id is generated up
+  front so the two statements are independent — which is what makes the batch form (the one that cannot
+  reproduce 013's lost-`this` defect) usable here at all.
+- **The private-note guarantee is inherited, not re-implemented.** Attachments are selected *through* the
+  message as a nested select, and the customer projection already excludes private rows AT THE QUERY
+  (feature 012). So a private note's attachments are never loaded — and `private-note-attachments.spec.ts`
+  asserts the outcome including that attachment and upload **ids** are absent, not merely the bytes: the
+  012 lesson was that the id and the mentions leaked alongside the body (SEC-13 / SC-008).
+- **One `DescribeUploads` per thread page**, never one per message (Principle VII, no N+1). Metadata is
+  fetched and deliberately **not** denormalized into `chats_db` — that keeps the PII-capable
+  `display_name` in exactly one database.
+- **Read vs write degrade differently, on purpose.** A failure to describe on the WRITE path refuses the
+  message (the agent believes a file was sent). The same failure on the READ path degrades to no
+  attachment metadata — a missing thumbnail is not worth a blank conversation.

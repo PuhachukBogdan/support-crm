@@ -22,11 +22,20 @@ Web (Next.js) runs separately until Phase 8: `npm run dev:web`.
 | web (Next.js dev) | 3001 | host (run outside compose) | frontend dev server |
 | postgres | 5432 | host-bound to `127.0.0.1` (optional; for a DB client) | per-service databases |
 | redis | 6379 | internal only | cache / queue (BullMQ) |
+| **minio** S3 API | **9000** | host-bound to `127.0.0.1` | uploaded bytes (feature 016) — **private bucket**; host-bound so SEC-39 can be asserted directly (an anonymous `GET` must be denied) |
+| minio console | 9001 | host-bound to `127.0.0.1` | MinIO admin UI (dev convenience) |
 | auth gRPC | 50051 | internal only | `HealthService.Check` |
 | users gRPC | 50052 | internal only | `HealthService.Check` + `PingService` |
 | chats gRPC | 50053 | internal only | `HealthService.Check` |
 | brands gRPC | 50054 | internal only | `HealthService.Check` |
 | worker gRPC | 50055 | internal only | `HealthService.Check` |
+
+The object store is reached **only by the `users` service** — it is the sole holder of the
+`S3_*` credentials (feature 016, research R2). The gateway proxies bytes over gRPC and holds no
+storage configuration; that absence is the observable form of the containment, and a structural
+test (`tests/uploads/single-ingest-path.spec.ts`) fails if a second service declares `S3_*`.
+A one-shot `minio-init` creates the bucket and explicitly sets `anonymous none` — private is
+asserted, not inherited.
 
 Only the gateway (and the separately-run web dev server) are reachable from the host; datastores
 and east-west gRPC stay on the internal compose network — mirroring production, where nothing

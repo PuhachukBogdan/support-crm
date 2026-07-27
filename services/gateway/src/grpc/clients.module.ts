@@ -12,6 +12,7 @@ import {
   HEALTH_PROTO,
   PING_PACKAGE,
   PING_PROTO,
+  UPLOAD_CLIENT_CHANNEL_OPTIONS,
 } from '@crm/common';
 
 // Injection tokens for the gateway's gRPC client proxies (spec 003, US3 + US5).
@@ -64,10 +65,18 @@ const HEALTH_TARGETS: Array<[string, string]> = [
           grpcClientOptions(CHATS_PACKAGE, CHATS_PROTO, process.env.CHATS_GRPC_TARGET as string),
       },
       {
-        // Users read surface (feature 015) — currently only ListAuditEntries; the player reads land in Phase 5.
+        // Users read surface (feature 015) — ListAuditEntries; the player reads land in Phase 5.
+        // Feature 016 adds `UploadsService` on the same package, which carries whole files, so this
+        // client's message ceiling is raised to 12 MB. The gateway gains a message SIZE here and
+        // still gains no storage configuration — that remains users-only (research R2/R10).
         name: USERS_CLIENT,
         useFactory: () =>
-          grpcClientOptions(USERS_PACKAGE, USERS_PROTO, process.env.USERS_GRPC_TARGET as string),
+          grpcClientOptions(
+            USERS_PACKAGE,
+            USERS_PROTO,
+            process.env.USERS_GRPC_TARGET as string,
+            UPLOAD_CLIENT_CHANNEL_OPTIONS,
+          ),
       },
       ...HEALTH_TARGETS.map(([token, envVar]) => ({
         name: token,

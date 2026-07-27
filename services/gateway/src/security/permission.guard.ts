@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  NotFoundException,
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -11,7 +12,7 @@ import { Reflector } from '@nestjs/core';
 import { type ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, type Observable } from 'rxjs';
 import type { Request } from 'express';
-import { hasPermission, type EffectivePermissions } from '@crm/common';
+import { hasPermission, purposeOf, type EffectivePermissions } from '@crm/common';
 import { AUTH_CLIENT } from '../grpc/clients.module';
 import type { RequestClaims } from '../auth/auth.guard';
 import { EffectivePermsCache } from './effective-perms.cache';
@@ -20,6 +21,8 @@ import {
   ALLOW_UNDER_PREVIEW_KEY,
   REQUIRED_PERMISSION_KEY,
   REQUIRES_BRAND_PARAM_KEY,
+  REQUIRES_PURPOSE_PARAM_KEY,
+  RESOLVE_PERMISSIONS_KEY,
 } from './requires-permission.decorator';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -75,6 +78,17 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
       REQUIRES_BRAND_PARAM_KEY,
       [context.getHandler(), context.getClass()],
     );
+    // Feature 016: the required key is named by the route's upload PURPOSE, not by a literal.
+    const purposeParam = this.reflector.getAllAndOverride<string | undefined>(
+      REQUIRES_PURPOSE_PARAM_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    // Feature 016: resolve-and-forward, enforce nothing here (the owning service decides).
+    const resolveOnly =
+      this.reflector.getAllAndOverride<boolean | undefined>(RESOLVE_PERMISSIONS_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true;
     const allowUnderPreview =
       this.reflector.getAllAndOverride<boolean | undefined>(ALLOW_UNDER_PREVIEW_KEY, [
         context.getHandler(),
@@ -102,8 +116,27 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
     }
 
     // Not permission-gated → pass (the global AuthGuard already required a session).
-    if (!required && !brandParam) return true;
+    if (!required && !brandParam && !purposeParam && !resolveOnly) return true;
     if (!claims) throw new UnauthorizedException(); // fail closed (Principle II).
+
+    /**
+     * Feature 016 — resolve the required key from the closed purpose catalogue at request time.
+     *
+     * Three outcomes, and all three are deliberate:
+     *  • unknown purpose → 404 BEFORE anything else happens. Not 403: the purpose list is closed and
+     *    public in shape, so "no such purpose" is not a secret, while answering 403 would make a
+     *    typo look like a policy problem.
+     *  • `permission: null` → authenticated is sufficient. `claims` is already established above, so
+     *    this branch is a real check that has already passed — never a skipped one.
+     *  • a key → the ordinary resolve-and-compare path below.
+     */
+    let purposeRequired: string | null = null;
+    if (purposeParam) {
+      const name = (req.params as Record<string, string> | undefined)?.[purposeParam];
+      const purpose = purposeOf(name);
+      if (!purpose) throw new NotFoundException();
+      purposeRequired = purpose.permission;
+    }
 
     // Brand/queue scope (FR-004): if the route names a brand param and the caller's brand scope is
     // known and excludes it → 403. (When claims.brands is absent, brand enforcement lands with the
@@ -115,9 +148,14 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
       }
     }
 
-    if (required) {
+    // Both sources of a required key are enforced. A route could name a static key AND a purpose
+    // param; resolving once and checking every key that applies is the deny-by-default reading.
+    const keys = [required, purposeRequired].filter((k): k is string => !!k);
+    if (keys.length > 0 || purposeParam || resolveOnly) {
       const eff = await this.resolve(claims.accountId, claims.userId, previewRole);
-      if (!hasPermission(eff.permissionKeys, required)) throw new ForbiddenException();
+      for (const key of keys) {
+        if (!hasPermission(eff.permissionKeys, key)) throw new ForbiddenException();
+      }
       req.effective = eff;
     }
     return true;

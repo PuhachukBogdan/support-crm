@@ -33,12 +33,15 @@ import { SlaController, SlaMaintenanceController } from './sla/sla.grpc.controll
 import { AuditRepository } from './audit/audit.repository';
 import { AuditReadController } from './audit/audit.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
+// Feature 016 (roadmap 4.9): attachments. chats holds a SOFT upload_id and validates it over the
+// users contract — never a cross-database join (Principle VIII). Acyclic: users never calls chats.
+import { ChatsUploadsModule } from './uploads/uploads.client';
 
 // Phase 1 (spec 003): health probe. Feature 012 (roadmap 4.1–4.3): the chats-core domain —
 // ChatsReadService / ChatsWriteService over chats_db, account-scoped (forAccount) with a
 // service-tier RBAC guard (ChatsAccessGuard). US1 conversations + US2 messages; feed lands in US3.
 @Module({
-  imports: [ChatsAuthModule],
+  imports: [ChatsAuthModule, ChatsUploadsModule],
   controllers: [
     HealthGrpcController,
     ConversationReadController,

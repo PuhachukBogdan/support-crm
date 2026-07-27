@@ -104,14 +104,52 @@ export interface MessageRow {
   private: boolean;
   mentions: string[];
   created_at: Date;
+  /**
+   * Feature 016 — the message's attachment links, loaded THROUGH the message query (never by a
+   * separate fetch). That is what makes the SEC-13 private-note exclusion cover attachments without
+   * re-implementing it: a private note is not in the customer result set, so neither are its rows.
+   */
+  attachments?: MessageAttachmentRow[];
+}
+
+export interface MessageAttachmentRow {
+  upload_id: string;
+  position: number;
+}
+
+/**
+ * Rendering metadata for one attachment, fetched from `users` per thread page (feature 016).
+ * Deliberately NOT denormalized into chats_db — that keeps the PII-capable `display_name` in
+ * exactly one database.
+ */
+export interface AttachmentWire {
+  uploadId: string;
+  contentType: string;
+  byteSize: number;
+  displayName: string;
+  hasDerivative: boolean;
 }
 
 /**
  * Map a stored message to the wire shape. `kind` is derived (R5). NOTE: the CUSTOMER projection
  * excludes private-note rows at the QUERY (never loaded), so this mapper never serialises a private
  * note into a customer payload — the SEC-13 guarantee is structural, not a field here (R4/SC-002).
+ *
+ * Feature 016: `attachments` is keyed off the row's OWN attachment links, so a message the query did
+ * not return contributes nothing — not its body, not its ids. `describedBy` supplies the metadata
+ * that lives in users_db; an id with no description (not visible to this caller) is dropped rather
+ * than emitted half-filled, because a half-filled attachment renders as a broken one.
  */
-export function toMessageWire(m: MessageRow) {
+export function toMessageWire(m: MessageRow, describedBy?: Map<string, AttachmentWire>) {
+  const links = m.attachments ?? [];
+  const attachments =
+    links.length > 0 && describedBy
+      ? links
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map((l) => describedBy.get(l.upload_id))
+          .filter((a): a is AttachmentWire => !!a)
+      : [];
   return {
     id: m.id,
     conversationId: m.conversation_id,
@@ -120,6 +158,7 @@ export function toMessageWire(m: MessageRow) {
     body: m.body,
     mentions: m.mentions ?? [],
     createdAt: m.created_at.toISOString(),
+    attachments,
   };
 }
 

@@ -69,3 +69,119 @@ message PlayerPage {
   repeated Player players = 1;
   string next_page_token = 2; // empty when no more pages
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Feature 016 — One Validated Upload Path (roadmap 4.9). ADDITIVE ONLY: a new service and new
+// messages; nothing above is renumbered, renamed or removed (`buf breaking` stays clean).
+//
+// NOT a separate .proto file, deliberately: feature 015 created crm/audit/v1/audit.proto because
+// THREE services implemented the same messages. Here one service implements and the others are
+// clients, so a shared file would buy nothing and cost an import (research R12).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// UploadsService — the ONLY surface in the product through which bytes enter or leave (FR-001).
+//
+// Owned by `users` (research R1). `users` is the only service holding object-store credentials, so
+// "stored files are unreachable without the product's authorization" (FR-021/SC-010) is a property
+// of the deployment rather than a claim in a document.
+//
+// Unary, not streaming (research R2): the caps are 10 MB (attachment) and 2 MB (avatar), and the
+// risk in this feature belongs in validation and ownership, not in transport plumbing. The
+// header/bytes split below is already stream-compatible, so growing past the caps is a migration,
+// not a redesign. gRPC message limits are raised to 12 MB on this path only.
+//
+// Caller context rides in METADATA as everywhere else (x-actor-account-id / -user-id /
+// -permissions / x-is-preview), never in a message body.
+service UploadsService {
+  // Validate and store. Refuses unless: the purpose exists, the caller holds its permission, the
+  // size is within its cap, and the file's ACTUAL CONTENT is on its allow-list. For image purposes
+  // the decode must also succeed, and a derivative is produced from it.
+  rpc CreateUpload(CreateUploadRequest) returns (Upload);
+
+  // Serve bytes back. Authorization is evaluated HERE, at request time (FR-010) — a reference that
+  // was once usable stops working the moment the requester's account or permissions change.
+  rpc ReadUpload(ReadUploadRequest) returns (UploadContent);
+
+  // A consumer claims uploads before writing the record that references them (research R8).
+  // Refuses an upload from another account or one that does not exist — which is what makes a
+  // cross-account attachment impossible (FR-015).
+  rpc ClaimUploads(ClaimUploadsRequest) returns (ClaimUploadsResponse);
+
+  // Metadata for rendering (name, type, size, whether a derivative exists). No bytes.
+  rpc DescribeUploads(DescribeUploadsRequest) returns (DescribeUploadsResponse);
+
+  // ── Deliberately ABSENT ────────────────────────────────────────────────────────────────────────
+  // • No UpdateUpload / DeleteUpload. Nothing in v1 removes bytes; reclaiming abandoned uploads is
+  //   a retention concern (ADR 0015) and its own feature — which must also decide what a `deletion`
+  //   audit entry looks like for a file.
+  // • No presigned-URL RPC. FR-010 requires authorization at request time; a signed URL grants
+  //   access to whoever holds it for the length of its window, which is exactly the SEC-10
+  //   leaked-link case.
+  // • No "upload on behalf of" parameter. The uploader is the caller, from metadata, always.
+}
+
+enum UploadVariant {
+  UPLOAD_VARIANT_UNSPECIFIED = 0;
+  UPLOAD_VARIANT_ORIGINAL = 1;
+  UPLOAD_VARIANT_DERIVATIVE = 2; // absent for non-image purposes → NOT_FOUND, never a silent fallback
+}
+
+message CreateUploadRequest {
+  // From the closed catalogue (libs/common/src/uploads/purposes.ts). Unknown → INVALID_ARGUMENT.
+  string purpose = 1;
+  // What the client SAYS it is. Recorded nowhere: it is compared against the detected type and then
+  // discarded. A stored declared-type would look authoritative to a future reader and is not.
+  string declared_content_type = 2;
+  // The client's filename. Used only to derive a sanitized display label — never the storage
+  // identity (FR-008), and never logged (FR-020: a filename can itself be PII).
+  string filename = 3;
+  bytes content = 4;
+}
+
+message Upload {
+  string id = 1;
+  string purpose = 2;
+  string content_type = 3; // VERIFIED from content — never the declared value
+  int64 byte_size = 4;
+  string display_name = 5;
+  bool has_derivative = 6;
+  string created_at = 7; // RFC3339
+}
+
+message ReadUploadRequest {
+  string upload_id = 1;
+  UploadVariant variant = 2;
+}
+
+message UploadContent {
+  string content_type = 1; // the verified type; the gateway sends exactly this, with nosniff
+  string display_name = 2; // sanitized, for Content-Disposition
+  bool inline_safe = 3;    // true only for raster images → gateway may use `inline`; PDF is `attachment`
+  bytes content = 4;
+}
+
+// Both id-list requests below are CAPPED at 50 ids and refuse above it. `repeated string` with no
+// bound is an unbounded request on an authenticated path — a caller could pass ten thousand ids and
+// turn one call into a scan (Principle VII / FR-023). The cap is enforced at both tiers.
+message ClaimUploadsRequest {
+  repeated string upload_ids = 1; // max 50
+  // What is claiming them, e.g. "chats:message". Opaque provenance, never a joinable key — the
+  // consumer's own table holds the real reference.
+  string claimed_by = 2;
+}
+
+message ClaimUploadsResponse {
+  // Echoed on success. A partial claim is not possible: any id that is unknown, already claimed by
+  // something else, or in another account fails the whole call (FR-015 — validate before any write).
+  repeated string upload_ids = 1;
+}
+
+message DescribeUploadsRequest {
+  repeated string upload_ids = 1; // max 50 — see the note above ClaimUploadsRequest
+}
+
+message DescribeUploadsResponse {
+  // Only uploads in the caller's account. An id from another account is simply absent — the
+  // response never distinguishes "not yours" from "does not exist" (FR-011).
+  repeated Upload uploads = 1;
+}

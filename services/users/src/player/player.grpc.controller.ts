@@ -1,0 +1,250 @@
+import { Controller, Inject, UseGuards } from '@nestjs/common';
+import { GrpcMethod, RpcException } from '@nestjs/microservices';
+import { status as GrpcStatus } from '@grpc/grpc-js';
+import type { Metadata } from '@grpc/grpc-js';
+import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '@crm/common';
+import { OperatorRepository, type OperatorRow } from '../operator/operator.repository';
+import { ContactViewAuditService } from './contact-view-audit.service';
+import { PlayerAccessGuard } from './player.guard';
+import { RequiresPlayerPermission } from './requires-player-permission.decorator';
+import { assertCanMassExport, maskPlayer } from './player.masking';
+import { PlayerRepository, type PlayerWithBrands } from './player.repository';
+import { readPlayerActor, resolveListBrand, type PlayerActor } from './actor';
+
+interface GetPlayerWire {
+  playerId?: string;
+}
+interface GetOperatorWire {
+  operatorId?: string;
+}
+interface ListByBrandWire {
+  brandId?: string;
+  pageToken?: string;
+  pageSize?: number;
+}
+
+/**
+ * The player + operator read surface (feature 018, roadmap 5.1).
+ *
+ * These three RPCs have been **declared in the owned contract since Phase 2 and served by nothing**. Four
+ * units were built ahead of this surface — the read path (2.7), the anti-pitching masking, the contact-view
+ * audit and the service-tier guard (all 011) — each with a comment naming this point. This controller is
+ * where they get wired, and it introduces no second copy of any of them.
+ *
+ * ⚠️ `UsersReadService` is now implemented across **TWO** controllers (this one and the audit reader). Nest
+ * merges them into one gRPC service; `hosting.spec.ts` asserts all four methods actually answer, because a
+ * handler map that silently drops one is precisely feature 015's live-only defect.
+ */
+@Controller()
+@UseGuards(PlayerAccessGuard)
+export class PlayerReadController {
+  constructor(
+    @Inject(PlayerRepository) private readonly players: PlayerRepository,
+    @Inject(OperatorRepository) private readonly operators: OperatorRepository,
+    @Inject(ContactViewAuditService) private readonly access: ContactViewAuditService,
+  ) {}
+
+  /**
+   * One customer record, shaped by the caller's role.
+   *
+   * Order matters and is the design: read → **not found stops here** → mask → audit → wire. A record that
+   * does not exist (or is not this account's) is refused **before** any entry is written, because nothing
+   * was revealed; auditing a 404 would file a reveal that never happened, which is the property feature
+   * 015's live run recorded for deletions.
+   */
+  @GrpcMethod('UsersReadService', 'GetPlayer')
+  @RequiresPlayerPermission('crm.contact.view')
+  async getPlayer(req: GetPlayerWire, metadata: Metadata) {
+    const actor = readPlayerActor(metadata);
+    const row = (await this.players.getPlayerById(
+      actor.accountId,
+      String(req?.playerId ?? ''),
+    )) as PlayerWithBrands | null;
+
+    // Unknown id and another account's id land here identically — one answer, one message, no oracle.
+    if (!row) throw notFound();
+
+    const masked = maskPlayer(row as unknown as Record<string, unknown>, actor.effectiveRole);
+
+    /**
+     * STRICT, and awaited before anything is returned (FR-016).
+     *
+     * An unaudited reveal is the harvesting vector the finding exists to detect, not a lost statistic — so
+     * a failure here propagates and the caller gets no data. The tier recorded follows the caller's
+     * CLEARANCE, not which fields held a value.
+     *
+     * ⚠️ For an open-only role this currently writes NOTHING, which is a documented blind spot rather than
+     * an oversight: closing it needs `record.open`, and feature 015 attached a retention precondition to
+     * that action which is still unmet (SEC-25). See the writer for the full note.
+     */
+    await this.access.recordView(
+      actor.accountId,
+      actor.userId,
+      row.player_id,
+      actor.effectiveRole,
+      actor.underPreview,
+    );
+
+    return toPlayerWire(masked, row, actor);
+  }
+
+  /**
+   * One page of a brand's customers.
+   *
+   * ── The ORDER of the refusals is the requirement, not an implementation detail ─────────────────
+   * context → permission → **bulk-read guard** → brand intersection → query → mask → ONE entry. The guard
+   * runs **before the repository**, so a refused bulk request has read nothing and written nothing. Guarding
+   * after the read would still refuse — and would already have pulled a page of customer records into
+   * memory and filed an access entry for a disclosure that did not happen.
+   */
+  @GrpcMethod('UsersReadService', 'ListPlayersByBrand')
+  @RequiresPlayerPermission('crm.contact.view')
+  async listPlayersByBrand(req: ListByBrandWire, metadata: Metadata) {
+    const actor = readPlayerActor(metadata);
+
+    /**
+     * SEC-AP2, live at last.
+     *
+     * Built and unit-tested at feature 011 and never wired, because no bulk surface existed. Feature 017
+     * could not give it one either — no export scope carries contact data. This list is a bulk path over
+     * contact-bearing records, so this call is where the guard finally guards something.
+     *
+     * The name says "export" and this is a read: the policy it consults is about bulk contact DISCLOSURE,
+     * and ten thousand customers in a paged response is that regardless of file format.
+     */
+    assertCanMassExport(actor.effectiveRole);
+
+    const brandId = resolveListBrand(actor, String(req?.brandId ?? ''));
+    // A brand the caller may not serve is an EMPTY PAGE, never a wider result. The dangerous direction here
+    // is widening: a request for one brand quietly becoming a request for all of them.
+    if (!brandId) return { players: [], nextPageToken: '' };
+
+    let cursor;
+    try {
+      cursor = decodeCursor(req?.pageToken);
+    } catch (err) {
+      if (err instanceof InvalidCursorError) {
+        throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid page token' });
+      }
+      throw err;
+    }
+
+    const page = await this.players.listByBrand(
+      actor.accountId,
+      brandId,
+      clampPageSize(req?.pageSize),
+      cursor,
+    );
+
+    // ONE entry for the request, targeting the BRAND — not one per record. Same call feature 017 made for
+    // exports: a per-row trail over a paged list is useless to read and is the largest surface for leaking
+    // a value. Strict, like every reveal.
+    await this.access.recordBulkRead(
+      actor.accountId,
+      actor.userId,
+      brandId,
+      actor.effectiveRole,
+      ['brandId'],
+      actor.underPreview,
+    );
+
+    return {
+      players: page.rows.map((row) =>
+        toPlayerWire(
+          maskPlayer(row as unknown as Record<string, unknown>, actor.effectiveRole),
+          row,
+          actor,
+        ),
+      ),
+      nextPageToken: page.nextCursor ? encodeCursor(page.nextCursor) : '',
+    };
+  }
+
+  /**
+   * One staff record.
+   *
+   * **No tier masking and no access entry, and that is a decision rather than an omission** (research R8).
+   * The visibility policy classifies CUSTOMER fields; an operator is staff, and their display name already
+   * renders on every message they sent — so auditing a read of it would record something the reader can see
+   * by scrolling. Gated by the inbox permission, because resolving who a conversation is assigned to is part
+   * of using the inbox.
+   *
+   * If an operator record ever grows a personal field, this comment is the one that has to change.
+   */
+  @GrpcMethod('UsersReadService', 'GetOperator')
+  @RequiresPlayerPermission('crm.inbox.view')
+  async getOperator(req: GetOperatorWire, metadata: Metadata) {
+    const actor = readPlayerActor(metadata);
+    const row = await this.operators.getById(actor.accountId, String(req?.operatorId ?? ''));
+    if (!row) throw notFound();
+    return toOperatorWire(row, actor);
+  }
+}
+
+const notFound = () => new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+/**
+ * Build the wire message from the MASKED row.
+ *
+ * ⚠️ **Three rules here, all established by executing the masking policy rather than reading it — and the
+ * third is the one that matters after this feature ships.**
+ *
+ * 1. **An EXPLICIT field list, never a spread.** `maskPlayer` KEEPS `gr8_snapshot` for admin/super_admin,
+ *    because they are cleared for its tier. What keeps that customer PII out of every response is that the
+ *    contract has no field for it — so a `...masked` here would serve it to every broad role, silently,
+ *    with every existing test still green. This function is the guarantee.
+ * 2. **`account_id` comes from the ACTOR, not the masked row.** It is unclassified, so masking drops it for
+ *    every role including the broadest, and reading it from `masked` would make the field empty for
+ *    everybody. It is context — the caller's own tenant — not customer data. Adding it to the tier policy
+ *    would be the wrong repair: a tenancy value would acquire a clearance level it has no business having.
+ * 3. **`brand_ids` is DERIVED from the surviving `brands` relation**, which is what the policy actually
+ *    classifies. A reader comparing contract to policy finds `brand_ids` unclassified and would reasonably
+ *    assume it is dropped.
+ *
+ * A masked-away field is simply absent from `masked`, so it lands as proto3's default. A consumer therefore
+ * cannot tell "you may not see this" from "empty" — deliberate: telling a caller WHICH fields were withheld
+ * is itself a disclosure about the record.
+ */
+function toPlayerWire(
+  masked: Partial<Record<string, unknown>>,
+  row: PlayerWithBrands,
+  actor: PlayerActor,
+) {
+  const brands = masked.brands as PlayerWithBrands['brands'] | undefined;
+  return {
+    playerId: (masked.player_id as string) ?? row.player_id,
+    accountId: actor.accountId, // rule 2
+    brandIds: (brands ?? []).map((b) => b.brand_id), // rule 3
+    vip: (masked.vip as boolean) ?? false,
+    segment: (masked.segment as string) ?? '',
+    amNotes: (masked.am_notes as string) ?? '',
+    customAttributesJson: toJson(masked.custom_attributes),
+    preferencesJson: toJson(masked.preferences),
+    portfolioJson: toJson(masked.portfolio),
+    // No gr8 field exists on this message, by design — see rule 1.
+  };
+}
+
+/**
+ * The account on the wire is the CALLER'S context, here as on the player path.
+ *
+ * The row's own `account_id` would give the same value — it was fetched under that scope — but taking it
+ * from one place on both paths means there is no reader left wondering why two responses in the same file
+ * source the same field differently. It also leaves no `row.account_id` read for an isolation scan to have
+ * to reason about.
+ */
+function toOperatorWire(row: OperatorRow, actor: PlayerActor) {
+  return {
+    operatorId: row.id,
+    accountId: actor.accountId,
+    displayName: row.display_name ?? '',
+    // Returned, not filtered on: a name still has to render on last year's conversations.
+    active: row.active,
+  };
+}
+
+/** A JSON column as its wire string. Absent (masked away or null) ⇒ empty, never the text "null". */
+function toJson(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  return JSON.stringify(value);
+}

@@ -32,6 +32,12 @@ export interface PlayerActor {
   effectiveRole: string;
   /** View-as active. The audit entry records the REAL caller plus this marker, never the previewed role. */
   underPreview: boolean;
+  /**
+   * Permitted brand ids. `undefined` = brand scope NOT YET POPULATED (Brands service is roadmap 5.2), in
+   * which case no brand restriction is applied — mirroring exactly what the conversation reads already do
+   * rather than inventing a third behaviour for the same unfinished dependency.
+   */
+  brands?: string[];
 }
 
 function readStr(md: Metadata | undefined, key: string): string {
@@ -56,6 +62,8 @@ export function readPlayerActor(md: Metadata | undefined): PlayerActor {
   if (!accountId) throw forbidden();
 
   const permsRaw = readStr(md, 'x-actor-permissions');
+  const brandsRaw = readStr(md, 'x-actor-brands');
+  const brands = brandsRaw ? brandsRaw.split(',').filter(Boolean) : undefined;
   return {
     accountId,
     userId: readStr(md, 'x-actor-user-id'),
@@ -64,5 +72,24 @@ export function readPlayerActor(md: Metadata | undefined): PlayerActor {
     // here would move a privilege decision into a metadata reader.
     effectiveRole: readStr(md, 'x-actor-effective-role'),
     underPreview: readStr(md, 'x-is-preview') === 'true',
+    ...(brands ? { brands } : {}),
   };
+}
+
+/**
+ * The brand a list may read, intersected with the caller's permitted set.
+ *
+ * `null` means **an empty page** — never "no restriction". That direction is the whole point: a brand the
+ * caller may not serve must yield nothing, and the dangerous failure here is the widening one, where a
+ * request for one brand quietly becomes a request for every brand.
+ *
+ * When the caller's brand scope is not yet populated (`brands` undefined) the requested brand is used
+ * as-is, which is precisely what the conversation reads do while the Brands service is still roadmap 5.2.
+ * Mirroring that deferral rather than inventing a stricter or looser one keeps the two paths answerable
+ * with one sentence.
+ */
+export function resolveListBrand(actor: PlayerActor, requestedBrandId: string): string | null {
+  if (!requestedBrandId) return null;
+  if (!actor.brands) return requestedBrandId;
+  return actor.brands.includes(requestedBrandId) ? requestedBrandId : null;
 }

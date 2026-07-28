@@ -9,6 +9,9 @@ import { ChatsModule } from './chats/chats.module';
 import { AuditModule } from './audit/audit.module';
 import { UploadsEdgeModule } from './uploads/uploads.module';
 import { ExportsEdgeModule } from './exports/exports.module';
+// Feature 018 (roadmap 5.1): the players + operators read edge. Exists so the SECOND authorization tier
+// is exercised by something real and so the point can be validated live — no screen, no write.
+import { PlayersEdgeModule } from './players/players.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -32,6 +35,7 @@ import { ExportsEdgeModule } from './exports/exports.module';
     UploadsEdgeModule,
     // Feature 017 (roadmap 4.10): the exports edge. Issues no links and holds no storage config.
     ExportsEdgeModule,
+    PlayersEdgeModule,
   ],
 })
 export class AppModule {}

@@ -21,6 +21,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 // side invites one to inherit the other's treatment by proximity.
 import { OperatorRepository } from './operator/operator.repository';
 import { PlayerAccessGuard } from './player/player.guard';
+import { PlayerReadController } from './player/player.grpc.controller';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
@@ -33,7 +34,7 @@ import { PlayerAccessGuard } from './player/player.guard';
 // The player controller registers itself alongside; this list holds the repositories it depends on.
 @Module({
   imports: [UploadsModule, MaintenanceModule],
-  controllers: [HealthGrpcController, PingGrpcController, AuditReadController],
+  controllers: [HealthGrpcController, PingGrpcController, AuditReadController, PlayerReadController],
   providers: [
     PrismaService,
     PlayerRepository,

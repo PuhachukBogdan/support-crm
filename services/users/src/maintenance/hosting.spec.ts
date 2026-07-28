@@ -1,9 +1,12 @@
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { USERS_PACKAGE, USERS_PROTO } from '@crm/common';
 import { AppModule } from '../app.module';
 import { MaintenanceModule } from './maintenance.module';
 import { MaintenanceController } from './maintenance.controller';
+
+const ROOT = resolve(__dirname, '..', '..', '..', '..');
 
 /**
  * T050 (feature 017, US3) — **the RPC is actually SERVED** (research R8).
@@ -60,5 +63,62 @@ describe('*** UsersMaintenanceService is hosted, not merely written ***', () => 
     // Asserted structurally in `tests/exports/no-presign.spec.ts` across the whole gateway; repeated here
     // as the local statement of intent, because "system actor only" is worthless if HTTP can ask.
     expect(proto).not.toMatch(/rpc\s+(Delete|Update|Presign|Sign)Upload/);
+  });
+});
+
+/**
+ * T030 (feature 018) — **`UsersReadService` is now implemented across TWO controllers, and all four
+ * methods must actually answer.**
+ *
+ * Nest merges handlers from several controllers into one gRPC service. That is an assumption, not a
+ * guarantee, and the failure mode is silent: a handler map that drops one method leaves a service that is
+ * up, healthy and answering UNIMPLEMENTED for exactly one call. Feature 015's single live-only defect was
+ * that shape one level up (a hosted package whose handler was never wired), and feature 018's own analysis
+ * pass found its mirror image (a wired handler with no caller).
+ */
+describe('*** UsersReadService is served across two controllers, completely ***', () => {
+  const proto = readFileSync(USERS_PROTO, 'utf8');
+
+  it('the contract declares exactly four methods on it', () => {
+    const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
+    expect(rpcs.sort()).toEqual([
+      'GetOperator',
+      'GetPlayer',
+      'ListAuditEntries',
+      'ListPlayersByBrand',
+    ]);
+  });
+
+  it('every one of them has a handler, across the two controllers', () => {
+    // Read from the SOURCE rather than from a list in this file: a fifth method added to the contract with
+    // no handler must fail here, and it will, because the proto side of this test is derived too.
+    const dir = join(ROOT, 'services', 'users', 'src');
+    const sources = [
+      readFileSync(join(dir, 'player', 'player.grpc.controller.ts'), 'utf8'),
+      readFileSync(join(dir, 'audit', 'audit.grpc.controller.ts'), 'utf8'),
+    ].join('\n');
+
+    const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const declared = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
+    // ⚠️ `String.raw`, and the reason is a bug this test had on its first run: inside an ordinary template
+    // literal `\s` is an unrecognised escape and collapses to `s`, so the pattern silently became
+    // `@GrpcMethod('UsersReadService',s*'...')` and matched nothing — reporting every method as unhandled.
+    // A test that fails for its own reasons is worse than no test, because the next reader believes the
+    // product is broken.
+    const normalised = sources.replace(/\s+/g, ' ');
+    const unhandled = declared.filter(
+      (rpc) => !normalised.includes(`@GrpcMethod('UsersReadService', '${rpc}')`),
+    );
+    expect(unhandled).toEqual([]);
+  });
+
+  it('both controllers are registered in the app module', () => {
+    // A controller nobody registers contributes no handlers, and the service answers UNIMPLEMENTED while
+    // looking perfectly healthy — the same defect one level up.
+    const controllers = Reflect.getMetadata('controllers', AppModule) as unknown[];
+    const names = controllers.map((c) => (c as { name?: string })?.name ?? '');
+    expect(names).toContain('PlayerReadController');
+    expect(names).toContain('AuditReadController');
   });
 });

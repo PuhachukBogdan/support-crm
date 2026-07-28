@@ -49,7 +49,7 @@ export class FeedController implements OnModuleInit {
     @Query() q: { pageToken?: string; pageSize?: string },
     @Req() req: ChatsReq,
   ) {
-    const md = buildActorMetadata(req.claims!, req.effective?.permissionKeys ?? []);
+    const md = buildActorMetadata(req.claims!, req.effective);
     return callChats(
       this.read.getPlayerFeed(
         {

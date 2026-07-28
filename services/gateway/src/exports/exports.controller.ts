@@ -96,7 +96,7 @@ export class ExportsController implements OnModuleInit {
   }
 
   private meta(req: ExportReq) {
-    return buildActorMetadata(req.claims!, req.effective?.permissionKeys ?? []);
+    return buildActorMetadata(req.claims!, req.effective);
   }
 
   /**

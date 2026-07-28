@@ -60,7 +60,7 @@ export class AssignmentController implements OnModuleInit {
   }
 
   private meta(req: ChatsReq) {
-    return buildActorMetadata(req.claims!, req.effective?.permissionKeys ?? []);
+    return buildActorMetadata(req.claims!, req.effective);
   }
 
   /** Assign or reassign. */

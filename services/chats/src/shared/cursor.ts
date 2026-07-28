@@ -4,6 +4,13 @@
  * Lists order by `(created_at DESC, id DESC)`; the cursor is the last row's `(created_at, id)`,
  * base64-encoded and opaque to the client. `page_size` is clamped to a server maximum so no caller
  * can pull an unbounded slice of the ~372K-row history (Principle VII). No offset, no COUNT.
+ *
+ * ── ⚠️ There is now a SECOND copy of this primitive ───────────────────────────────────────────────
+ * `libs/common/src/paging/keyset.ts` is the same shape, added by feature 018 because a new consumer in
+ * another service needed it. This file was deliberately **not** migrated: doing so would touch a dozen
+ * shipped controllers here for no functional gain inside the point that needed the primitive
+ * (feature 018, research R6). The pointer sits in both files so whoever next has a reason to unify them
+ * finds the other one — two copies with a note is reversible, three would be a convention.
  */
 
 export const MAX_PAGE_SIZE = 100;

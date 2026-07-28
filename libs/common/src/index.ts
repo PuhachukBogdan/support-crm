@@ -18,6 +18,10 @@ export * from './uploads';
 // Feature 017 (roadmap 4.10): the export scope catalogue + the CSV serializer — shared by the
 // gateway (scope validation, permission key) and chats (production).
 export * from './exports';
+// Feature 018 (roadmap 5.1): keyset paging primitives. ⚠️ `services/chats/src/shared/cursor.ts` is a
+// second, service-local copy of the same shape that predates this one and was deliberately not
+// migrated (research R6) — a pointer sits in both files.
+export * from './paging';
 // Re-export zod so services build their config schemas without each declaring the dep.
 export { z } from 'zod';
 

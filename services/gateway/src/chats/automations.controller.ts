@@ -87,7 +87,7 @@ export class AutomationsController implements OnModuleInit {
   }
 
   private meta(req: ChatsReq) {
-    return buildActorMetadata(req.claims!, req.effective?.permissionKeys ?? []);
+    return buildActorMetadata(req.claims!, req.effective);
   }
 
   @Get('automations')

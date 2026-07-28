@@ -47,15 +47,43 @@ message ListPlayersByBrandRequest {
 
 // Our own player fields only. GR8-derived data is served later from the Redis cache
 // (5.4) with a stale flag — deliberately absent from this foundational contract.
+//
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ⚠️ EVERY FIELD HERE SITS WHOLLY INSIDE ONE VISIBILITY TIER (feature 018, roadmap 5.1).
+//
+// The response is built by ALLOW-LIST from the caller's role tier (SEC-AP1), and masking works per
+// FIELD NAME. A field spanning two tiers therefore cannot be masked at all — it can only be served
+// whole or dropped whole, and each is wrong for somebody. The tier of each field is noted below and
+// the map itself lives in libs/common/src/policy/field-tiers.ts.
+//
+// ⚠️ WHAT KEEPS THE GR8 SNAPSHOT OUT IS THIS MESSAGE, NOT THE MASKING. The snapshot is classified at
+// the top tier, and `maskPlayer` therefore KEEPS it for admin/super_admin — they are cleared for it.
+// It stays out of every response because there is no field for it here. Consequently the row→wire
+// mapping must be an EXPLICIT FIELD LIST, never a spread of the masked record: a generic passthrough
+// would serve customer PII to any role cleared for that tier, silently, with every test still green.
+// (Established by executing the masking during feature 018's analysis pass.)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
 message Player {
-  string player_id = 1;
+  string player_id = 1;             // tier: open
+  // NOT tier-classified, and mapped OUTSIDE the masking step — it is the caller's own tenant id,
+  // i.e. CONTEXT rather than customer data. Adding it to the tier map would be the wrong repair: a
+  // tenancy value would acquire a clearance level it has no business having, and unclassified fields
+  // are dropped for EVERY role (including admin), so this field would otherwise always be empty.
   string account_id = 2;
-  repeated string brand_ids = 3; // brand-union (soft references; 1..N)
-  bool vip = 4;
-  string segment = 5;
-  string am_notes = 6;
-  // JSON-encoded extensible key/values (custom attributes, preferences, portfolio scaffold).
+  repeated string brand_ids = 3;    // tier: open — DERIVED from the classified `brands` relation
+  bool vip = 4;                     // tier: operational
+  string segment = 5;               // tier: operational
+  string am_notes = 6;              // tier: am_only
+  // tier: operational — the OPERATIONAL attributes only.
+  //
+  // ⚠️ MEANING NARROWED by feature 018; the field NUMBER does not move. It was documented as carrying
+  // custom attributes PLUS preferences PLUS the portfolio scaffold — three columns the policy puts in
+  // two different tiers, which made the field unmaskable. Narrowing is safe here and would not be
+  // later: no producer has ever written it, because nothing served this message until 5.1.
   string custom_attributes_json = 7;
+  // ── feature 018 (roadmap 5.1): the split that makes the message maskable ──────────────────────
+  string preferences_json = 8;      // tier: am_only
+  string portfolio_json = 9;        // tier: am_only
 }
 
 message Operator {

@@ -66,9 +66,19 @@ describe('feature 006 inter-service contracts', () => {
         'segment',
         'amNotes',
         'customAttributesJson',
+        // Feature 018 (roadmap 5.1): the attribute container was split so that every field sits
+        // wholly inside ONE visibility tier — masking works per field name, so a field spanning two
+        // tiers could only be served whole or dropped whole, and each is wrong for somebody.
+        'preferencesJson',
+        'portfolioJson',
       ]),
     );
     // The opaque GR8 seam lives on the Player DB row, NOT on the read contract (deferred to 7.4).
+    //
+    // ⚠️ This assertion is what actually keeps the top-tier payload out of every response — NOT the
+    // masking. `maskPlayer` keeps that column for admin/super_admin, who are cleared for its tier; it
+    // stays out because the message has no field for it. So this line is load-bearing, and the row→wire
+    // mapping must remain an explicit field list rather than a spread (feature 018, analysis R11.2).
     expect(keys.some((k) => /gr8/i.test(k))).toBe(false);
   });
 

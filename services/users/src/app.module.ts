@@ -16,16 +16,32 @@ import { UploadsModule } from './uploads/uploads.module';
 // actually served: feature 015's single live-only defect was a hosted PACKAGE whose handler was never
 // wired, so the fan-out failed against a service that looked up.
 import { MaintenanceModule } from './maintenance/maintenance.module';
+// Feature 018 (roadmap 5.1): the operator read path. Its own folder because a STAFF read has genuinely
+// different rules from a customer read — no tier masking, no access audit — and putting the two side by
+// side invites one to inherit the other's treatment by proximity.
+import { OperatorRepository } from './operator/operator.repository';
+import { PlayerAccessGuard } from './player/player.guard';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
 // Phase 2 (feature 006): the Player read path (PlayerRepository) lands here; the gRPC
 // UsersReadService handlers that expose it arrive in Phase 5.
 // Feature 011 (US4): anti-pitching masking (player.masking) + the contact-view audit
-// (ContactViewAuditService) — the masking + audit units the player-read handlers call in Phase 5.
+// (ContactViewAuditService).
+// Feature 018 (roadmap 5.1): those units are now WIRED — the `UsersReadService` player/operator handlers
+// that call them land here, closing the "arrive in Phase 5" note this comment has carried since Phase 2.
+// The player controller registers itself alongside; this list holds the repositories it depends on.
 @Module({
   imports: [UploadsModule, MaintenanceModule],
   controllers: [HealthGrpcController, PingGrpcController, AuditReadController],
-  providers: [PrismaService, PlayerRepository, ContactViewAuditService, AuditRepository, AuditAccessGuard],
+  providers: [
+    PrismaService,
+    PlayerRepository,
+    OperatorRepository,
+    ContactViewAuditService,
+    AuditRepository,
+    AuditAccessGuard,
+    PlayerAccessGuard,
+  ],
 })
 export class AppModule {}

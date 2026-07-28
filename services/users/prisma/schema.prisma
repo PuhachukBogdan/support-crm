@@ -56,6 +56,12 @@ model Player {
   @@index([account_id])
   @@index([account_id, vip])
   @@index([account_id, segment])
+  /// Feature 018 (roadmap 5.1): the keyset page for ListPlayersByBrand. ONE index serving three jobs
+  /// at once — the `account_id` predicate the isolation extension injects, the `(created_at, player_id)`
+  /// sort, and the tie-break that keeps a record from being skipped when several share an instant.
+  /// Without it the brand list filters on an index and then sorts, which is fine at seed scale and is
+  /// not a shape to ship (Principle VII).
+  @@index([account_id, created_at, player_id])
 }
 
 /// The brand-union edge (ADR 0032 §0.2): associates a player with a brand by a SOFT `brand_id`
@@ -69,6 +75,9 @@ model PlayerBrand {
 
   @@id([player_id, brand_id])
   @@index([brand_id]) // for ListPlayersByBrand (users.proto)
+  /// Feature 018: the existing `brand_id`-only index can FILTER but not ORDER. The brand list resolves
+  /// through this edge and then pages on the parent, so the edge lookup wants the pair.
+  @@index([brand_id, player_id])
 }
 
 /// One stored byte stream (feature 016, roadmap 4.9 — SEC-1/SEC-10/SEC-39).

@@ -75,7 +75,7 @@ export class UploadsController implements OnModuleInit {
   }
 
   private meta(req: UploadReq) {
-    return buildActorMetadata(req.claims!, req.effective?.permissionKeys ?? []);
+    return buildActorMetadata(req.claims!, req.effective);
   }
 
   @Post(':purpose')

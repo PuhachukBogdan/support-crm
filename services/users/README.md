@@ -1,8 +1,8 @@
 # users
 
-User directory / profiles service. **State:** a bootable **gRPC microservice** hosting two
-packages — `HealthService.Check` (over its own Postgres) and `PingService` — with the Phase-2 data
-model + the Player read path in place. Users domain gRPC (`UsersReadService`) arrives in **Phase 5**.
+User directory / profiles service. **State:** a bootable **gRPC microservice** serving the
+**players + operators read API** (`UsersReadService` — feature 018, roadmap 5.1), the unified audit
+reader, the upload store and artefact expiry, plus `HealthService.Check` and `PingService`.
 
 ## Responsibility & boundaries
 - gRPC server (`GRPC_URL`, compose port **50052**) implementing `HealthService.Check` **and**
@@ -11,24 +11,34 @@ model + the Player read path in place. Users domain gRPC (`UsersReadService`) ar
 - Data model (feature 006): `Operator`; `Player` ("Player-lite", ADR 0032 §0.1) keyed by `player_id`,
   unified across 1..N brands via the `PlayerBrand` edge (soft `brand_id`, no cross-service FK), with an
   **opaque** GR8-cache seam (`gr8_snapshot`/`gr8_fetched_at`/`gr8_stale` — GR8's typed projection is 7.4).
-  Feature 011 adds `ContactViewAudit` (actor/player/tier/timestamp — no value; SEC-AP3).
-- Read path: [`src/player/player.repository.ts`](src/player/player.repository.ts) `getPlayerById(accountId, playerId)`.
-- **Anti-pitching masking (feature 011, US4):** the owning service masks contact fields in the policy
-  layer — `maskPlayer(player, roleKey)` builds the response by ALLOW-LIST from the caller's role tier,
-  so fields a role may not see are **structurally absent** (not nulled — FR-014). Tiers live in
-  `@crm/common` `field-tiers` (`open`/`operational`/`am_only`/`masked_pii`; unclassified ⇒ fail-closed
-  `masked_pii`). Every read that surfaces a maskable tier writes a `ContactViewAudit` (tier name only,
-  never a value — SEC-AP3); `assertCanMassExport(roleKey)` blocks bulk export for linear roles
-  (SEC-AP2). These are the tested units the `UsersReadService` player handlers call when they land
-  (Phase 5). See [`src/player/`](src/player).
+  Contact-access records go on the unified `AuditEntry` trail as `contact.reveal` (feature 015 absorbed
+  and dropped 011's separate `ContactViewAudit` table).
+- Read paths: [`src/player/player.repository.ts`](src/player/player.repository.ts) — `getPlayerById` +
+  `listByBrand` (keyset) — and [`src/operator/operator.repository.ts`](src/operator/operator.repository.ts).
+  Neither can write: no Prisma write op exists in either, asserted by `tests/users-read/no-outbound.spec.ts`.
+- **Anti-pitching masking (feature 011, US4 — LIVE since 018):** the owning service masks contact fields
+  in the policy layer — `maskPlayer(player, roleKey)` builds the response by ALLOW-LIST from the caller's
+  role tier, so fields a role may not see are **structurally absent** (not nulled — FR-014). Tiers live in
+  `@crm/common` [`field-tiers`](../../libs/common/src/policy/field-tiers.ts)
+  (`open`/`operational`/`am_only`/`masked_pii`). ⚠️ **An unclassified field is visible to NOBODY, not even
+  `super_admin`** — the allow-list is built by filtering the tier map, so an unlisted field belongs to no
+  tier and lands in no role's permitted set. (The shipped comment claimed it "defaults to `masked_pii`",
+  i.e. stayed visible to the cleared tiers; corrected at 018/T047a — the behaviour was always the safer
+  one.) Every read surfacing a maskable tier writes ONE `contact.reveal` (tier NAME only, never a value —
+  SEC-AP3), **strictly**: an unwritable entry refuses the read. `assertCanMassExport(roleKey)` guards the
+  **bulk list** (SEC-AP2 — its first live surface; the export half is still only a build gate).
+  See [`src/player/`](src/player).
 - Isolation (feature 007): tenant data is read/written ONLY via `PrismaService.forAccount(accountId)`
   (account-scoped client; fail-closed) — see [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
   The player-union (brands) is preserved under scope — the brand carve-out is brand-level, never
   account-level. Raw `$queryRaw` (health `SELECT 1`) is an audited escape hatch (no tenant data).
 
 ## Interfaces
-- Owned gRPC contract: [`libs/proto/crm/users/v1/users.proto`](../../libs/proto/crm/users/v1/users.proto)
-  (`UsersReadService` — bodies in Phase 5) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto),
+- Owned gRPC contract: [`libs/proto/crm/users/v1/users.proto`](../../libs/proto/crm/users/v1/users.proto).
+  ⚠️ `UsersReadService` is implemented across **TWO** controllers — `PlayerReadController` (the three
+  reads) and the audit reader. Nest merges them into one gRPC service, and `src/maintenance/hosting.spec.ts`
+  asserts all four methods actually answer: a handler map that silently drops one is feature 015's
+  live-only defect. Plus [`health.proto`](../../libs/proto/crm/health/v1/health.proto),
   [`ping.proto`](../../libs/proto/crm/ping/v1/ping.proto).
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `users_db`.
 
@@ -45,6 +55,39 @@ Runs as part of `docker compose up` (see [`deploy/local/README.md`](../../deploy
 ## Gotchas
 - Hosts two gRPC packages from one microservice (`package`/`protoPath` arrays in `main.ts`).
 - Does **not** connect to Postgres at boot — a downed DB degrades health, not startup.
+- **The masking input is `x-actor-effective-role`, NOT `x-actor-role`.** The latter carries who the caller
+  *is*; masking needs who they are *acting as*, and the two differ exactly under a view-as preview. See
+  [`src/player/actor.ts`](src/player/actor.ts) — it deliberately substitutes no default for an absent role,
+  because the tier policy already treats an unknown role as open-only and a default here would put a
+  privilege decision inside a metadata reader.
+- **`gr8_snapshot` stays opaque here.** Typing or decoding it is roadmap 5.4, which must also distinguish
+  *not cached yet* (→ `stale`) from *outside GR8's 180-day horizon* (→ not available at this tier). Doing a
+  little of that projection early is how those two very different empty states get collapsed into one
+  wrong answer.
+
+## The players + operators read surface (feature 018, roadmap 5.1)
+
+Three RPCs that had been **declared in this contract since Phase 2 and served by nothing** —
+[`src/player/player.grpc.controller.ts`](src/player/player.grpc.controller.ts).
+
+- **`GetPlayer`** — order is the design: read → **not found stops here** → mask → audit → wire. A 404
+  writes no entry, because nothing was revealed.
+- **`ListPlayersByBrand`** — order again, and it is the requirement: context → permission → **bulk guard**
+  → brand intersection → query → mask → **ONE** entry targeting the brand. The guard runs **before the
+  repository**, so a refused request has read nothing and filed nothing.
+- **`GetOperator`** — **no masking and no audit entry, deliberately** (research R8): the visibility policy
+  classifies CUSTOMER fields, and a staff display name already renders on every message they sent. Gated by
+  `crm.inbox.view`, not the contact key — resolving an assignee is part of using the inbox. *If an operator
+  record ever grows a personal field, that decision is the one to revisit.*
+
+⚠️ **The row→wire mapping must stay an EXPLICIT field list.** `maskPlayer` *keeps* `gr8_snapshot` for
+`admin`/`super_admin` — they are cleared for its tier. What keeps that customer PII out of every response is
+that **the contract has no field for it**, so a `...masked` spread would serve it to every broad role
+silently, with every test green. `tests/users-read/tier-agreement.spec.ts` fails on a spread.
+
+Brand narrowing is **deferred to 5.2**: `resolveListBrand` applies an intersection only when the caller's
+brand set is populated, mirroring what the conversation reads already do. Until Brands ships, a caller may
+list any brand *within their own account* — account isolation is unaffected.
 
 ## Audit trail (feature 015, roadmap 4.8)
 

@@ -27,8 +27,20 @@ The system's **single ingress** and API edge. Serves **REST + WebSocket on one h
   /admin/view-as`, requires `platform.view_as`) sets a transient Redis-backed preview context; while
   active, reads are shaped to the previewed role and **every mutating request is refused (403)** —
   strictly read-only (SC-009). See `src/security/` + `src/rbac/` + `src/auth/view-as.controller.ts`.
+- **Domain edges** (thin proxies; each feature's contract lives in its own `specs/*/contracts/gateway-rest.md`):
+  `/conversations` + `/players/:id/feed` (chats, 012–014), `/uploads` (016), `/exports` (017),
+  `/audit` (015, federated k-way merge), and `/players` + `/operators/:id` (**018**, below).
+- **Players + operators read edge (feature 018, roadmap 5.1):** three GETs in
+  [`src/players/`](src/players) — `GET /players/:playerId`, `GET /players?brandId=`,
+  `GET /operators/:operatorId`. No write route and no fourth route: the customer card is roadmap 9.4.
+  Query parsing is **fail-closed** ([`src/players/wire.ts`](src/players/wire.ts)) — `brandId` is
+  **required** (defaulting it to "all" is the widening direction in its purest form) and an unknown
+  parameter is a 400 that names the KEY and never echoes the value (SEC-26).
 - `GET /health` (+ `/health/ready`) and `GET /ping` — unauthenticated infra surfaces (`@Public()`).
 - Owns **no database**. Holds a Redis connection for its readiness check + the effective-permission cache.
+- **Holds no field-visibility policy.** The edge authorizes the CALL; the owning service shapes the ROW.
+  Asserted by `tests/users-read/single-policy-path.spec.ts` — a masking decision here would be a second
+  policy in the place least able to know the record.
 
 ## Interfaces
 - gRPC **client** of: `auth` (full `AuthService` — login/verify/refresh/logout/validate), plus
@@ -56,3 +68,17 @@ Full stack: `docker compose up` (see [`deploy/local/README.md`](../../deploy/loc
 ## Gotchas
 - Readiness never hangs on a downed dependency (rxjs `timeout`) and never crashes (probes swallow errors).
 - WS uses the native `ws` adapter so REST + WS share the one HTTP server/port.
+- **⚠️ `req.effective` is populated ONLY for routes carrying permission metadata**, and
+  [`buildActorMetadata`](src/chats/actor-metadata.ts) reads exactly that to fill the headers it forwards.
+  A route with neither `@RequiresPermission` nor `@ResolvesPermissions` forwards an **EMPTY** permission
+  set, and the owning service then correctly refuses everything — both tiers individually right, the wire
+  between them wrong. Feature 016 shipped that defect to a live run; every uploads and players route now
+  carries metadata of one kind or the other, asserted over a route list **derived from the controller**
+  (016's own version enumerated three names by hand, so a fourth route would have slipped through).
+- **Three actor headers, three different meanings** — do not consolidate them:
+  `x-actor-role` = who the caller **is**; `x-actor-effective-role` = who they are **acting as** (the
+  masking input, and the *previewed* role under view-as); `x-is-preview` = whether a preview is active.
+  ⚠️ `x-is-preview` had a builder parameter from feature 012 that **no route ever passed**, so until 018
+  every audit entry in the product recorded "no preview" regardless of the truth. The two newer headers
+  were added **additively** rather than by repurposing `x-actor-role`, because changing a header's meaning
+  is the kind of change nothing fails on.

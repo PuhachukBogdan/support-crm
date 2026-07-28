@@ -9,6 +9,7 @@ import {
   resolveBrandIn,
 } from '../security/actor-context';
 import { ChatsAccessGuard } from '../security/permission.guard';
+import { wireToSlaOutcome, wireToStatus } from '../shared/wire';
 import { QuotaExhaustedError } from './export.quota';
 import { ExportMaintenance } from './export.maintenance';
 import {
@@ -96,10 +97,24 @@ export class ExportController {
           requestedBy: ctx.userId,
           permissions,
           scopeName: String(req?.scope ?? ''),
-          // The filter set for production. `brandIn` intersects with the caller's permitted brands, the
-          // same narrowing the conversation list applies — an export cannot widen a caller's reach.
+          /**
+           * The filter set for production.
+           *
+           * ⚠️ `wireToStatus`, exactly as `ListConversations` does it — added after Track B caught the
+           * omission. `status` arrives as a proto ENUM NAME (`CONVERSATION_STATUS_OPEN`), and the
+           * previous version cast it straight into the DB filter, where it matched no row: the export
+           * produced an empty file and reported success. Enum names on the wire are the documented house
+           * behaviour (`gotchas/grpc-wire-encoding-enums-longs`); the bug was treating this path as if it
+           * received the REST value.
+           *
+           * `brandIn` intersects with the caller's permitted brands, the same narrowing the conversation
+           * list applies — an export cannot widen a caller's reach.
+           */
           filters: {
-            ...(f.status ? { status: f.status as never } : {}),
+            ...(() => {
+              const status = wireToStatus(f.status);
+              return status ? { status } : {};
+            })(),
             ...(f.priority ? { priority: f.priority } : {}),
             ...(f.assigneeOperatorId ? { assigneeOperatorId: f.assigneeOperatorId } : {}),
             ...(f.playerId ? { playerId: f.playerId } : {}),
@@ -109,13 +124,29 @@ export class ExportController {
               const brandIn = resolveBrandIn(ctx, f.brandId);
               return brandIn ? { brandIn } : {};
             })(),
+            // Carried through as the OUTCOME; the producer resolves it into an id set at production
+            // time, the same way the list resolves it when it reads. Dropping it here is what Track B
+            // caught: a request for breached conversations produced every conversation.
+            ...(() => {
+              const outcome = this.slaOutcomeOf(f.slaOutcome);
+              return outcome ? { slaOutcome: outcome } : {};
+            })(),
           },
+          // The stored filter set, for production on a later tick. Stored DECODED, so `filtersOf` reads
+          // DB values and no second decode step can be forgotten there.
           rawFilters: {
-            ...(f.status ? { status: f.status } : {}),
+            ...(() => {
+              const status = wireToStatus(f.status);
+              return status ? { status } : {};
+            })(),
             ...(f.priority ? { priority: f.priority } : {}),
             ...(f.assigneeOperatorId ? { assigneeOperatorId: f.assigneeOperatorId } : {}),
             ...(f.playerId ? { playerId: f.playerId } : {}),
             ...(f.brandId ? { brandIn: [f.brandId] } : {}),
+            ...(() => {
+              const outcome = this.slaOutcomeOf(f.slaOutcome);
+              return outcome ? { slaOutcome: outcome } : {};
+            })(),
           },
         },
         new Date(),
@@ -180,10 +211,20 @@ export class ExportController {
      * this branch unreachable (every non-`ready` row has a null `upload_id`) and answered a waiting owner
      * with `not found`, which reads as "your export is lost".
      */
-    if (row.status === 'expired' || row.expires_at.getTime() <= Date.now()) {
+    if (
+      row.status === 'expired' ||
+      row.status === 'failed' ||
+      row.expires_at.getTime() <= Date.now()
+    ) {
+      // `failed` joins the NOT_FOUND group, and Track B is why: a failed export has no artefact and never
+      // will, so "there is nothing here" is the true answer. It had been reported as
+      // FAILED_PRECONDITION → 400 *invalid request*, which blames the caller for a request that was fine.
+      // The failure REASON is on `GET /exports/:id`, where the owner can act on it (FR-015).
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
     if (row.status !== 'ready') {
+      // Only `queued` / `running` reach here: not ready YET, keep polling. Visible to the owner alone,
+      // who has already been established by `getOwned`.
       throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: row.status });
     }
     if (!row.upload_id) {
@@ -219,6 +260,21 @@ export class ExportController {
     this.assertSystem(metadata);
     const limit = Math.trunc(Number(req?.limit ?? 0)) || DEFAULT_EXPIRE_LIMIT;
     return this.maintenance.expireDueExports(limit, new Date());
+  }
+
+  /**
+   * Decode the SLA filter, refusing a value the wire does not define.
+   *
+   * `null` from `wireToSlaOutcome` means "the wire carried something, and it is not a member" — refused
+   * as INVALID_ARGUMENT rather than dropped, because dropping WIDENS the export. `undefined` means no
+   * filter, which is a legitimate request.
+   */
+  private slaOutcomeOf(wire: string | undefined): string | undefined {
+    const outcome = wireToSlaOutcome(wire);
+    if (outcome === null) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid sla_outcome' });
+    }
+    return outcome;
   }
 
   /** A user session must never reach a cross-account path, even a counts-only one (014's rule). */

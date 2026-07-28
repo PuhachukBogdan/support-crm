@@ -7,16 +7,9 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext, resolveBrandIn, mayAccessBrand } from '../security/actor-context';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
-import { toSummaryWire, toDetailWire, wireToStatus } from '../shared/wire';
+import { toSummaryWire, toDetailWire, wireToStatus, wireToSlaOutcome } from '../shared/wire';
 import { SlaRepository } from '../sla/sla.repository';
 import { ConversationRepository } from './conversation.repository';
-
-/** Feature 014 (R10): the SLA filter values, mapped to the stored outcome scalar. */
-const SLA_OUTCOME_FROM_WIRE: Record<string, string> = {
-  SLA_OUTCOME_RUNNING: 'running',
-  SLA_OUTCOME_MET: 'met',
-  SLA_OUTCOME_BREACHED: 'breached',
-};
 
 // proto-loader (keepCase:false) delivers camelCase request objects.
 interface ListConversationsRequestWire {
@@ -68,7 +61,9 @@ export class ConversationReadController {
     let idIn: string[] | undefined;
     const slaWire = req.slaOutcome;
     if (slaWire && slaWire !== 'SLA_OUTCOME_UNSPECIFIED') {
-      const outcome = SLA_OUTCOME_FROM_WIRE[slaWire];
+      // Feature 017 moved this map to `shared/wire.ts` — the export needs the same one, and a second
+      // copy had already drifted (see that file).
+      const outcome = wireToSlaOutcome(slaWire);
       if (!outcome) {
         throw new RpcException({
           code: GrpcStatus.INVALID_ARGUMENT,

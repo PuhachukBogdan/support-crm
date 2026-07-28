@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { csvRow, type CsvSink, type ExportScope } from '@crm/common';
 import { ConversationRepository, type ListFilters } from '../conversation/conversation.repository';
+import { SlaRepository } from '../sla/sla.repository';
 import type { Cursor } from '../shared/cursor';
 
 /**
@@ -62,10 +63,17 @@ export interface ProduceResult {
   byteSize: number;
 }
 
+/**
+ * The filters as STORED on the export record: the list's own filter set, plus the SLA outcome, which the
+ * list resolves into an id set rather than passing to the query.
+ */
+export type ExportFilterSet = Omit<ListFilters, 'limit' | 'cursor'> & { slaOutcome?: string };
+
 @Injectable()
 export class ExportProducer {
   constructor(
     @Inject(ConversationRepository) private readonly conversations: ConversationRepository,
+    @Inject(SlaRepository) private readonly sla: SlaRepository,
   ) {}
 
   /**
@@ -79,17 +87,38 @@ export class ExportProducer {
   async produce(
     accountId: string,
     scope: ExportScope,
-    filters: Omit<ListFilters, 'limit' | 'cursor'>,
+    filters: ExportFilterSet,
     sink: CsvSink,
   ): Promise<ProduceResult> {
     sink.write(csvRow([...CONVERSATION_EXPORT_COLUMNS]));
+
+    /**
+     * The SLA filter is resolved into an id set, exactly as `ListConversations` does — and HERE, at
+     * production time, not at request time.
+     *
+     * ⚠️ Added after Track B: the export accepted `slaOutcome` at the edge and then dropped it entirely,
+     * so a request for breached conversations produced **every** conversation. That is the widening
+     * direction, and the worse one — an empty file is obviously wrong to whoever opens it, while a file
+     * with too much in it looks exactly like a correct answer and then gets forwarded.
+     *
+     * Resolved at production time because "export what I am looking at" means the rows the list would
+     * return, and the list resolves this set when it reads. Freezing an id set at request time would also
+     * mean storing an unbounded array in the export record.
+     *
+     * An EMPTY set is a real answer — "no conversation has that outcome" — and must produce an empty
+     * file, never an unfiltered one. `ListFilters.idIn` already carries that contract.
+     */
+    const { slaOutcome, ...listFilters } = filters;
+    const resolved: Omit<ListFilters, 'limit' | 'cursor'> = slaOutcome
+      ? { ...listFilters, idIn: await this.sla.conversationIdsByOutcome(accountId, slaOutcome) }
+      : listFilters;
 
     let rowCount = 0;
     let cursor: Cursor | null = null;
 
     for (;;) {
       const page = await this.conversations.list(accountId, {
-        ...filters,
+        ...resolved,
         limit: PAGE_SIZE,
         cursor,
       });

@@ -58,8 +58,18 @@ describe('*** every exports route carries permission metadata *** (016 wire defe
   });
 });
 
-describe('filters are parsed fail-closed (FR-005/FR-027)', () => {
-  it('accepts exactly the conversation list vocabulary', () => {
+describe('filters are parsed fail-closed AND TRANSLATED (FR-005/FR-027)', () => {
+  it('accepts the list vocabulary and converts the enums to their WIRE names', () => {
+    /**
+     * ⚠️ The `toEqual` here is the assertion Track B added, and the reason it is the interesting line in
+     * this file: the previous version expected `status: 'open'` to pass through unchanged. It did — and
+     * `ExportFilters.status` is a proto ENUM, so grpc-js coerced the unrecognised member `open` to
+     * `CONVERSATION_STATUS_UNSPECIFIED` and the export produced an **empty file reporting success**.
+     *
+     * Validating a vocabulary is not translating it. The converters are now the list's own, so the two
+     * cannot drift — which they already had: this file's earlier SLA vocabulary said `pending` where the
+     * list says `running`.
+     */
     expect(
       parseExportFilters({
         status: 'open',
@@ -70,13 +80,35 @@ describe('filters are parsed fail-closed (FR-005/FR-027)', () => {
         slaOutcome: 'breached',
       }),
     ).toEqual({
-      status: 'open',
+      status: 'CONVERSATION_STATUS_OPEN',
       priority: 'high',
       assigneeOperatorId: 'op-1',
       playerId: 'p-1',
       brandId: 'b-1',
-      slaOutcome: 'breached',
+      slaOutcome: 'SLA_OUTCOME_BREACHED',
     });
+  });
+
+  it('every accepted status and SLA outcome round-trips to a REAL wire member', () => {
+    // The generalised form: no accepted value may map to UNSPECIFIED, because UNSPECIFIED means "no
+    // filter" and is therefore the silent-widening (or silent-emptying) outcome.
+    for (const status of ['open', 'pending', 'resolved', 'snoozed']) {
+      const out = parseExportFilters({ status }).status!;
+      expect(out).toMatch(/^CONVERSATION_STATUS_/);
+      expect(out).not.toBe('CONVERSATION_STATUS_UNSPECIFIED');
+    }
+    for (const slaOutcome of ['running', 'met', 'breached']) {
+      const out = parseExportFilters({ slaOutcome }).slaOutcome!;
+      expect(out).toMatch(/^SLA_OUTCOME_/);
+      expect(out).not.toBe('SLA_OUTCOME_UNSPECIFIED');
+    }
+  });
+
+  it('the SLA vocabulary is the LIST’s, not a second copy of it', () => {
+    // `pending` was in this edge's own list and is not a member of the list endpoint's — the drift that
+    // had already happened inside the file whose header promised the two were the same.
+    expect(() => parseExportFilters({ slaOutcome: 'pending' })).toThrow(BadRequestException);
+    expect(parseExportFilters({ slaOutcome: 'running' }).slaOutcome).toBe('SLA_OUTCOME_RUNNING');
   });
 
   it('*** an unknown filter is REFUSED, never dropped ***', () => {

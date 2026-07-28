@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { toSlaOutcomeWire, toStatusWire } from '../chats/wire';
 
 /**
  * Fail-closed request parsing for the exports edge (feature 017 — FR-005/FR-027).
@@ -10,8 +11,23 @@ import { BadRequestException } from '@nestjs/common';
  * the dangerous one here, because a dropped filter WIDENS the result set: ask for one brand, get every
  * brand, in a file you then forward.
  *
- * The accepted keys are exactly the conversation list's filter vocabulary (FR-027), and
- * `tests/exports/filter-parity.spec.ts` asserts the two stay one vocabulary at the proto level.
+ * ── ⚠️ FOUND ON TRACK B (2026-07-28): validating the vocabulary is not translating it ────────────
+ * The first version of this file kept its OWN copy of the status and SLA vocabularies, validated the
+ * caller's `open` against them, and forwarded the string unchanged. But `ExportFilters.status` is a
+ * proto **enum**, so grpc-js coerced the unrecognised member `open` to the zero value
+ * `CONVERSATION_STATUS_UNSPECIFIED` — silently. The export then filtered on UNSPECIFIED and produced an
+ * **empty file that reported success**: a request for open conversations answered with a header row, an
+ * audit entry saying `rowCount: 0`, and nothing anywhere indicating the filter had been discarded.
+ *
+ * That is feature 012's live defect again — an unknown enum member silently becoming the default — and
+ * neither existing guard could see it. `filter-parity.spec.ts` compares the two proto messages by field
+ * name, number and type, which were identical; this file's own tests asserted the human vocabulary was
+ * validated, which it was. The gap was the TRANSLATION between them, which existed for the list and had
+ * been duplicated-by-omission for the export.
+ *
+ * So the converters are now the list's own (`../chats/wire`). One translation, one place, one behaviour
+ * — which is what FR-027's "the same filter vocabulary as the list endpoint" has to mean if it is to
+ * mean anything: not the same words, the same code.
  */
 const ALLOWED_FILTERS = [
   'status',
@@ -21,10 +37,6 @@ const ALLOWED_FILTERS = [
   'brandId',
   'slaOutcome',
 ] as const;
-
-/** The enums the list endpoint accepts. An unknown member is a 400, never a widened query. */
-const STATUSES = ['open', 'pending', 'resolved', 'snoozed'] as const;
-const SLA_OUTCOMES = ['pending', 'met', 'breached'] as const;
 
 export interface ExportFiltersWire {
   status?: string;
@@ -59,12 +71,19 @@ export function parseExportFilters(body: unknown): ExportFiltersWire {
     out[key] = value;
   }
 
-  if (out.status && !(STATUSES as readonly string[]).includes(out.status)) {
-    throw new BadRequestException('unknown status');
-  }
-  if (out.slaOutcome && !(SLA_OUTCOMES as readonly string[]).includes(out.slaOutcome)) {
-    throw new BadRequestException('unknown slaOutcome');
-  }
+  /**
+   * The enum fields are TRANSLATED here, by the list's own converters.
+   *
+   * They also validate: an unknown member is a 400 from inside `toStatusWire`, so this is not "validate
+   * then translate" but one step that cannot be half-done. The previous version did the first half and
+   * forwarded a value the wire could not represent — see the header.
+   *
+   * An ABSENT status becomes `CONVERSATION_STATUS_UNSPECIFIED`, which is what the list means by "no
+   * status filter", and the chats controller drops it. That is the one case where UNSPECIFIED is a real
+   * answer rather than a coercion.
+   */
+  if (out.status !== undefined) out.status = toStatusWire(out.status);
+  if (out.slaOutcome !== undefined) out.slaOutcome = toSlaOutcomeWire(out.slaOutcome);
   return out;
 }
 

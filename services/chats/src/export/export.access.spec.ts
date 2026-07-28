@@ -192,12 +192,16 @@ describe('*** ResolveExportArtefact: expiry is the SAME answer as never existed 
     expect(await messageOf(h.ctl.resolveExportArtefact({ exportId: 'exp-1' }, md()))).toBe('running');
   });
 
-  it('a failed export exposes no artefact, and says so (FR-015)', async () => {
+  it('a FAILED export is NOT_FOUND — there is no artefact and never will be (FR-015)', async () => {
+    // Track B corrected this: a failed export had been reported as FAILED_PRECONDITION, which the edge
+    // maps to `400 invalid request` — blaming the caller for a request that was fine. `failed` is
+    // terminal, so "there is nothing here" is the true answer; the REASON lives on `GET /exports/:id`,
+    // where the owner can act on it.
     const h = controller([
       { ...READY, status: 'failed', upload_id: null, failure_reason: 'row_limit_exceeded' },
     ]);
     expect(await codeOf(h.ctl.resolveExportArtefact({ exportId: 'exp-1' }, md()))).toBe(
-      GrpcStatus.FAILED_PRECONDITION,
+      GrpcStatus.NOT_FOUND,
     );
   });
 

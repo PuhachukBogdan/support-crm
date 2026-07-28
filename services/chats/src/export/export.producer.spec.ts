@@ -45,8 +45,15 @@ function fakeConversations(rows: ReturnType<typeof row>[], pageSize = 500) {
   };
 }
 
-const make = (conv: { list: unknown }) =>
-  new ExportProducer(conv as never);
+/**
+ * The SLA fake returns a fixed id set. Feature 017's Track B run added this dependency: the export edge
+ * accepted `slaOutcome` and dropped it, so a request for breached conversations produced EVERY
+ * conversation — the widening direction, and the one that looks like a correct answer.
+ */
+const make = (conv: { list: unknown }, slaIds: string[] = ['conv-sla-1']) =>
+  new ExportProducer(conv as never, {
+    conversationIdsByOutcome: jest.fn(async () => slaIds),
+  } as never);
 
 describe('the column set is the FR-004b claim', () => {
   it('carries conversation-level fields only — no message content of any kind', () => {
@@ -154,5 +161,49 @@ describe('FR-007 — production does not materialise the whole result set', () =
     const res = await make(conv).produce('acc-1', { ...SCOPE, maxBytes: 50_000_000 }, {}, arraySink());
     expect(res.rowCount).toBe(5_000);
     expect(conv.list).toHaveBeenCalledTimes(50);
+  });
+});
+
+describe('*** the SLA filter is RESOLVED, not dropped *** (found on Track B, 2026-07-28)', () => {
+  it('an slaOutcome becomes an id set on the query', async () => {
+    const conv = fakeConversations([row(1)], 500);
+    const producer = make(conv, ['c1', 'c2']);
+    await producer.produce('acc-1', SCOPE, { slaOutcome: 'breached' } as never, arraySink());
+
+    // Dropping it produced EVERY conversation for a request that asked for breached ones — a file with
+    // too much in it, which looks exactly like a correct answer and then gets forwarded.
+    expect((conv.calls[0]!.filters as { idIn?: string[] }).idIn).toEqual(['c1', 'c2']);
+    // …and the outcome itself never reaches the conversation query, which has no such column.
+    expect((conv.calls[0]!.filters as { slaOutcome?: string }).slaOutcome).toBeUndefined();
+  });
+
+  it('an outcome that matches NOTHING yields an empty file, not an unfiltered one', async () => {
+    const conv = fakeConversations([row(1), row(2)], 500);
+    const producer = make(conv, []);
+    const sink = arraySink();
+    const res = await producer.produce('acc-1', SCOPE, { slaOutcome: 'met' } as never, sink);
+
+    /**
+     * `idIn: []` is PASSED, not omitted — which is the whole assertion available at this layer.
+     *
+     * "An empty id set yields an empty page rather than an unfiltered one" is `ListFilters`' own contract
+     * (feature 014 / R10) and is tested against the real repository, so asserting a row count here would
+     * be asserting the behaviour of this file's fake rather than of any product code. What the producer
+     * must not do is decide `[]` means "no filter" and drop the key, and that is what this checks.
+     */
+    const passed = conv.calls[0]!.filters as { idIn?: string[] };
+    expect(passed.idIn).toEqual([]);
+    expect('idIn' in passed).toBe(true);
+    expect(res.rowCount).toBe(2); // the fake ignores filters; see above
+  });
+
+  it('no slaOutcome means the SLA repository is not consulted at all', async () => {
+    const conv = fakeConversations([row(1)], 500);
+    const sla = { conversationIdsByOutcome: jest.fn(async () => ['nope']) };
+    const producer = new ExportProducer(conv as never, sla as never);
+    await producer.produce('acc-1', SCOPE, {}, arraySink());
+
+    expect(sla.conversationIdsByOutcome).not.toHaveBeenCalled();
+    expect((conv.calls[0]!.filters as { idIn?: string[] }).idIn).toBeUndefined();
   });
 });

@@ -6,7 +6,12 @@ import { AuthorAuthorityClient, AuthorityUnavailableError } from '../auth/auth.c
 import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.client';
 import type { ListFilters } from '../conversation/conversation.repository';
 import { errorLabel } from './error-label';
-import { ExportProducer, ByteLimitExceededError, RowLimitExceededError } from './export.producer';
+import {
+  ExportProducer,
+  ByteLimitExceededError,
+  RowLimitExceededError,
+  type ExportFilterSet,
+} from './export.producer';
 import { ExportQuota } from './export.quota';
 import { ExportRepository, type ExportJobRow } from './export.repository';
 
@@ -31,7 +36,7 @@ export interface CreateExportArgs {
   requestedBy: string;
   permissions: readonly string[];
   scopeName: string;
-  filters: Omit<ListFilters, 'limit' | 'cursor'>;
+  filters: ExportFilterSet;
   /** The filter values as given, stored for the status view — NEVER audited, NEVER logged. */
   rawFilters: Record<string, unknown>;
 }
@@ -233,16 +238,26 @@ export class ExportService {
     return md;
   }
 
-  /** Filters for production, read back from the stored row. */
-  private filtersOf(row: ExportJobRow): Omit<ListFilters, 'limit' | 'cursor'> {
+  /**
+   * Filters for production, read back from the stored row.
+   *
+   * The values were DECODED before storage (DB scalars, not wire enum names), so this reads them as-is.
+   * That ordering is deliberate: a second decode step here would be a second place to forget one, which
+   * is exactly the omission Track B found on the request side.
+   *
+   * `slaOutcome` is passed through as the outcome; the producer resolves it into an id set at production
+   * time, as the list does when it reads.
+   */
+  private filtersOf(row: ExportJobRow): ExportFilterSet {
     const raw = (row as unknown as { filters_json?: Record<string, unknown> }).filters_json ?? {};
-    const out: Omit<ListFilters, 'limit' | 'cursor'> = {};
+    const out: ExportFilterSet = {};
     if (typeof raw.status === 'string') out.status = raw.status as ListFilters['status'];
     if (typeof raw.priority === 'string') out.priority = raw.priority;
     if (typeof raw.assigneeOperatorId === 'string') out.assigneeOperatorId = raw.assigneeOperatorId;
     if (typeof raw.playerId === 'string') out.playerId = raw.playerId;
     if (Array.isArray(raw.brandIn)) out.brandIn = raw.brandIn as string[];
     if (Array.isArray(raw.idIn)) out.idIn = raw.idIn as string[];
+    if (typeof raw.slaOutcome === 'string') out.slaOutcome = raw.slaOutcome;
     return out;
   }
 

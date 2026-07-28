@@ -54,7 +54,7 @@ const productSources = SERVICES.flatMap((s) => walk(join(ROOT, 'services', s, 's
 
 /** Every file this feature added or touched on the export path. */
 const exportSources = productSources.filter(
-  (f) => /\/exports?\//.test(rel(f)) || /export-run\.job|artefact-purge/.test(rel(f)),
+  (f) => /\/exports?\//.test(rel(f)) || /export-run\.job|expiry-sweep\.job|artefact-purge/.test(rel(f)),
 );
 
 describe('the scan sees the feature (guards against a vacuous pass)', () => {
@@ -64,7 +64,7 @@ describe('the scan sees the feature (guards against a vacuous pass)', () => {
     expect(paths).toContain('services/chats/src/export/export.producer.ts');
     expect(paths).toContain('services/users/src/uploads/artefact-purge.repository.ts');
     expect(paths).toContain('services/worker/src/jobs/export-run.job.ts');
-    expect(paths).toContain('services/worker/src/jobs/artefact-purge.job.ts');
+    expect(paths).toContain('services/worker/src/jobs/expiry-sweep.job.ts');
   });
 });
 
@@ -146,7 +146,7 @@ describe('*** the only external edge is the object store, reached by users alone
   it('the worker — the only always-running component — never touches storage or a network peer', () => {
     // It schedules. It owns no database, holds no credentials, and its two clients are gRPC to our own
     // services. That is what keeps "the heavy work is dispatched" from meaning "the worker gained reach".
-    for (const job of ['export-run.job.ts', 'artefact-purge.job.ts']) {
+    for (const job of ['export-run.job.ts', 'expiry-sweep.job.ts']) {
       const code = codeOf(join(ROOT, 'services', 'worker', 'src', 'jobs', job));
       expect(code).not.toMatch(/@aws-sdk|fetch\(|axios|http[s]?\.request/);
     }

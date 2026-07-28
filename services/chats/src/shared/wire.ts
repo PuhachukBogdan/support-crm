@@ -32,6 +32,27 @@ export function isValidStatusWire(wire: string | undefined): boolean {
   return !!wire && wire !== 'CONVERSATION_STATUS_UNSPECIFIED' && wire in WIRE_TO_STATUS;
 }
 
+// ── SLA outcome (feature 014; moved HERE by feature 017) ──────────────────────
+/**
+ * The SLA filter values, mapped to the stored outcome scalar.
+ *
+ * ⚠️ This lived as a private constant inside `conversation.grpc.controller.ts` until the export needed
+ * the same filter, and Track B showed what a second copy costs: the export edge had grown its own
+ * vocabulary (`pending` where the list says `running`), so the two "identical" filter sets had already
+ * drifted — inside the file whose header promises they are the same. One map, one place.
+ */
+const WIRE_TO_SLA_OUTCOME: Record<string, string> = {
+  SLA_OUTCOME_RUNNING: 'running',
+  SLA_OUTCOME_MET: 'met',
+  SLA_OUTCOME_BREACHED: 'breached',
+};
+
+/** `undefined` = no filter (absent or UNSPECIFIED). `null` = a value the wire does not define. */
+export function wireToSlaOutcome(wire: string | undefined): string | undefined | null {
+  if (!wire || wire === 'SLA_OUTCOME_UNSPECIFIED') return undefined;
+  return WIRE_TO_SLA_OUTCOME[wire] ?? null;
+}
+
 // ── Conversation priority (feature 014) ──────────────────────────────────────
 /**
  * The closed priority set a **write** may set. `Conversation.priority` is a free-form column and the

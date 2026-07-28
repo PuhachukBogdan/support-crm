@@ -213,3 +213,38 @@ call (research R1).
 - **Read vs write degrade differently, on purpose.** A failure to describe on the WRITE path refuses the
   message (the agent believes a file was sent). The same failure on the READ path degrades to no
   attachment metadata — a missing thumbnail is not worth a blank conversation.
+
+## Exports (feature 017, roadmap 4.10)
+
+Chats **owns** the export record, the producer and the `export.create` audit entry. It does not own the
+artefact: the bytes go to `users` through the existing `CreateUpload`, so the feature-016 single-path
+guarantee holds unchanged.
+
+- **`ExportJob`** (`chats_db`, see [`prisma/schema.prisma`](prisma/schema.prisma)) — request, status,
+  filters, `expires_at`, and the soft `upload_id` once an artefact exists. Enrolled in `SCOPED_MODELS`, so
+  every tenant-facing read goes through `forAccount`.
+- **Code:** [`src/export/`](src/export) — `export.service.ts` (accept / produce / record),
+  `export.producer.ts` (pages the *conversation read path*, never its own query),
+  `export.repository.ts`, `export.quota.ts`, `export.maintenance.ts` (the two sweeps),
+  `error-label.ts`, `export.grpc.controller.ts`.
+- **The scope catalogue is data** — [`libs/common/src/exports/scopes.ts`](../../libs/common/src/exports/scopes.ts).
+  Permission, row limit, byte cap, TTL, quota: all on the row. Adding an exportable thing is adding a row.
+- **The producer acts with RE-RESOLVED authority.** Request and production are different processes at
+  different times, so the requester's *current* permissions are resolved through the auth client at
+  production time. A permission revoked in between yields `failed` / `authority_revoked`, not a file.
+  Caching them on the row would reintroduce 014's stale-authority window.
+- **Completion is ONE transaction** — `ready` + the audit entry, or neither (FR-020). An unwritable entry
+  fails the export as `record_failed`, which is its own code rather than a borrowed one: the artefact was
+  produced and stored, then deliberately abandoned, and sending an operator to the database for a problem
+  in the trail is the one diagnosis in this feature that must not be guesswork.
+- **⚠️ Filters are translated by the LIST's own converters** (`../shared/wire.ts`,
+  `../../gateway/src/chats/wire.ts`). Track B found the export validating the human vocabulary and
+  forwarding the string unchanged into a proto **enum** field — grpc-js coerced it to UNSPECIFIED and the
+  export produced an empty file reporting success. Validating a vocabulary is not translating it. The same
+  run found `slaOutcome` accepted and then dropped, which produced *every* conversation.
+- **The two sweeps are system-actor only, batch-capped, counts-only, and have no gateway route.**
+  `RunDueExports` claims `queued → running` conditionally (two ticks, one winner, no bookkeeping) and
+  fails a stale claim as `interrupted` rather than retrying — which is what makes "an interrupted producer
+  leaves no downloadable partial" provable. `ExpireDueExports` flips `ready → expired` and clears
+  `upload_id`; **the bytes are deleted independently by `users`**, from the same TTL constant, so neither
+  service waits on the other.

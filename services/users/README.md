@@ -130,3 +130,36 @@ proto message grows a `bytes` field, or if anything anywhere signs a URL.
 - **Growth is bytes, not rows** — the first thing in this product for which that is true. The
   `(account_id, state, created_at)` index exists so the eventual retention job (ADR 0015) is a cheap
   query rather than a table scan.
+
+## Artefact expiry — the one path that removes bytes (feature 017, roadmap 4.10)
+
+⚠️ This **narrows** feature 016's "nothing in v1 removes bytes". Narrows, not weakens: an artefact whose
+defining property is that it *expires* cannot honour that rule, and a status flag saying `expired` while
+the object sits in a bucket is SEC-27 rather than a fix for it.
+
+The narrowing is structural on four axes, all asserted by
+[`tests/uploads/single-ingest-path.spec.ts`](../../tests/uploads/single-ingest-path.spec.ts):
+
+1. **A separate gRPC service** — `UsersMaintenanceService.PurgeExpiredArtefacts`. `UploadsService` still
+   has exactly four requester verbs and no update, delete, presign or sign.
+2. **Only `ephemeral` purposes are selectable**, and that set is **derived** from the catalogue
+   (`EPHEMERAL_PURPOSE_NAMES`) — an avatar or an attachment is unreachable *by construction*, not
+   excluded by a list somebody has to maintain.
+3. **System actor only**, and the gateway exposes no route to it.
+4. **One delete issuer** — `object-store.ts`, the same file as every other S3 command.
+
+- **Code:** [`src/uploads/artefact-purge.repository.ts`](src/uploads/artefact-purge.repository.ts) (bytes,
+  beside the credentials it needs) + [`src/maintenance/`](src/maintenance) (the scheduling-facing service
+  and the RPC). The maintenance module *imports* `UploadsModule` rather than constructing its own store
+  client — a second credential holder is exactly what the structural test exists to prevent.
+- **Object BEFORE row** — the reverse of the create path, deliberately. Create's worst residue is an object
+  with no row; here it is the opposite: a row deleted while its bytes survive leaves data no later pass can
+  find. A storage failure therefore leaves the row exactly where the next tick will find it.
+- **Idempotent by construction**, with no bookkeeping: a purged row is *gone*, so it leaves the predicate.
+  There is no "purged" flag to reconcile and no window where a row is marked done but its bytes are not.
+- **`object_missing` is a NORMAL outcome**, distinct from "deleted" and from "storage refused" — which is
+  why `ObjectStore` gained `exists()`: S3 deletion is idempotent and silent, and using `get` would pull a
+  whole artefact over the wire to learn one boolean about bytes we are about to destroy.
+- **`Upload.expires_at`** is the predicate and lives here, on the row the credential holder owns, so
+  deletion never depends on another service being reachable. The export record in `chats_db` carries the
+  same computed value for the product-facing answer; both derive from one catalogue constant.

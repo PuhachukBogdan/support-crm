@@ -41,11 +41,52 @@ target measured in minutes. Test boxes use a few seconds so a breach is observab
 A fixed `jobId` keeps re-registration idempotent; without it every boot would add another repeatable
 entry and the sweep would run N times per interval.
 
+### `crm-export-run` → `run-due-exports` (feature 017)
+
+The export queue, and the reason there is no queue: **chats has no Redis configuration at all**. Giving it
+a queue client, new config keys and a compose edit would buy a few seconds of latency on an operation
+measured in minutes, so a request writes a `queued` row and this tick claims it
+([`src/jobs/export-run.job.ts`](src/jobs/export-run.job.ts)).
+
+`queued → running` is a **conditional** update, so idempotency again needs no bookkeeping: two overlapping
+ticks both try, exactly one wins. 10 s rather than the sweep's 30 — somebody is actively waiting for an
+export, unlike a breach nobody is watching.
+
+### `crm-artefact-purge` → `sweep-expired-exports` (feature 017)
+
+**Both halves of expiry from one clock** ([`src/jobs/expiry-sweep.job.ts`](src/jobs/expiry-sweep.job.ts)):
+`ChatsMaintenanceService.ExpireDueExports` flips the record and clears its artefact reference;
+`UsersMaintenanceService.PurgeExpiredArtefacts` deletes the bytes and the row. Only `users` holds storage
+credentials, so only `users` can delete — the worker's contribution is the clock, exactly as for the SLA
+sweep.
+
+The two calls are **awaited separately**, so `users` being down does not stop records from expiring, and
+either half left undone is simply found again next tick. They must *not* coordinate: neither reads the
+other's database (Principle VIII), a two-phase handshake between two services is wrong whenever one of them
+is restarting, and both predicates derive from **one** catalogue constant — which is the whole of the
+coupling they need.
+
+⚠️ **This job's chats half was missing entirely until Track B.** `ExpireDueExports` was written, hosted,
+unit-tested and called by nothing, so every completed export stayed `ready` for ever holding a dangling
+`upload_id`. That is 015's live-only defect mirrored — a hosted package with an unwired handler there, a
+wired handler with no caller here — and it is now a standing Track A guard:
+[`tests/worker/maintenance-ticks.spec.ts`](../../tests/worker/maintenance-ticks.spec.ts) asserts **every**
+`*MaintenanceService` RPC is reached from a job. A maintenance RPC is *defined* by having no user-facing
+caller, which makes it the one shape of dead code the product cannot notice on its own.
+
+The queue name is `crm-artefact-purge` — unchanged from when this job only did the purge half, because
+renaming it would leave the old repeatable entry in Redis with no worker attached, quietly queueing jobs
+nobody processes.
+
 ## Interfaces
 - Serves: [`libs/proto/crm/health/v1/health.proto`](../../libs/proto/crm/health/v1/health.proto).
 - Consumes: [`libs/proto/crm/chats/v1/chats.proto`](../../libs/proto/crm/chats/v1/chats.proto) — **only**
   `ChatsMaintenanceService`, with `x-actor-kind: system` metadata. That surface has no gateway route, so
   this is the only way in ([`src/chats/chats.client.ts`](src/chats/chats.client.ts)).
+- Consumes: [`libs/proto/crm/users/v1/users.proto`](../../libs/proto/crm/users/v1/users.proto) — **only**
+  `UsersMaintenanceService.PurgeExpiredArtefacts`, same system-actor metadata, same absence of a route
+  ([`src/users/users.client.ts`](src/users/users.client.ts)). **No raised message ceiling on purpose:** the
+  call carries a limit and returns counts, and the bytes are deleted inside `users`, never streamed here.
 - Redis connection: [`src/queue/redis.service.ts`](src/queue/redis.service.ts).
 
 ## Config (refuse-to-start, SEC-6)

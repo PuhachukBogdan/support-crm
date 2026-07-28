@@ -87,6 +87,19 @@ export const AUDIT_ACTIONS = {
   'audit.read': { class: 'access', writer: 'auth', status: 'live', label: 'Audit log read' },
   // DEFERRED, deliberately (spec Q1): logging every record open is the busiest write path in the product
   // and would arrive before any retention policy. It ships WITH retention, not before.
+  // ⚠️ Feature 018 (roadmap 5.1) tried to make this `live` and REVERTED, which is worth recording so the
+  // next attempt starts from the real blocker rather than rediscovering it.
+  //
+  // The gap is real: a read surfacing only open fields writes nothing, so the reads of the most numerous
+  // role are invisible in the trail — the quiet-harvesting shape SEC-AP3 exists to detect, one tier below
+  // where anyone was looking. Feature 018 wired it best-effort and `tests/audit/no-best-effort.spec.ts`
+  // refused the change, correctly: feature 015 attached a PRECONDITION to this row — best-effort belongs
+  // to this class *when it ships WITH a retention policy* — and retention (SEC-25) is still open.
+  //
+  // This is the highest-volume entry class in the product. Wiring it without a retention policy means
+  // unbounded growth in the very table that records who looked at customer data, and 015's instruction was
+  // to DECIDE that first rather than accept it. So this stays `deferred` until SEC-25 is answered; the code
+  // change itself is one branch in users/src/player/contact-view-audit.service.ts.
   'record.open': {
     class: 'access',
     writer: 'users',

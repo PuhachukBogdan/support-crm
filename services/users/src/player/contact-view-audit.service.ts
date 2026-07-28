@@ -27,9 +27,20 @@ const TIER_RANK: Record<FieldTier, number> = { open: 0, operational: 1, am_only:
  * Account-scoped write (Principle I). Under a view-as preview the actor is the REAL caller (God), never the
  * previewed role (feature 011 FR-021 / feature 015 FR-005).
  *
- * ⚠️ NO LIVE CALLER YET: the player-read gRPC handlers that call this are Phase 5 (roadmap 5.1). When they
- * land they must call THIS writer, not invent a second store — inventing one is exactly how feature 011
- * ended up with two audit tables.
+ * ── Feature 018 (roadmap 5.1): the handlers this was built for now EXIST, and are wired to it ─────
+ * `UsersReadService.GetPlayer` / `ListPlayersByBrand` call this writer. It was built at feature 011 with a
+ * comment saying the Phase-5 handlers must call THIS one rather than invent a second store; they do.
+ *
+ * Two things feature 018 added, and one it tried and reverted:
+ *   • {@link recordBulkRead} — ONE entry for a whole paged list, targeting the BRAND rather than one entry
+ *     per record. Same call feature 017 made for exports: a per-row trail over a paged list is useless to
+ *     read and is the largest available surface for leaking a value.
+ *   • The tier recorded follows the caller's CLEARANCE, not the record's contents — `surfacedMaskableTiers`
+ *     takes a role and ignores the row, so an account manager reading a record whose portfolio fields are
+ *     all null still records the portfolio tier. That is the right answer (*what this person was entitled
+ *     to look at* is the question an investigation asks) and it keeps the entry stable while the record
+ *     changes. Consequence worth stating: the access actions partition **by role**, not by read.
+ *   • ⚠️ REVERTED: writing `record.open` for open-only reads. See the branch below.
  *
  * Explicit @Inject: the service runtime (tsx/esbuild) emits no decorator metadata.
  */
@@ -45,7 +56,26 @@ export class ContactViewAuditService {
     underPreview = false,
   ): Promise<void> {
     const surfaced = surfacedMaskableTiers(roleKey);
-    if (surfaced.length === 0) return; // only `open` fields seen — nothing maskable to audit.
+
+    if (surfaced.length === 0) {
+      /**
+       * Only `open` fields — nothing maskable to audit, so nothing is written.
+       *
+       * ⚠️ THIS IS A KNOWN BLIND SPOT, and feature 018 deliberately did NOT close it. The reads of the
+       * most numerous role are therefore invisible in the trail, which is one tier below where the
+       * anti-harvesting finding was looking.
+       *
+       * Feature 018 implemented the fix (`record.open`, best-effort) and then reverted it, because
+       * `tests/audit/no-best-effort.spec.ts` caught it: feature 015 attached a PRECONDITION to that
+       * action — *"best-effort belongs to that class when it ships WITH a retention policy"* — and the
+       * retention policy (SEC-25) is still open. `record.open` is the highest-volume entry class in the
+       * product, so wiring it without one means unbounded growth in the table that records who looked at
+       * customer data. That is a real cost, and 015 said decide it first rather than accept it.
+       *
+       * Closing this needs the retention decision, not more code. The mechanism is one branch here.
+       */
+      return;
+    }
 
     const topTier = surfaced.reduce((a, b) => (TIER_RANK[b] > TIER_RANK[a] ? b : a));
     await this.audit.append(accountId, {
@@ -56,6 +86,39 @@ export class ContactViewAuditService {
       // Tier NAME only — never a value. The per-class allow-list in libs/common/audit/detail.ts is what
       // makes that structural rather than a convention observed here.
       detail: { tier: topTier },
+    });
+  }
+
+  /**
+   * The bulk-list variant: **ONE** entry for the whole request, targeting the BRAND (feature 018).
+   *
+   * Not one per record, for the reason feature 017 recorded when it made the same call for exports: a
+   * per-row trail over a paged list is useless to read and is the largest available surface for leaking a
+   * value. The detail carries the filter **field names** — never their values — which the `access` class's
+   * existing allow-list already permits, and that it needs no allow-list change is the evidence this shape
+   * was anticipated rather than improvised.
+   *
+   * Strict, like the single-record reveal: a bulk list is only reachable by a cleared role, because a
+   * role that may not bulk-read contacts is refused before any record is read.
+   */
+  async recordBulkRead(
+    accountId: string,
+    actorUserId: string,
+    brandId: string,
+    roleKey: string,
+    filterFields: string[],
+    underPreview = false,
+  ): Promise<void> {
+    const surfaced = surfacedMaskableTiers(roleKey);
+    if (surfaced.length === 0) return; // unreachable: the guard refuses an open-only role first.
+
+    const topTier = surfaced.reduce((a, b) => (TIER_RANK[b] > TIER_RANK[a] ? b : a));
+    await this.audit.append(accountId, {
+      action: 'contact.reveal',
+      actorUserId,
+      targetRef: brandId,
+      underPreview,
+      detail: { tier: topTier, filters: [...filterFields].sort() },
     });
   }
 }

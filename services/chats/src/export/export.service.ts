@@ -5,6 +5,7 @@ import { AuditRepository } from '../audit/audit.repository';
 import { AuthorAuthorityClient, AuthorityUnavailableError } from '../auth/auth.client';
 import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.client';
 import type { ListFilters } from '../conversation/conversation.repository';
+import { errorLabel } from './error-label';
 import { ExportProducer, ByteLimitExceededError, RowLimitExceededError } from './export.producer';
 import { ExportQuota } from './export.quota';
 import { ExportRepository, type ExportJobRow } from './export.repository';
@@ -183,20 +184,26 @@ export class ExportService {
         ]);
       } catch (err) {
         await this.repo.fail(row.account_id, row.id, 'record_failed', now);
-        this.logger.warn(
-          `export ${row.id} produced but NOT recorded — refused: ${err instanceof Error ? `${err.name}: ${firstLine(err.message)}` : 'error'}`,
-        );
+        this.logger.warn(`export ${row.id} produced but NOT recorded — refused: ${errorLabel(err)}`);
         return 'failed';
       }
       return 'completed';
     } catch (err) {
       await this.repo.fail(row.account_id, row.id, this.reasonFor(err), now);
-      // The MESSAGE, not just the class — feature 014's live lesson: a job that is silent by design has
-      // exactly one chance to be useful, and a bare `Error` made a failing sweep undiagnosable. Never
-      // the filters, never a row value.
-      this.logger.warn(
-        `export ${row.id} failed: ${err instanceof Error ? `${err.name}: ${firstLine(err.message)}` : 'error'}`,
-      );
+      /**
+       * `errorLabel`, not `err.message`.
+       *
+       * Feature 014's live lesson was that a bare class name made a failing sweep undiagnosable, and that
+       * lesson holds — but its conclusion does not transfer unchanged to this path. The producer runs a
+       * FILTERED query, and the filter values are the sensitive part: a Prisma or driver error can echo
+       * the query arguments into its message, so "log the message" would mean "log the filters" on
+       * exactly the path somebody reads when something has gone wrong.
+       *
+       * So messages are logged for the errors this product defines and class names for everything else
+       * (see `error-label.ts`). The export ID is fine and is what makes the line useful — a
+       * system-generated uuid, not a tenant value.
+       */
+      this.logger.warn(`export ${row.id} failed: ${errorLabel(err)}`);
       return 'failed';
     }
   }
@@ -250,9 +257,4 @@ export class ExportService {
     const day = row.created_at.toISOString().slice(0, 10);
     return `${row.scope}-${day}.csv`;
   }
-}
-
-/** First line only — a stack trace in a log line is how a row value escapes into logs. */
-function firstLine(message: string): string {
-  return (message.split('\n')[0] ?? '').slice(0, 200);
 }

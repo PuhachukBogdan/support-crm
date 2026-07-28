@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { errorLabel } from './error-label';
 import { ExportRepository } from './export.repository';
 import { ExportService } from './export.service';
 
@@ -74,9 +75,7 @@ export class ExportMaintenance {
         // One export blowing up must not stop the pass: the rest are independent, and this one is
         // already terminal or will be recovered as stale on a later tick.
         failed += 1;
-        this.logger.warn(
-          `export run threw for ${row.id}: ${err instanceof Error ? err.name : 'error'}`,
-        );
+        this.logger.warn(`export run threw for ${row.id}: ${errorLabel(err)}`);
       }
     }
 

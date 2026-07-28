@@ -61,8 +61,13 @@ export interface UploadInput {
 export interface ValidatedUpload {
   purposeName: string;
   purpose: UploadPurpose;
-  /** VERIFIED from content. The declared value is compared, then discarded — it is never returned. */
-  contentType: DetectableContentType;
+  /**
+   * VERIFIED from content. The declared value is compared, then discarded — it is never returned.
+   *
+   * For a `produced` purpose (feature 017) this is the purpose's own fixed type rather than a detected
+   * one: the bytes came from our serializer, so there is no claim to disbelieve — see `validateProduced`.
+   */
+  contentType: DetectableContentType | ProducedContentType;
   bytes: Uint8Array;
   displayName: string | null;
   derivative: Derivative | null;
@@ -87,12 +92,66 @@ function normalizeDeclared(value: string | undefined): string {
   return ALIASES[v] ?? v;
 }
 
+/**
+ * The content type of a produced artefact (feature 017, research R5).
+ *
+ * Deliberately NOT added to `DETECTABLE_CONTENT_TYPES`: that table is the allow-list for INGESTED
+ * content, and its governing sentence is *"a format we cannot recognise from its own bytes is a format we
+ * do not accept"*. CSV has no magic number, so listing it there would turn the allow-list from *formats
+ * we can verify* into *formats we accept on faith* — and that faith-based type would then be reachable
+ * from any future untrusted purpose. Keeping it here, keyed on provenance, leaves the strict rule intact
+ * for every path where bytes come from someone else.
+ */
+export type ProducedContentType = 'text/csv';
+const PRODUCED_TYPE: ProducedContentType = 'text/csv';
+
+/**
+ * Validation for bytes WE produced (feature 017 — FR-022 / research R5).
+ *
+ * There is no declared type to compare and no signature to match, so the check inverts: the content must
+ * be valid UTF-8 **and** must match NONE of the binary signatures in the detection table. That is not
+ * ceremony. It catches the case that actually worries us — a future bug, or an injected field, putting
+ * binary content into what must be a text artefact — and a disguised ELF, PNG or PDF is still refused on
+ * this path.
+ */
+function validateProduced(input: UploadInput, purpose: UploadPurpose): ValidatedUpload {
+  const size = input.content.byteLength;
+  if (size === 0) throw new UploadRejected('empty_file');
+  if (size > purpose.maxBytes) throw new UploadRejected('too_large');
+
+  // A binary signature in a produced text artefact means something upstream is wrong. Refuse rather
+  // than store it: this is the only moment anyone looks.
+  if (detectContentType(input.content)) throw new UploadRejected('type_not_allowed');
+
+  // Valid UTF-8, checked by decoding strictly. A lossy decode would hide exactly what we are looking for.
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(input.content);
+  } catch {
+    throw new UploadRejected('type_not_allowed');
+  }
+
+  return {
+    purposeName: input.purpose,
+    purpose,
+    contentType: PRODUCED_TYPE,
+    bytes: input.content,
+    displayName: toDisplayLabel(input.filename),
+    // A produced artefact never has a derivative: `derivative: 'never'` on the row, asserted by the
+    // purpose catalogue tests.
+    derivative: null,
+  };
+}
+
 export async function validateUpload(input: UploadInput): Promise<ValidatedUpload> {
   // 1) The purpose must exist. There is no permissive default anywhere in this path — an unknown
   //    purpose is the one case where "carry on with sensible limits" would be catastrophic, because
   //    the limits would be nobody's decision.
   const purpose = purposeOf(input.purpose);
   if (!purpose) throw new UploadRejected('unknown_purpose');
+
+  // 1a) Provenance decides HOW the content is validated (feature 017 / research R5). The branch is on
+  //     catalogue DATA, never on the purpose's name — the same rule the rest of this path follows.
+  if (purpose.origin === 'produced') return validateProduced(input, purpose);
 
   // 2) Size. An empty file is either a client bug or a probe, and it has no content to validate.
   const size = input.content.byteLength;

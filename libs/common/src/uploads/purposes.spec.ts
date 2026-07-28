@@ -31,7 +31,14 @@ describe('the upload-purpose catalogue is closed (FR-002)', () => {
   });
 
   it('every registered name resolves, and the set is exactly what the module exports', () => {
-    expect(UPLOAD_PURPOSE_NAMES.sort()).toEqual(['avatar', 'message_attachment']);
+    expect(UPLOAD_PURPOSE_NAMES.sort()).toEqual([
+      'avatar',
+      // Feature 017 (roadmap 4.10): the export artefact enters storage through the EXISTING
+      // CreateUpload, so it is a row here rather than a second ingest path. That is the whole reason
+      // the feature-016 structural test still passes with its `bytes`-message set unchanged.
+      'conversation_export',
+      'message_attachment',
+    ]);
     for (const name of UPLOAD_PURPOSE_NAMES) {
       expect(purposeOf(name)).toBe(UPLOAD_PURPOSES[name]);
       expect(isUploadPurpose(name)).toBe(true);
@@ -53,11 +60,50 @@ describe('every entry is well-formed', () => {
     expect(SYSTEM_CATALOGUE.map((e) => e.key)).toContain(permission);
   });
 
-  it.each(UPLOAD_PURPOSE_NAMES)('%s: has a positive cap and a non-empty allow-list', (name) => {
+  it.each(UPLOAD_PURPOSE_NAMES)('%s: has a positive cap', (name) => {
+    expect(UPLOAD_PURPOSES[name].maxBytes).toBeGreaterThan(0);
+  });
+
+  /**
+   * The allow-list rule now depends on ORIGIN, and the split is the point (feature 017 / research R5).
+   *
+   * An `ingested` purpose MUST list types: it accepts bytes from someone else, and the detection table
+   * is what decides whether to believe them. A `produced` purpose must list NONE: its bytes come from
+   * our own serializer, and CSV has no magic number — so listing `text/csv` would have meant adding an
+   * unverifiable type to the shared detection table, where any future untrusted purpose could then use
+   * it. An empty list here reads correctly as "no ingested type is acceptable for this purpose".
+   */
+  it.each(UPLOAD_PURPOSE_NAMES)('%s: allow-list matches its origin', (name) => {
     const p = UPLOAD_PURPOSES[name];
-    expect(p.maxBytes).toBeGreaterThan(0);
-    expect(p.types.length).toBeGreaterThan(0);
-    expect(p.derivativeLongestEdge).toBeGreaterThan(0);
+    if (p.origin === 'ingested') {
+      expect(p.types.length).toBeGreaterThan(0);
+      expect(p.derivativeLongestEdge).toBeGreaterThan(0);
+    } else {
+      expect(p.types).toEqual([]);
+      expect(p.derivative).toBe('never');
+    }
+  });
+
+  it('exactly one purpose is `produced`, exactly one is `ephemeral`, and they are the SAME one', () => {
+    const produced = UPLOAD_PURPOSE_NAMES.filter((n) => UPLOAD_PURPOSES[n].origin === 'produced');
+    const ephemeral = UPLOAD_PURPOSE_NAMES.filter((n) => UPLOAD_PURPOSES[n].ephemeral);
+    expect(produced).toEqual(['conversation_export']);
+    expect(ephemeral).toEqual(produced);
+  });
+
+  it('*** no INGESTED purpose is ephemeral — that pairing would delete a live avatar ***', () => {
+    // The 016 catalogue already warns that a future reclaim job would collect `pending` uploads and
+    // therefore delete avatars in active use. `ephemeral` is the flag such a job would key on, so the
+    // two facts must never meet on one row. Cheap to assert now; silent data loss to discover later.
+    for (const name of UPLOAD_PURPOSE_NAMES) {
+      const p = UPLOAD_PURPOSES[name];
+      expect({ name, bad: p.origin === 'ingested' && p.ephemeral }).toEqual({ name, bad: false });
+    }
+  });
+
+  it('`text/csv` is absent from the shared detection table (the table did NOT change)', () => {
+    // Feature 017 chose provenance over a new signature precisely so this stays true.
+    expect(DETECTABLE_CONTENT_TYPES as readonly string[]).not.toContain('text/csv');
   });
 
   it.each(UPLOAD_PURPOSE_NAMES)('%s: every allowed type is one the content check can detect', (name) => {

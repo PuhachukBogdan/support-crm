@@ -185,3 +185,36 @@ message DescribeUploadsResponse {
   // response never distinguishes "not yours" from "does not exist" (FR-011).
   repeated Upload uploads = 1;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// UsersMaintenanceService — the ONE place stored bytes are removed (feature 017, research R8)
+//
+// A separate service, deliberately NOT part of `UploadsService`: it is not a requester-facing verb.
+// The gateway exposes NO route to it, and the handler refuses any caller without `x-actor-kind: system`.
+// Modelled on chats.ChatsMaintenanceService, which feature 014 introduced for the same shape.
+//
+// ⚠️ This SUPERSEDES feature 016's "nothing in v1 removes bytes" for ONE purpose class, and the
+// property that replaces it is NARROWER, not weaker:
+//   • only purposes declared `ephemeral: true` are selectable — no `ingested` purpose may be
+//     ephemeral, so an avatar or an attachment is structurally unreachable from here;
+//   • only a system actor may call it, and there is no route;
+//   • there is still NO UpdateUpload / DeleteUpload / PresignUpload / SignUpload on the uploads
+//     surface — a user-facing delete does not exist.
+// An artefact whose defining property is that it EXPIRES cannot honour "nothing removes bytes", and a
+// flag that says "expired" while the bytes sit in a bucket is SEC-27 rather than a fix for it.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service UsersMaintenanceService {
+  // Delete the bytes of ephemeral artefacts past their expiry, then their rows. Idempotent by
+  // predicate: a purged row leaves the predicate because the row is gone. Counts only in the response.
+  rpc PurgeExpiredArtefacts(MaintenanceBatchRequest) returns (PurgeResult);
+}
+
+message MaintenanceBatchRequest {
+  int32 limit = 1;                  // server-capped
+}
+
+message PurgeResult {
+  int32 purged = 1;                 // object AND row both gone
+  int32 object_missing = 2;         // object already absent, row removed anyway — NORMAL, not an error
+  int32 failed = 3;                 // storage refused; the row stays and the next tick retries
+}

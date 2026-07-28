@@ -30,6 +30,13 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // SET_STATUS — a rule can never perform an action its AUTHOR could not perform directly (FR-023).
   { category: 'crm', key: 'crm.automations.manage', label: 'Author automation rules' },
   { category: 'crm', key: 'crm.sla.manage', label: 'Manage the first-reply SLA target' },
+  // CRM — exports (feature 017, roadmap 4.10). ONE KEY PER SCOPE, not one blanket `crm.exports.*`:
+  // a future contact-bearing or audit-log scope must not inherit the grant that today's conversation
+  // export carries. Deliberately in no operational role template, so it is OFF for every agent until
+  // granted (the 011 R-2 corollary); `admin`/`super_admin` receive it through ALL_KEYS, which is the
+  // broad-by-default choice 0032 §4A made — and which does not relax SEC-AP2, since no v1 export
+  // scope carries contact data at all.
+  { category: 'crm', key: 'crm.exports.conversations', label: 'Export conversations' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },

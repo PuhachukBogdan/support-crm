@@ -108,6 +108,13 @@ model Upload {
   display_name         String? // sanitized, display only — never a storage identity, never logged
   derivative_key       String? // the small re-encoded copy; null for non-image purposes
   derivative_byte_size Int?
+  /// Feature 017 (roadmap 4.10 — research R7/R8): when these bytes stop being allowed to exist.
+  ///
+  /// Set ONLY for purposes declared `ephemeral` (today: `conversation_export`), null for everything
+  /// else. It is the purge predicate, and it lives HERE — on the row the credential holder owns — so
+  /// deletion never depends on another service being reachable. The export record in chats_db carries
+  /// the same computed value for the product-facing answer; both derive from one catalogue constant.
+  expires_at           DateTime?
   state                String    @default("pending") // pending | claimed (FR-016)
   claimed_at           DateTime?
   created_at           DateTime  @default(now())
@@ -116,6 +123,9 @@ model Upload {
   // THE FUTURE RECLAIM PREDICATE (ADR 0015). Added now, while the table is empty — adding it later
   // means adding it to a large table. An abandoned upload is normal, not an error (spec Edge Cases).
   @@index([account_id, state, created_at])
+  // Feature 017: the purge predicate — ephemeral artefacts past their window. Deliberately NOT
+  // account-scoped: the sweep is a system actor with no tenant context, and it selects ids only.
+  @@index([purpose, expires_at])
 }
 
 /// Audit trail entry (feature 015, roadmap 4.8 — ADR 0019; SEC-29/SEC-30; extended by 0032/SEC-AP3).

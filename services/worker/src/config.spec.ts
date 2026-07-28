@@ -17,6 +17,9 @@ const BASE = {
   GRPC_URL: '0.0.0.0:50055',
   REDIS_URL: 'redis://redis:6379',
   CHATS_GRPC_TARGET: 'chats:50053',
+  // Feature 017 (roadmap 4.10): the worker also ticks the artefact purge, and `users` owns the
+  // storage credentials and therefore the deletion.
+  USERS_GRPC_TARGET: 'users:50052',
 } as NodeJS.ProcessEnv;
 
 describe('loadWorkerConfig — feature 014', () => {
@@ -31,6 +34,35 @@ describe('loadWorkerConfig — feature 014', () => {
     const env = { ...BASE };
     delete env.CHATS_GRPC_TARGET;
     expect(() => loadWorkerConfig(env)).toThrow(ConfigError);
+  });
+
+  it('REFUSES to start without USERS_GRPC_TARGET (a worker that cannot purge must not pretend to)', () => {
+    // Feature 017. Same reasoning as the chats target above, and the consequence is the one SEC-27
+    // names: an export artefact that is never purged is a PII copy outliving its authorization. A
+    // silently non-purging worker produces no error anywhere — the bytes just stay.
+    const env = { ...BASE };
+    delete env.USERS_GRPC_TARGET;
+    expect(() => loadWorkerConfig(env)).toThrow(ConfigError);
+  });
+
+  it('exposes the export/purge tick defaults, and clamps garbage rather than crashing', () => {
+    const cfg = loadWorkerConfig({ ...BASE });
+    // The export tick IS the queue (chats has no Redis — research R3), so it is faster than the SLA
+    // sweep: someone is actively waiting for an export, unlike a breach.
+    expect(cfg.EXPORT_RUN_INTERVAL_MS).toBe(10_000);
+    expect(cfg.EXPORT_RUN_BATCH).toBe(5);
+    expect(cfg.ARTEFACT_PURGE_INTERVAL_MS).toBe(300_000);
+    expect(cfg.ARTEFACT_PURGE_BATCH).toBe(100);
+
+    const clamped = loadWorkerConfig({
+      ...BASE,
+      EXPORT_RUN_INTERVAL_MS: '0',
+      EXPORT_RUN_BATCH: 'nonsense',
+      ARTEFACT_PURGE_BATCH: '99999',
+    });
+    expect(clamped.EXPORT_RUN_INTERVAL_MS).toBe(1_000); // never a hot loop
+    expect(clamped.EXPORT_RUN_BATCH).toBe(5); // unparseable ⇒ documented default
+    expect(clamped.ARTEFACT_PURGE_BATCH).toBe(1_000); // clamped to the ceiling
   });
 
   it('still refuses on the pre-existing required keys', () => {

@@ -43,6 +43,22 @@ export function readActorContext(md: Metadata | undefined): ActorContext {
 }
 
 /**
+ * The caller's effective permissions, as the gateway forwarded them (feature 017).
+ *
+ * Needed by a handler whose required key is not a literal: an export scope names its own permission, so
+ * the declarative `@RequiresChatsPermission('...')` cannot express it — the same problem the gateway
+ * solved with `RequiresScopePermission`. The service tier therefore checks the resolved key itself, and
+ * this is how it reads the set.
+ *
+ * An EMPTY result is a real answer ("this caller holds nothing") and must fail closed at the call site.
+ * It is also the shape of feature 016's live defect: a route that carries no permission metadata makes
+ * the gateway forward an empty value, and the owning service then correctly refuses everything.
+ */
+export function readActorPermissions(md: Metadata | undefined): string[] {
+  return readStr(md, 'x-actor-permissions').split(',').filter(Boolean);
+}
+
+/**
  * Resolve the brand-id filter for a collection read (R3):
  * - brands known + explicit request brandId → that brand iff permitted, else [] (empty result).
  * - brands known, no request brandId → all permitted brands.

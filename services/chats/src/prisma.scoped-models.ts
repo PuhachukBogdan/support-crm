@@ -26,4 +26,8 @@ export const SCOPED_MODELS = [
   // it hangs off Message — an attachment must be unreachable across the boundary on its own terms,
   // not only through its parent.
   'MessageAttachment',
+  // Feature 017 (roadmap 4.10): one data export. Same exception shape as ConversationSlaState above —
+  // the maintenance sweeps (RunDueExports / ExpireDueExports) read by status at the METHOD level, so
+  // every other access to this table stays fail-closed through forAccount.
+  'ExportJob',
 ] as const;

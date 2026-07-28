@@ -95,10 +95,22 @@ export const AUDIT_ACTIONS = {
   },
 
   // ── export (roadmap 4.10) ──
+  //
+  // ⚠️ WRITER CORRECTED by feature 017: `worker` → `chats`, `no-writer-yet` → `live`.
+  //
+  // Feature 015 defined this row before anyone knew what v1 would export, and guessed the worker
+  // because 4.10 says "dispatched to Worker". The worker turned out to be the wrong answer for a
+  // reason 015 itself had already fixed: an entry must sit inside its action's transaction, and the
+  // worker HAS NO DATABASE — it schedules and holds no state. With v1 scoped to conversations, the
+  // transaction holding the facts is in `chats`, which already has an identical audit table.
+  //
+  // The detail allow-list below was right all along, and it is the evidence: `rowCount` is only
+  // knowable once the artefact exists, so 015 had already placed this entry at COMPLETION. Only the
+  // writer label predated the scope decision.
   'export.create': {
     class: 'export',
-    writer: 'worker',
-    status: 'no-writer-yet',
+    writer: 'chats',
+    status: 'live',
     label: 'Data export created',
   },
 

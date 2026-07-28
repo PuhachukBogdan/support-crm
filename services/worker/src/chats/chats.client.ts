@@ -22,8 +22,23 @@ export interface SweepResult {
   rulesApplied: number;
 }
 
+/** Feature 017: counts from one export pass. No ids, no scopes, no filter values. */
+export interface RunDueExportsResult {
+  claimed: number;
+  completed: number;
+  failed: number;
+  recoveredStale: number;
+}
+export interface ExpireDueExportsResult {
+  expired: number;
+}
+
 interface MaintenanceGrpc {
   sweepFirstReplySla(data: { limit: number }, md?: Metadata): Observable<SweepResult>;
+  // Feature 017 (roadmap 4.10): the export queue tick and the record-expiry tick. Same shape as the
+  // sweep above — a limit in, counts out.
+  runDueExports(data: { limit: number }, md?: Metadata): Observable<RunDueExportsResult>;
+  expireDueExports(data: { limit: number }, md?: Metadata): Observable<ExpireDueExportsResult>;
 }
 
 @Injectable()
@@ -38,10 +53,25 @@ export class ChatsMaintenanceClient implements OnModuleInit {
 
   /** Run one sweep. Returns counts only — no tenant data crosses this boundary (research R3). */
   async sweepFirstReplySla(limit: number): Promise<SweepResult> {
-    const md = new Metadata();
-    md.set('x-actor-kind', 'system');
-    return firstValueFrom(this.svc.sweepFirstReplySla({ limit }, md));
+    return firstValueFrom(this.svc.sweepFirstReplySla({ limit }, systemMetadata()));
   }
+
+  /** Claim and run due exports; also recover stale claims (feature 017). Counts only. */
+  async runDueExports(limit: number): Promise<RunDueExportsResult> {
+    return firstValueFrom(this.svc.runDueExports({ limit }, systemMetadata()));
+  }
+
+  /** Flip `ready` exports past their expiry to `expired` (feature 017). Counts only. */
+  async expireDueExports(limit: number): Promise<ExpireDueExportsResult> {
+    return firstValueFrom(this.svc.expireDueExports({ limit }, systemMetadata()));
+  }
+}
+
+/** `x-actor-kind: system` — the maintenance RPCs refuse any other caller, and no gateway route exists. */
+function systemMetadata(): Metadata {
+  const md = new Metadata();
+  md.set('x-actor-kind', 'system');
+  return md;
 }
 
 @Module({

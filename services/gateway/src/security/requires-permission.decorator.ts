@@ -53,6 +53,33 @@ export const RequiresPurposePermission = (param = 'purpose') =>
   SetMetadata(REQUIRES_PURPOSE_PARAM_KEY, param);
 
 /**
+ * Metadata key naming a route param whose EXPORT SCOPE determines the required permission
+ * (feature 017, roadmap 4.10).
+ */
+export const REQUIRES_SCOPE_PARAM_KEY = 'rbac:requires_scope_param';
+
+/**
+ * Declare that the permission this route requires is the one named by its export scope.
+ *
+ * The same problem `@RequiresPurposePermission` solved, in a second place — which is why this is a
+ * copy of that shape rather than a fresh idea. The key depends on the `:scope` path parameter, so a
+ * static string would be wrong for every scope but one, and no annotation at all would mean the
+ * gateway tier silently enforces NOTHING while the service tier still does. That halving of the
+ * two-tier guarantee is invisible: nothing fails, and the second tier keeps the system correct until
+ * the day someone trusts the first.
+ *
+ * Difference from the purpose variant, and it is deliberate: an export scope's permission is **never
+ * null**. "Authenticated is sufficient" is a meaningful answer for setting your own avatar; it is not
+ * a meaningful answer for producing a file of tenant data.
+ *
+ * @example
+ *   @RequiresScopePermission('scope')
+ *   @Post('exports/:scope') …
+ */
+export const RequiresScopePermission = (param = 'scope') =>
+  SetMetadata(REQUIRES_SCOPE_PARAM_KEY, param);
+
+/**
  * Metadata key marking a route whose caller permissions must be RESOLVED and forwarded, even though
  * the gateway itself enforces no key (feature 016).
  */

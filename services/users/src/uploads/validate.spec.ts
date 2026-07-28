@@ -228,3 +228,84 @@ describe('*** a refusal never mentions the filename or the bytes *** (FR-020 / S
     expect(serialized).not.toContain('passport');
   });
 });
+
+/**
+ * Feature 017 (roadmap 4.10 — research R5): a PRODUCED artefact is validated by provenance, not by a
+ * signature. FAILS before the `origin` branch exists (a CSV detects as nothing and is refused), PASSES
+ * after.
+ */
+describe('*** produced artefacts: the inverse check ***', () => {
+  const csv = () => Buffer.from('id,status\r\nc1,open\r\n', 'utf8');
+
+  it('accepts a CSV we produced, and reports the purpose\'s own type', async () => {
+    // The whole point of R5: `text/csv` is deliberately ABSENT from the detection table, so this path
+    // cannot work by matching a signature. Adding csv to that table would have made a faith-based type
+    // reachable from every future untrusted purpose.
+    const v = await validateUpload({
+      purpose: 'conversation_export',
+      declaredContentType: 'text/csv',
+      filename: 'conversations-2026-07-28.csv',
+      content: csv(),
+    });
+    expect(v.contentType).toBe('text/csv');
+    expect(v.derivative).toBeNull();
+  });
+
+  it('REFUSES bytes carrying a binary signature — a produced text artefact must not be binary', async () => {
+    // The check that earns its place: a future bug (or an injected field) putting binary content into a
+    // text artefact is caught here, and a disguised PNG/PDF/ELF is still refused on this path.
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
+    await expect(
+      validateUpload({
+        purpose: 'conversation_export',
+        declaredContentType: 'text/csv',
+        filename: 'x.csv',
+        content: png,
+      }),
+    ).rejects.toMatchObject({ reason: 'type_not_allowed' });
+  });
+
+  it('REFUSES invalid UTF-8', async () => {
+    const invalid = Buffer.from([0x69, 0x64, 0xff, 0xfe, 0x0a]);
+    await expect(
+      validateUpload({
+        purpose: 'conversation_export',
+        declaredContentType: 'text/csv',
+        filename: 'x.csv',
+        content: invalid,
+      }),
+    ).rejects.toMatchObject({ reason: 'type_not_allowed' });
+  });
+
+  it('still enforces the size cap and refuses an empty file', async () => {
+    await expect(
+      validateUpload({
+        purpose: 'conversation_export',
+        declaredContentType: 'text/csv',
+        filename: 'x.csv',
+        content: Buffer.alloc(0),
+      }),
+    ).rejects.toMatchObject({ reason: 'empty_file' });
+
+    await expect(
+      validateUpload({
+        purpose: 'conversation_export',
+        declaredContentType: 'text/csv',
+        filename: 'x.csv',
+        content: Buffer.alloc(11 * 1024 * 1024, 0x61),
+      }),
+    ).rejects.toMatchObject({ reason: 'too_large' });
+  });
+
+  it('an INGESTED purpose is unaffected — a CSV is still refused there', async () => {
+    // The strict rule must stay strict everywhere bytes come from someone else.
+    await expect(
+      validateUpload({
+        purpose: 'message_attachment',
+        declaredContentType: 'text/csv',
+        filename: 'x.csv',
+        content: csv(),
+      }),
+    ).rejects.toMatchObject({ reason: 'type_not_allowed' });
+  });
+});

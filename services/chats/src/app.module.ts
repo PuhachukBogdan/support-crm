@@ -31,6 +31,12 @@ import { FirstReplyClock } from './sla/first-reply.clock';
 import { SlaController, SlaMaintenanceController } from './sla/sla.grpc.controller';
 // Feature 015 (roadmap 4.8): the audit trail — this service's source of the federated log.
 import { AuditRepository } from './audit/audit.repository';
+import { ExportController } from './export/export.grpc.controller';
+import { ExportMaintenance } from './export/export.maintenance';
+import { ExportProducer } from './export/export.producer';
+import { ExportQuota } from './export/export.quota';
+import { ExportRepository } from './export/export.repository';
+import { ExportService } from './export/export.service';
 import { AuditReadController } from './audit/audit.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
 // Feature 016 (roadmap 4.9): attachments. chats holds a SOFT upload_id and validates it over the
@@ -64,6 +70,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     SlaMaintenanceController,
     // Feature 015.
     AuditReadController,
+    // Feature 017: the export surface + its two maintenance passes.
+    ExportController,
   ],
   providers: [
     PrismaService,
@@ -87,6 +95,13 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // Feature 015.
     AuditRepository,
     AuditAccessGuard,
+    // Feature 017 (roadmap 4.10). The producer lives here because `chats` owns the conversation data
+    // AND its read path — an export inherits that projection rather than rebuilding one (FR-004a).
+    ExportRepository,
+    ExportProducer,
+    ExportQuota,
+    ExportService,
+    ExportMaintenance,
   ],
 })
 export class AppModule implements OnModuleInit {

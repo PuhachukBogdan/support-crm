@@ -56,6 +56,11 @@ describe('the avatar’s limits are enforced by the SHARED path', () => {
     // any well-formed row, so a future consumer adds data and nothing else.
     const hypothetical = {
       permission: 'reports.export',
+      // Feature 017 added two facts to the row. A hypothetical future INGESTED purpose carries them
+      // like any other: bytes supplied by someone else, and never deletable.
+      origin: 'ingested' as const,
+      ephemeral: false,
+      ttlSeconds: 0,
       maxBytes: 512 * 1024,
       types: ['application/pdf'] as const,
       derivative: 'never' as const,
@@ -152,8 +157,12 @@ describe('the catalogue is the only place a purpose is named', () => {
     for (const name of UPLOAD_PURPOSE_NAMES) {
       const p = UPLOAD_PURPOSES[name];
       expect(p.maxBytes).toBeGreaterThan(0);
-      expect(p.types.length).toBeGreaterThan(0);
       expect(['never', 'images-only', 'always']).toContain(p.derivative);
+      expect(['ingested', 'produced']).toContain(p.origin);
+      // The type list is origin-dependent from feature 017 onward — an `ingested` purpose must name
+      // types, a `produced` one must name none. See `purposes.spec.ts` for that assertion; here the
+      // row only has to be complete.
+      expect(Array.isArray(p.types)).toBe(true);
     }
   });
 });

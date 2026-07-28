@@ -193,6 +193,20 @@ services:
       CHATS_GRPC_TARGET: chats:50053
       SLA_SWEEP_INTERVAL_MS: ${SLA_SWEEP_INTERVAL_MS:-30000}
       SLA_SWEEP_BATCH: ${SLA_SWEEP_BATCH:-500}
+      # Feature 017 (roadmap 4.10): two more ticks. The export tick IS the queue — chats has no Redis,
+      # so it writes a `queued` row and this claims it (research R3). The purge tick asks `users` to
+      # delete expired artefact bytes, because `users` holds the storage credentials and therefore owns
+      # the deletion (research R8).
+      #
+      # ⚠️ USERS_GRPC_TARGET is refuse-to-start config: without it the worker will not boot. That is
+      # deliberate — compose passes only the env it lists here, and feature 009's first live run failed
+      # exactly this way (a required key present in `.env` but never handed to the container).
+      USERS_GRPC_TARGET: users:50052
+      EXPORT_RUN_INTERVAL_MS: ${EXPORT_RUN_INTERVAL_MS:-10000}
+      EXPORT_RUN_BATCH: ${EXPORT_RUN_BATCH:-5}
+      # Shorten this on a test box to watch a purge happen instead of waiting five minutes.
+      ARTEFACT_PURGE_INTERVAL_MS: ${ARTEFACT_PURGE_INTERVAL_MS:-300000}
+      ARTEFACT_PURGE_BATCH: ${ARTEFACT_PURGE_BATCH:-100}
 
 volumes:
   pgdata:

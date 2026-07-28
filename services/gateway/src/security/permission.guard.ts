@@ -12,7 +12,7 @@ import { Reflector } from '@nestjs/core';
 import { type ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, type Observable } from 'rxjs';
 import type { Request } from 'express';
-import { hasPermission, purposeOf, type EffectivePermissions } from '@crm/common';
+import { hasPermission, purposeOf, scopeOf, type EffectivePermissions } from '@crm/common';
 import { AUTH_CLIENT } from '../grpc/clients.module';
 import type { RequestClaims } from '../auth/auth.guard';
 import { EffectivePermsCache } from './effective-perms.cache';
@@ -22,6 +22,7 @@ import {
   REQUIRED_PERMISSION_KEY,
   REQUIRES_BRAND_PARAM_KEY,
   REQUIRES_PURPOSE_PARAM_KEY,
+  REQUIRES_SCOPE_PARAM_KEY,
   RESOLVE_PERMISSIONS_KEY,
 } from './requires-permission.decorator';
 
@@ -83,6 +84,11 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
       REQUIRES_PURPOSE_PARAM_KEY,
       [context.getHandler(), context.getClass()],
     );
+    // Feature 017: the required key is named by the route's export SCOPE, not by a literal.
+    const scopeParam = this.reflector.getAllAndOverride<string | undefined>(
+      REQUIRES_SCOPE_PARAM_KEY,
+      [context.getHandler(), context.getClass()],
+    );
     // Feature 016: resolve-and-forward, enforce nothing here (the owning service decides).
     const resolveOnly =
       this.reflector.getAllAndOverride<boolean | undefined>(RESOLVE_PERMISSIONS_KEY, [
@@ -116,7 +122,7 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
     }
 
     // Not permission-gated → pass (the global AuthGuard already required a session).
-    if (!required && !brandParam && !purposeParam && !resolveOnly) return true;
+    if (!required && !brandParam && !purposeParam && !scopeParam && !resolveOnly) return true;
     if (!claims) throw new UnauthorizedException(); // fail closed (Principle II).
 
     /**
@@ -138,6 +144,22 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
       purposeRequired = purpose.permission;
     }
 
+    /**
+     * Feature 017 — the same resolution for an export SCOPE.
+     *
+     * Two outcomes only, one fewer than the purpose branch: an export scope's permission is never
+     * null, so there is no "authenticated is sufficient" case. An unknown scope is a 404 for the same
+     * reason an unknown purpose is: the catalogue is closed and its shape is not a secret, while a 403
+     * would make a typo look like a policy problem.
+     */
+    let scopeRequired: string | null = null;
+    if (scopeParam) {
+      const name = (req.params as Record<string, string> | undefined)?.[scopeParam];
+      const scope = scopeOf(name);
+      if (!scope) throw new NotFoundException();
+      scopeRequired = scope.permission;
+    }
+
     // Brand/queue scope (FR-004): if the route names a brand param and the caller's brand scope is
     // known and excludes it → 403. (When claims.brands is absent, brand enforcement lands with the
     // Brands service — Phase 5; the permission check below still applies.)
@@ -150,8 +172,8 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
 
     // Both sources of a required key are enforced. A route could name a static key AND a purpose
     // param; resolving once and checking every key that applies is the deny-by-default reading.
-    const keys = [required, purposeRequired].filter((k): k is string => !!k);
-    if (keys.length > 0 || purposeParam || resolveOnly) {
+    const keys = [required, purposeRequired, scopeRequired].filter((k): k is string => !!k);
+    if (keys.length > 0 || purposeParam || scopeParam || resolveOnly) {
       const eff = await this.resolve(claims.accountId, claims.userId, previewRole);
       for (const key of keys) {
         if (!hasPermission(eff.permissionKeys, key)) throw new ForbiddenException();

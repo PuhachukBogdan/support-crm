@@ -116,6 +116,12 @@ export class UploadsRepository {
           display_name: validated.displayName,
           derivative_key: derivativeKey,
           derivative_byte_size: validated.derivative?.byteSize ?? null,
+          // Feature 017 (research R7/R8): an EPHEMERAL purpose's bytes carry the moment they stop being
+          // allowed to exist. Null for every other purpose — an avatar or an attachment must never
+          // acquire an expiry, because the purge keys on exactly this column.
+          expires_at: validated.purpose.ephemeral
+            ? new Date(Date.now() + validated.purpose.ttlSeconds * 1000)
+            : null,
         },
         select: ROW_SELECT,
       })) as UploadRow;
@@ -230,3 +236,4 @@ export class UploadsRepository {
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
+

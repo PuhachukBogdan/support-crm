@@ -45,6 +45,11 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
       'automation.delete',
       'contact.reveal',
       'audit.read',
+      // Feature 017 (roadmap 4.10): written by `chats` inside the transaction that marks an export
+      // `ready`. Its detail allow-list (format / rowCount / scope) is unchanged from 015 — and
+      // `rowCount` is why: it is only knowable once the artefact exists, so this entry always
+      // belonged at completion. 015 had the timing right and the writer wrong.
+      'export.create',
     ] as AuditAction[]) {
       expect(AUDIT_ACTIONS[action]!.status).toBe('live');
     }
@@ -54,7 +59,10 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
   // feature 011 ended up with two (PrivilegeAudit and ContactViewAudit).
   it('defines the classes whose writers arrive later, and MARKS them', () => {
     const pending: Array<[AuditAction, string]> = [
-      ['export.create', 'no-writer-yet'], // roadmap 4.10
+      // ['export.create', 'no-writer-yet'] — CLAIMED by feature 017 (roadmap 4.10). It is now `live`
+      // with writer `chats`, and the assertion that it is live lives above with the other live rows.
+      // This row is left as a comment on purpose: the point of this test is that a status change is a
+      // visible edit, and deleting the line without trace would defeat it.
       ['player.assign', 'no-writer-yet'], // roadmap 5.7
       ['player.unassign', 'no-writer-yet'], // roadmap 5.7
       ['account.delete', 'no-writer-yet'], // SEC-41
@@ -75,7 +83,9 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     );
     expect(marked.sort()).toEqual(
       [
-        'export.create',
+        // `export.create` LEFT this list in feature 017 (roadmap 4.10) — it now has a live writer,
+        // `chats`, which is also a correction of 015's guess (`worker`, a service with no database).
+        // The move belongs in the same change as the catalogue edit, which is what this line is.
         'player.assign',
         'player.unassign',
         'account.delete',

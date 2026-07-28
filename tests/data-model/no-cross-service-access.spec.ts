@@ -11,6 +11,28 @@ import { parseSchema, modelNames, SERVICES, type Service } from './schema-scan';
 
 const DATA_SERVICES: Service[] = ['auth', 'users', 'brands', 'chats'];
 
+/**
+ * A file's CODE, with comments removed — adopted from feature 016's single-ingest-path scan (2026-07-30,
+ * feature 017).
+ *
+ * The scans below match on source text, and this codebase documents its decisions at length: a client
+ * that explains WHY the storage credentials live in `services/users/src/uploads` names that path in
+ * prose. Matching raw text flags that explanation as a cross-service import, and the repair a developer
+ * then reaches for is DELETING the explanation — which is exactly the wrong outcome, because the prose is
+ * why the boundary is understood.
+ *
+ * Stripping comments costs nothing in strength: an import inside a comment does not execute. It means the
+ * scan polices behaviour rather than vocabulary. Feature 016's equivalent test made this same choice for
+ * the same reason; this brings the 007 scan into line with it.
+ */
+function codeOf(file: string): string {
+  return readFileSync(file, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '') // block comments, including JSDoc
+    // eslint-disable-next-line no-control-regex -- a literal tab is the point: indented `//` lines
+    .replace(/^[ \t]*\/\/.*$/gm, '') // whole-line // comments
+    .replace(/([^:'"`])\/\/.*$/gm, '$1'); // trailing // comments (leaves URLs in strings alone)
+}
+
 function tsFiles(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile() && e.name.endsWith('.ts'))
@@ -34,7 +56,7 @@ describe('US2 — no cross-service data path (Principle VIII)', () => {
     const offenders: string[] = [];
 
     for (const file of tsFiles(srcDir)) {
-      const text = readFileSync(file, 'utf8');
+      const text = codeOf(file);
       for (const other of others) {
         // Another service's generated client, or its workspace package, or a relative hop into it.
         if (

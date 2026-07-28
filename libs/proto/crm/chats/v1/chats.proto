@@ -485,6 +485,20 @@ message FirstReplySlaState {
 // ─────────────────────────────────────────────────────────────────────────────────
 service ChatsMaintenanceService {
   rpc SweepFirstReplySla(SweepRequest) returns (SweepResult);
+
+  // Feature 017 (roadmap 4.10). Both inherit every property of the sweep above: system actor only, no
+  // gateway route, batch-capped, COUNTS in the response.
+  //
+  // Claim and run due exports. `queued → running` is a CONDITIONAL update, so two overlapping ticks
+  // cannot claim one row — idempotency comes from the predicate, not from bookkeeping. Also recovers a
+  // STALE `running` row (claimed too long ago, i.e. the producer died) to failed/interrupted, which is
+  // what stops a row from being `running` forever.
+  rpc RunDueExports(MaintenanceBatchRequest) returns (RunDueExportsResult);
+
+  // Flip `ready` rows past their expiry to `expired`. The BYTES are removed independently by
+  // users.UsersMaintenanceService.PurgeExpiredArtefacts on its own predicate (research R7), so neither
+  // service waits on the other: a downed peer delays nothing and loses nothing.
+  rpc ExpireDueExports(MaintenanceBatchRequest) returns (ExpireDueExportsResult);
 }
 
 message SweepRequest {
@@ -495,4 +509,119 @@ message SweepResult {
   int32 breached = 2;
   int32 rules_applied = 3;
   // No ids of any kind. Counts only.
+}
+
+message MaintenanceBatchRequest {
+  int32 limit = 1;                             // server-capped
+}
+message RunDueExportsResult {
+  int32 claimed = 1;
+  int32 completed = 2;
+  int32 failed = 3;
+  int32 recovered_stale = 4;
+  // Counts only. No export ids, no scopes, no filters.
+}
+message ExpireDueExportsResult {
+  int32 expired = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Exports (feature 017, roadmap 4.10 — SEC-21/SEC-22/SEC-27)
+//
+// An export is a FILE of data the requester may already read. Three properties make it defensible,
+// and all three are visible in this contract:
+//   • it is produced OUT of the request (FR-001) — CreateExport returns a record, never bytes;
+//   • the bytes never appear here (research R4) — the artefact reaches storage through the EXISTING
+//     users.UploadsService.CreateUpload, so feature 016's `bytes`-message set is unchanged and
+//     `users` remains the only holder of storage credentials;
+//   • nothing is a URL. ResolveExportArtefact hands back an ID, and the bytes are then fetched
+//     through the brokered ReadUpload, which re-authorizes AT FETCH TIME (FR-010). A signed link
+//     would move the decision to link-creation time, which IS the SEC-10/SEC-27 defect.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service ChatsExportService {
+  // Create a request. Refuses BEFORE writing a row when the scope is unknown, the caller lacks its
+  // permission, a filter is unrecognised, or the quota is exhausted (FR-005/FR-009/FR-017).
+  rpc CreateExport(CreateExportRequest) returns (ExportJob);
+
+  // The caller's OWN exports, keyset-paged, newest first. Never anyone else's.
+  rpc ListExports(ListExportsRequest) returns (ListExportsResponse);
+
+  // One export. Account-scoped AND owner-checked: a same-account non-owner, another account's id, an
+  // unknown id and an EXPIRED export all return the identical NOT_FOUND (FR-011) — no existence oracle.
+  rpc GetExport(GetExportRequest) returns (ExportJob);
+
+  // Resolve to the artefact reference the gateway may then read through UploadsService. Refuses unless
+  // the caller is the OWNER, the status is `ready` and the expiry is in the future.
+  rpc ResolveExportArtefact(GetExportRequest) returns (ExportArtefactRef);
+
+  // ── Deliberately ABSENT ────────────────────────────────────────────────────────────────────────
+  // • No UpdateExport / DeleteExport / CancelExport — an export is not editable in v1, and a
+  //   requester-driven delete would be a SECOND way to remove bytes; research R8 keeps exactly one,
+  //   and it is a system sweep.
+  // • No RetryExport — a failed export is re-requested, so every attempt is one audited act rather
+  //   than an unaudited second run against the same record.
+  // • No DownloadExport carrying bytes — that would add a `bytes` message and break the single-path
+  //   guarantee this whole design is built to preserve.
+}
+
+// The SAME filter vocabulary as ListConversationsRequest (FR-027).
+//
+// ⚠️ Mirrored, not extracted, and the field numbers MATCH so the parity test reads as an equality.
+// Extracting a shared nested message would renumber a SHIPPED message and touch feature 012's wire
+// tests to gain tidiness on an internal contract. What keeps two declarations ONE vocabulary is the
+// test (`tests/exports/filter-parity.spec.ts`), not the intent — intent does not survive a future
+// field added to one side only.
+message ExportFilters {
+  ConversationStatus status = 1;
+  string priority = 2;
+  string assignee_operator_id = 3;
+  string player_id = 4;
+  string brand_id = 5;
+  // 6 and 7 are page_token / page_size on the list request — INTENTIONALLY ABSENT: an export covers
+  // the whole filtered set up to the scope's row limit, so paging is an internal production concern
+  // and never a request parameter.
+  SlaOutcome sla_outcome = 8;
+}
+
+message CreateExportRequest {
+  // From the closed catalogue (libs/common/src/exports/scopes.ts). Unknown ⇒ INVALID_ARGUMENT, never
+  // coerced to a default — feature 012's live defect was exactly a silently coerced unknown value.
+  string scope = 1;
+  ExportFilters filters = 2;
+}
+
+message ExportJob {
+  string id = 1;
+  string scope = 2;
+  string format = 3;
+  string status = 4;            // queued | running | ready | failed | expired
+  int32 row_count = 5;          // 0 until complete
+  int64 byte_size = 6;          // 0 until complete
+  string failure_reason = 7;    // a short CODE from the closed list, never a raw error or a row value
+  string expires_at = 8;        // RFC3339
+  string created_at = 9;        // RFC3339
+  string completed_at = 10;     // RFC3339, empty until terminal
+  // `requested_by` is deliberately ABSENT: the caller is always the owner, so echoing an actor id
+  // adds a joinable identifier and no information.
+  // `upload_id` is deliberately ABSENT: obtainable only through ResolveExportArtefact, so no client
+  // can accumulate artefact references from a list response.
+}
+
+message ListExportsRequest {
+  int32 page_size = 1;          // server-capped
+  string cursor = 2;            // opaque keyset cursor
+}
+
+message ListExportsResponse {
+  repeated ExportJob exports = 1;
+  string next_cursor = 2;
+}
+
+message GetExportRequest {
+  string export_id = 1;
+}
+
+message ExportArtefactRef {
+  string upload_id = 1;         // an id for UploadsService.ReadUpload — never a URL, never signed
+  string display_name = 2;      // sanitized, for Content-Disposition; never logged (SEC-26)
 }

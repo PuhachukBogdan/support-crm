@@ -54,6 +54,10 @@ interface UploadWire {
 }
 
 interface UploadsGrpc {
+  createUpload(
+    d: { purpose: string; declaredContentType: string; filename: string; content: Buffer },
+    md?: Metadata,
+  ): Observable<UploadWire>;
   claimUploads(
     d: { uploadIds: string[]; claimedBy: string },
     md?: Metadata,
@@ -72,6 +76,52 @@ export class UploadsClient implements OnModuleInit {
 
   onModuleInit(): void {
     this.uploads = this.client.getService<UploadsGrpc>('UploadsService');
+  }
+
+  /**
+   * Store a PRODUCED artefact through the existing ingest RPC (feature 017, research R4).
+   *
+   * ── Why this reuses `CreateUpload` instead of getting its own RPC ────────────────────────────────
+   * Feature 016's structural test pins the complete set of `bytes`-carrying proto messages to exactly
+   * `{CreateUploadRequest, UploadContent}`. Reusing this call keeps that assertion passing UNCHANGED,
+   * keeps `@aws-sdk/client-s3` inside `services/users/src/uploads`, keeps `S3_*` on one service and
+   * adds no presign. A dedicated `StoreArtefact` RPC would have started exactly the drift 016 exists
+   * to prevent, for no gain.
+   *
+   * ── The metadata is the requester's, and it is RE-RESOLVED, not copied ──────────────────────────
+   * `metadata` here must carry the requesting user's account, id and CURRENT permissions. There is no
+   * live request when the producer runs (a worker tick started it), so the caller resolves those
+   * permissions fresh — see `export.service.ts` and research R15. Forwarding nothing would make `users`
+   * refuse every export, which is 016's live wire defect in a new place; caching them on the export row
+   * would reintroduce the stale-authority window feature 014 deliberately refused.
+   */
+  async createUpload(
+    purpose: string,
+    filename: string,
+    content: Buffer,
+    declaredContentType: string,
+    metadata: Metadata,
+  ): Promise<{ uploadId: string; byteSize: number; displayName: string }> {
+    let res: UploadWire;
+    try {
+      res = await firstValueFrom(
+        this.uploads.createUpload(
+          { purpose, declaredContentType, filename, content },
+          metadata,
+        ),
+      );
+    } catch (err) {
+      // A refusal from users carries a gRPC status code and is rethrown so the caller maps it; anything
+      // else is the transport being down. Never the response body, never the filename (SEC-26).
+      if (typeof (err as { code?: number })?.code === 'number') throw err;
+      throw new UploadsUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+    }
+    if (!res?.id) throw new UploadsUnavailableError('unreadable response');
+    return {
+      uploadId: res.id,
+      byteSize: Number(res.byteSize ?? 0),
+      displayName: String(res.displayName ?? ''),
+    };
   }
 
   /**

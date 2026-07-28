@@ -15,6 +15,9 @@ export * from './audit';
 // Feature 016 (roadmap 4.9): the upload purpose catalogue, magic-byte detection and filename
 // sanitising — shared by the gateway (parse limit, first tier) and users (enforcement).
 export * from './uploads';
+// Feature 017 (roadmap 4.10): the export scope catalogue + the CSV serializer — shared by the
+// gateway (scope validation, permission key) and chats (production).
+export * from './exports';
 // Re-export zod so services build their config schemas without each declaring the dep.
 export { z } from 'zod';
 

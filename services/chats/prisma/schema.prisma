@@ -304,3 +304,61 @@ model AuditEntry {
   @@index([account_id, actor_user_id, created_at]) // "what did this user do"
   @@index([account_id, target_ref, created_at]) // "what happened to this record" / "who accessed this player"
 }
+
+/// One data export (feature 017, roadmap 4.10 — SEC-21/SEC-22/SEC-27).
+///
+/// This row — not the stored artefact — is what authorization, status and expiry are decided against.
+/// The `Upload` row in users_db holds only bytes; going through this record is what adds OWNER-only
+/// access (FR-011), because `Upload` is account-scoped and this feature's rule is narrower than that.
+///
+/// ── What is deliberately NOT here ────────────────────────────────────────────────────────────────
+/// • No cached permission set. The row names `requested_by` and nothing about what that user may do:
+///   the producer RE-RESOLVES their current permissions at production time (research R15). A stored
+///   permission set would be a stale second copy of the RBAC source of truth — exactly what feature
+///   014 refused for automation authors, and it would mean a revoked permission still produced a file.
+/// • No `deleted_at`. A purged artefact leaves `upload_id` null and `status = expired`; the record of
+///   who exported what survives in the audit trail, which is append-only by construction.
+/// • No cancel/edit path. Nothing mutates a row after creation except the system transitions.
+model ExportJob {
+  id       String @id @default(uuid())
+  /// Tenant key (Principle I). Enrolled in SCOPED_MODELS, reached only via forAccount, fail-closed.
+  account_id String
+  /// From the closed catalogue (libs/common/src/exports/scopes.ts) — never free text.
+  scope    String
+  /// `csv` in v1. Stored because the audit entry reports it and a future second format must not make
+  /// old rows ambiguous.
+  format   String
+  /// Soft ref to auth.User.id — never joined (Principle VIII). THE OWNER: only this user may download.
+  requested_by String
+  /// The filter set, in the existing list vocabulary (FR-027). Stored so the status view can show what
+  /// was asked and the export is reproducible.
+  /// ⚠️ NEVER audited and NEVER logged — a filter value can be a search term carrying PII (SEC-26), and
+  /// the audit detail allow-list makes it structurally inexpressible (FR-019).
+  filters_json Json?
+  /// queued | running | ready | failed | expired
+  status   String @default("queued")
+  /// Set at completion. `row_count` is the number the audit entry carries.
+  row_count Int?
+  byte_size Int?
+  /// Soft ref to users.Upload.id. Null until `ready`, and null AGAIN after the purge.
+  upload_id String?
+  /// A short CODE from the closed list (never a raw error, never a row value).
+  failure_reason String?
+  /// Computed at creation from the scope's TTL — the same value written to Upload.expires_at (R7), so
+  /// each service can answer its own question without a cross-service call.
+  expires_at DateTime
+  /// Set when a tick claims the row; also the stale-claim detector.
+  claimed_at DateTime?
+  created_at DateTime @default(now())
+  completed_at DateTime?
+
+  /// Keyset order for the caller's own list; `id` breaks same-instant ties (the 015 lesson).
+  @@index([account_id, created_at, id])
+  /// The quota count (research R11): this requester's rows in the trailing window.
+  @@index([account_id, requested_by, created_at])
+  /// The RunDueExports claim predicate + stale-claim recovery. Not account-scoped on purpose: it serves
+  /// the system-actor sweep, which is id-only and fenced exactly as 014's SLA sweep is.
+  @@index([status, claimed_at])
+  /// The ExpireDueExports predicate, same reasoning.
+  @@index([status, expires_at])
+}

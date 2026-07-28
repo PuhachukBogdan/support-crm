@@ -18,9 +18,21 @@
 export type FieldTier = 'open' | 'operational' | 'am_only' | 'masked_pii';
 
 /**
- * Field → tier classification for the current `Player` model. Any field NOT listed here defaults
- * to `masked_pii` (fail-closed): an unclassified new field is hidden from everyone but the
- * PII-cleared tiers until it is deliberately classified.
+ * Field → tier classification for the current `Player` model.
+ *
+ * ⚠️ **An unlisted field is visible to NOBODY — not even `super_admin`.** `allowedFields` builds the
+ * allow-list by filtering *this map*, so a field absent from it belongs to no tier and therefore
+ * lands in no role's permitted set. Fail-closed in the strongest available sense.
+ *
+ * This comment previously said an unclassified field "defaults to `masked_pii`", i.e. that it stayed
+ * visible to the PII-cleared tiers. That was never what the code did (corrected during feature 018,
+ * T047a). The behaviour is the safer of the two readings and is kept; only the description was wrong
+ * — and a policy whose comment overstates who can see a field is the kind of error that gets
+ * "simplified" into a real leak by the next reader who trusts the prose over the code.
+ *
+ * Consequence worth knowing when adding a column: classifying it is **required** for it to be
+ * served at all. A forgotten classification shows up as an empty field for every role, never as an
+ * accidental disclosure — see `tier-agreement.spec.ts`, which verifies this by adding one.
  */
 export const FIELD_TIERS: Readonly<Record<string, FieldTier>> = {
   // open — safe for every role that can open the card at all.

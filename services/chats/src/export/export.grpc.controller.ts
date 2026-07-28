@@ -166,16 +166,30 @@ export class ExportController {
     const row = await this.repo.getOwned(ctx.accountId, String(req?.exportId ?? ''), ctx.userId);
     if (!row) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
 
-    // An EXPIRED export is NOT FOUND, not 410/GONE: confirming that something existed is an existence
-    // oracle for an object that is deliberately gone.
-    if (row.status === 'expired' || !row.upload_id) {
+    /**
+     * The order below is the design, and it was corrected once: expiry is checked BEFORE readiness.
+     *
+     * An EXPIRED export is NOT FOUND, never 410/GONE — confirming that something existed is an existence
+     * oracle for an object that is deliberately unrecoverable. And "past the window but not yet swept"
+     * must give the SAME answer as "swept", because both expiries are driven by ticks and there is always
+     * an interval between them. A refusal that depended on a scheduler having run would not be a
+     * security property.
+     *
+     * Only then may a non-terminal status be reported, and only to the OWNER — who has already been
+     * established by `getOwned` and is polling for exactly this. Checking readiness first would have made
+     * this branch unreachable (every non-`ready` row has a null `upload_id`) and answered a waiting owner
+     * with `not found`, which reads as "your export is lost".
+     */
+    if (row.status === 'expired' || row.expires_at.getTime() <= Date.now()) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
     if (row.status !== 'ready') {
       throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: row.status });
     }
-    if (row.expires_at.getTime() <= Date.now()) {
-      // Past the window but not yet swept. The answer must not depend on how recently a tick ran.
+    if (!row.upload_id) {
+      // A `ready` row with no artefact reference should be impossible — the reference is written in the
+      // same transaction as the status. Refused as absent rather than trusted, because the alternative is
+      // asking storage for upload id `""`.
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
 

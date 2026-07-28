@@ -7,6 +7,7 @@ import {
   type ObjectStoreConfig,
 } from './object-store';
 import { UploadsRepository } from './uploads.repository';
+import { ArtefactPurgeRepository } from './artefact-purge.repository';
 import { UploadsGrpcController } from './uploads.grpc.controller';
 
 /**
@@ -29,7 +30,10 @@ import { UploadsGrpcController } from './uploads.grpc.controller';
     { provide: 'OBJECT_STORE_CONFIG', useFactory: (): ObjectStoreConfig => objectStoreConfigFromEnv() },
     { provide: OBJECT_STORE, useClass: S3ObjectStore },
     UploadsRepository,
+    // Feature 017 (US3): the one byte-removing path. Provided HERE, beside the credentials it needs,
+    // and exported so the maintenance surface can reach it without holding a store client of its own.
+    ArtefactPurgeRepository,
   ],
-  exports: [UploadsRepository],
+  exports: [UploadsRepository, ArtefactPurgeRepository],
 })
 export class UploadsModule {}

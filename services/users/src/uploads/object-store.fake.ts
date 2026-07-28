@@ -16,7 +16,7 @@ import type { ObjectStore } from './object-store';
  * store broken for the assertions that follow it.
  */
 export interface StoreOp {
-  op: 'put' | 'get' | 'delete';
+  op: 'put' | 'get' | 'delete' | 'exists';
   key: string;
 }
 
@@ -59,6 +59,25 @@ export class InMemoryObjectStore implements ObjectStore {
     return Promise.resolve();
   }
 
+  /**
+   * Presence, recorded like every other operation (feature 017).
+   *
+   * `failNextExists` is separate from `failNextDelete` on purpose: the purge treats an unanswerable
+   * store as "leave the row alone", and a fake that could not distinguish the two failures would let
+   * that path pass by accident.
+   */
+  failNextExists: Error | null = null;
+
+  exists(key: string): Promise<boolean> {
+    this.ops.push({ op: 'exists', key });
+    if (this.failNextExists) {
+      const err = this.failNextExists;
+      this.failNextExists = null;
+      return Promise.reject(err);
+    }
+    return Promise.resolve(this.objects.has(key));
+  }
+
   /** Keys currently held — the "what survived" view, for tests that need it after the op log. */
   keys(): string[] {
     return [...this.objects.keys()].sort();
@@ -77,5 +96,6 @@ export class InMemoryObjectStore implements ObjectStore {
     this.ops.length = 0;
     this.failNextPut = null;
     this.failNextDelete = null;
+    this.failNextExists = null;
   }
 }

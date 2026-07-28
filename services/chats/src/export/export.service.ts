@@ -152,25 +152,42 @@ export class ExportService {
         this.actorMetadata(row, permissions),
       );
 
-      // ONE transaction: the row becomes `ready` and the entry exists, or neither happens (FR-020).
-      // `statement()` validates the entry BEFORE the transaction opens, so an inexpressible detail is a
-      // refusal rather than a rollback.
-      await this.repo.runInTransaction([
-        this.repo.completeStatement(
-          row.account_id,
-          row.id,
-          { rowCount: produced.rowCount, byteSize: produced.byteSize, uploadId: stored.uploadId },
-          now,
-        ),
-        this.audit.statement(row.account_id, {
-          action: 'export.create',
-          actorUserId: row.requested_by,
-          targetRef: row.id,
-          // The class's allow-list is exactly these three keys. A filter value, a row value or a
-          // filename is INEXPRESSIBLE here — rejected by `parseDetail`, not omitted by convention.
-          detail: { format: row.format, rowCount: produced.rowCount, scope: row.scope },
-        }),
-      ]);
+      /**
+       * ONE transaction: the row becomes `ready` and the entry exists, or NEITHER happens (FR-020).
+       *
+       * Its own try/catch, and the reason is the failure CODE. Everything above this point fails because
+       * the export could not be produced; this fails because it could not be RECORDED — the artefact
+       * exists and is deliberately abandoned rather than served unaudited. Folding that into the outer
+       * handler would report `source_unavailable` and send an operator to the database, which is the
+       * one failure in this feature whose diagnosis must not be guesswork.
+       *
+       * `statement()` validates the entry BEFORE the transaction opens, so an inexpressible detail is a
+       * refusal rather than a rollback — and lands here, correctly, as `record_failed`.
+       */
+      try {
+        await this.repo.runInTransaction([
+          this.repo.completeStatement(
+            row.account_id,
+            row.id,
+            { rowCount: produced.rowCount, byteSize: produced.byteSize, uploadId: stored.uploadId },
+            now,
+          ),
+          this.audit.statement(row.account_id, {
+            action: 'export.create',
+            actorUserId: row.requested_by,
+            targetRef: row.id,
+            // The class's allow-list is exactly these three keys. A filter value, a row value or a
+            // filename is INEXPRESSIBLE here — rejected by `parseDetail`, not omitted by convention.
+            detail: { format: row.format, rowCount: produced.rowCount, scope: row.scope },
+          }),
+        ]);
+      } catch (err) {
+        await this.repo.fail(row.account_id, row.id, 'record_failed', now);
+        this.logger.warn(
+          `export ${row.id} produced but NOT recorded — refused: ${err instanceof Error ? `${err.name}: ${firstLine(err.message)}` : 'error'}`,
+        );
+        return 'failed';
+      }
       return 'completed';
     } catch (err) {
       await this.repo.fail(row.account_id, row.id, this.reasonFor(err), now);

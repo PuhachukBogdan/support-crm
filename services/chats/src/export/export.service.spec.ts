@@ -149,6 +149,70 @@ describe('create — refuses having written nothing (FR-005/FR-009/FR-017)', () 
   });
 });
 
+describe('*** a REFUSED request leaves no trace of an export that never happened *** (FR-021)', () => {
+  /**
+   * T036 (US2). Feature 015's live run recorded the property to preserve — *"no entry filed for a
+   * deletion that never happened"* — and this is the same claim for extraction. The failure mode it
+   * guards against is not a leak but a LIE: a trail containing entries for exports that were refused
+   * makes every real entry less believable, and an auditor cannot tell the two apart afterwards.
+   *
+   * `create` never writes an entry on ANY path, including its success path — the entry belongs to
+   * completion, where `rowCount` exists. So the assertions below cover all three at once: no entry, no
+   * row, no queued work.
+   */
+  const base = {
+    accountId: 'acc-1',
+    requestedBy: 'user-1',
+    permissions: [SCOPE_KEY],
+    scopeName: 'conversations',
+    filters: {},
+    rawFilters: {},
+  };
+
+  const refusals: Array<[string, () => ReturnType<typeof harness>, Record<string, unknown>]> = [
+    ['an unknown scope', () => harness(), { ...base, scopeName: 'players' }],
+    ['a missing permission', () => harness(), { ...base, permissions: [] }],
+    ['an unrelated permission', () => harness(), { ...base, permissions: ['crm.inbox.view'] }],
+    [
+      'an exhausted quota',
+      () =>
+        harness({
+          quota: {
+            assertWithinQuota: jest.fn(async () => {
+              throw new QuotaExhaustedError(3600);
+            }),
+          },
+        }),
+      base,
+    ],
+  ];
+
+  it.each(refusals)('%s writes no audit entry and inserts no row', async (_label, build, input) => {
+    const h = build();
+    await expect(h.service.create(input as never, new Date())).rejects.toThrow();
+
+    expect(h.audit.statement).not.toHaveBeenCalled();
+    expect(h.repo.create).not.toHaveBeenCalled();
+    expect(h.transactions).toHaveLength(0);
+  });
+
+  it('an ACCEPTED request writes no entry either — the entry belongs to completion', async () => {
+    const h = harness();
+    await h.service.create(base, new Date());
+    // Auditing at request time would file an entry for an export that may yet fail, or whose authority
+    // may be revoked before it runs (FR-028). `rowCount` is the evidence 015 already knew this.
+    expect(h.audit.statement).not.toHaveBeenCalled();
+  });
+
+  it('a scope the catalogue no longer has fails the run without an entry', async () => {
+    // A withdrawn scope must not be produced on a guess — the closed catalogue refusing is the point.
+    const h = harness();
+    expect(await h.service.run({ ...ROW, scope: 'withdrawn' }, new Date())).toBe('failed');
+    expect(h.audit.statement).not.toHaveBeenCalled();
+    expect(h.uploads.createUpload).not.toHaveBeenCalled();
+  });
+});
+
 describe('*** run — the producer acts with RE-RESOLVED authority (FR-028 / research R15) ***', () => {
   it('resolves the requester CURRENT permissions and presents them to the store call', async () => {
     const h = harness();
@@ -255,7 +319,7 @@ describe('run — completion is ONE transaction with its audit entry (FR-018/FR-
       },
     });
     expect(await h.service.run(ROW, new Date())).toBe('failed');
-    expect(h.failed).toHaveLength(1);
+    expect(h.failed).toEqual([{ id: 'exp-1', reason: 'record_failed' }]);
   });
 });
 

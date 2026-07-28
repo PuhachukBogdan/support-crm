@@ -1,6 +1,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { AUDIT_ACTIONS } from '../../libs/common/src/audit/catalogue';
+import {
+  EPHEMERAL_PURPOSE_NAMES,
+  UPLOAD_PURPOSES,
+  UPLOAD_PURPOSE_NAMES,
+} from '../../libs/common/src/uploads/purposes';
 
 /**
  * T052 (feature 016, US3) — **there is exactly ONE way for bytes to enter or leave this product.**
@@ -188,12 +193,92 @@ describe('*** 3. no other RPC in the product carries a byte payload ***', () => 
   });
 
   it('no update, delete or presign RPC exists on the uploads surface', () => {
-    // Nothing in v1 removes bytes. Reclaiming abandoned uploads is a retention concern (ADR 0015)
-    // and its own feature — which must also decide what a `deletion` audit entry looks like.
+    // ⚠️ AMENDED BY FEATURE 017 (T053). The original claim was "nothing in v1 removes bytes", and that
+    // is no longer literally true: an export artefact expires, and an expiry enforced by a status flag
+    // while the bytes sit in a bucket is SEC-27 rather than a fix for it. What replaced the claim is
+    // NARROWER, not weaker, and the four assertions in the block below are the narrowing.
+    //
+    // What stays exactly as it was: the REQUESTER-FACING surface gains nothing. There is still no verb
+    // any user can call that changes or removes stored bytes.
     const src = readFileSync(join(ROOT, 'libs', 'proto', 'crm', 'users', 'v1', 'users.proto'), 'utf8');
     for (const forbidden of ['UpdateUpload', 'DeleteUpload', 'PresignUpload', 'SignUpload']) {
       expect(new RegExp(`rpc\\s+${forbidden}`).test(src)).toBe(false);
     }
+  });
+});
+
+describe('*** 3a. the ONE byte-removing path is fenced on four axes *** (feature 017, R8)', () => {
+  // Comments stripped, for the third time in this family of tests and always for the same reason: the
+  // `UploadsService` block DOCUMENTS at length that `DeleteUpload` is deliberately absent, so a raw match
+  // for "Delete" flags the sentence promising there is none.
+  const usersProto = readFileSync(
+    join(ROOT, 'libs', 'proto', 'crm', 'users', 'v1', 'users.proto'),
+    'utf8',
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+
+  it('deletion is a SEPARATE service from UploadsService', () => {
+    // Putting a purge verb on the requester-facing surface is how "there is no DeleteUpload" quietly
+    // stops being true. Asserted over the service's RPC LIST rather than its text.
+    const block = /service\s+UploadsService\s*\{([\s\S]*?)\n\}/.exec(usersProto)?.[1] ?? '';
+    const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
+    expect(rpcs.sort()).toEqual([
+      'ClaimUploads',
+      'CreateUpload',
+      'DescribeUploads',
+      'ReadUpload',
+    ]);
+    expect(usersProto).toMatch(/service\s+UsersMaintenanceService\s*\{/);
+  });
+
+  it('exactly one purpose in the catalogue is deletable, and it is a PRODUCED one', () => {
+    // The catalogue decides what the purge may touch, and it is derived rather than listed — so an
+    // avatar or an attachment is unreachable by construction, not by an exclusion list.
+    expect([...EPHEMERAL_PURPOSE_NAMES]).toEqual(['conversation_export']);
+    for (const name of EPHEMERAL_PURPOSE_NAMES) {
+      expect({ name, origin: UPLOAD_PURPOSES[name].origin }).toEqual({ name, origin: 'produced' });
+    }
+  });
+
+  it('no INGESTED purpose is ephemeral — that pairing would delete a file in active use', () => {
+    for (const name of UPLOAD_PURPOSE_NAMES) {
+      const p = UPLOAD_PURPOSES[name];
+      expect({ name, bad: p.origin === 'ingested' && p.ephemeral }).toEqual({ name, bad: false });
+    }
+  });
+
+  it('the S3 delete command is issued from exactly one file — the same one as every other command', () => {
+    // Deletion is a storage operation, so it belongs beside the credentials. A maintenance module that
+    // held its own store client would be a second credential holder — the thing this whole file exists
+    // to prevent, arriving through a module definition rather than an import.
+    const issuers = productSources
+      .filter((f) => /DeleteObjectCommand/.test(codeOf(f)))
+      .map(rel);
+    expect(issuers).toEqual([`${UPLOADS_HOME}/object-store.ts`]);
+  });
+
+  it('only two files CALL a store delete, and both are in the uploads folder', () => {
+    // The callers, as distinct from the implementation: the create path's orphan cleanup (016) and the
+    // purge (017). A third caller anywhere is a new way for bytes to disappear.
+    const callers = productSources
+      .filter((f) => /this\.store\.delete\(/.test(codeOf(f)))
+      .map(rel)
+      .sort();
+    expect(callers).toEqual([
+      `${UPLOADS_HOME}/artefact-purge.repository.ts`,
+      `${UPLOADS_HOME}/uploads.repository.ts`,
+    ]);
+  });
+
+  it('the gateway cannot reach the purge at all', () => {
+    // "System actor only" is worthless if HTTP can ask. Asserted here as well as in
+    // `tests/exports/no-presign.spec.ts`, because this is the file a reviewer reads for the byte rules.
+    const offenders = walk(join(ROOT, 'services', 'gateway', 'src'))
+      .filter((f) => !f.endsWith('.spec.ts'))
+      .filter((f) => /PurgeExpiredArtefacts|UsersMaintenanceService/.test(codeOf(f)))
+      .map(rel);
+    expect(offenders).toEqual([]);
   });
 });
 

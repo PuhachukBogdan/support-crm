@@ -5,6 +5,7 @@ import { WorkerChatsModule } from './chats/chats.client';
 import { WorkerUsersModule } from './users/users.client';
 import { SlaSweepJob } from './jobs/sla-sweep.job';
 import { ExportRunJob } from './jobs/export-run.job';
+import { ArtefactPurgeJob } from './jobs/artefact-purge.job';
 
 // Phase 1 (spec 003): the worker is a gRPC microservice exposing HealthService.Check over
 // its Redis connection (via BullMQ).
@@ -21,6 +22,6 @@ import { ExportRunJob } from './jobs/export-run.job';
 @Module({
   imports: [WorkerChatsModule, WorkerUsersModule],
   controllers: [HealthGrpcController],
-  providers: [RedisService, SlaSweepJob, ExportRunJob],
+  providers: [RedisService, SlaSweepJob, ExportRunJob, ArtefactPurgeJob],
 })
 export class AppModule {}

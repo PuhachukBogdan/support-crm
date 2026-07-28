@@ -160,6 +160,18 @@ export type UploadPurposeName = keyof typeof UPLOAD_PURPOSES;
 /** Every registered purpose name. The catalogue is closed: this is the complete set. */
 export const UPLOAD_PURPOSE_NAMES = Object.keys(UPLOAD_PURPOSES) as UploadPurposeName[];
 
+/**
+ * The purposes whose bytes may EVER be deleted — the purge predicate's whole input (feature 017 / R8).
+ *
+ * DERIVED, not listed. That is the entire point: the one path in this product that removes stored bytes
+ * asks the catalogue which rows it is allowed to touch, so an avatar or an attachment is unreachable
+ * from it **by construction** rather than by a hard-coded exclusion somebody has to maintain. Making a
+ * purpose deletable means setting `ephemeral: true` on its row, in review, next to the reason.
+ */
+export const EPHEMERAL_PURPOSE_NAMES: readonly UploadPurposeName[] = UPLOAD_PURPOSE_NAMES.filter(
+  (name) => UPLOAD_PURPOSES[name].ephemeral,
+);
+
 export function isUploadPurpose(value: string | undefined): value is UploadPurposeName {
   return !!value && Object.prototype.hasOwnProperty.call(UPLOAD_PURPOSES, value);
 }

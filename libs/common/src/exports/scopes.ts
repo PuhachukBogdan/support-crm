@@ -144,12 +144,19 @@ export const TERMINAL_EXPORT_STATUSES: readonly ExportStatus[] = ['ready', 'fail
  * must not be (SEC-26). `authority_revoked` is the R15 outcome — the requester no longer held the
  * scope's permission when production ran, so the export failed instead of producing a file with
  * authority nobody currently has.
+ *
+ * `record_failed` is FR-020's outcome, and it earns its own code rather than borrowing
+ * `source_unavailable`: the artefact was produced and stored, and the export was then refused because
+ * its audit entry could not be written. Reporting that as "the source was unavailable" would send an
+ * operator to look at the database when the problem is the trail — and this is precisely the failure
+ * whose diagnosis must not be guesswork, because it is the one that stops an unaudited extraction.
  */
 export const EXPORT_FAILURE_REASONS = [
   'row_limit_exceeded',
   'byte_limit_exceeded',
   'source_unavailable',
   'storage_unavailable',
+  'record_failed',
   'interrupted',
   'authority_revoked',
 ] as const;

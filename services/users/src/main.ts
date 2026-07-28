@@ -20,6 +20,13 @@ import { loadUsersConfig } from './config';
 // federated audit trail, and until it was hosted the gateway's fan-out failed here — caught on the first
 // live run, because the federation deliberately treats an unreadable source as an ERROR rather than a
 // silently short page. The player read handlers on the same service arrive in Phase 5.
+//
+// Feature 017 adds `UsersMaintenanceService.PurgeExpiredArtefacts` — declared in the SAME proto file and
+// therefore in the SAME package (`crm.users.v1`), so this list needs no new entry. That is exactly the
+// trap 015 fell into from the other side, so it is asserted rather than reasoned about:
+// `maintenance/hosting.spec.ts` checks the proto's package against USERS_PACKAGE and checks that the
+// handler's controller is actually in the module graph. A hosted package with an unwired handler is a
+// service that looks up and answers UNIMPLEMENTED.
 // loadUsersConfig() runs FIRST — refuse-to-start on missing/placeholder config before any connection
 // (SEC-6 / US2).
 async function bootstrap(): Promise<void> {

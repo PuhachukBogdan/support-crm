@@ -28,7 +28,7 @@ const DATA_SERVICES: Service[] = ['auth', 'users', 'brands', 'chats'];
 function codeOf(file: string): string {
   return readFileSync(file, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '') // block comments, including JSDoc
-    // eslint-disable-next-line no-control-regex -- a literal tab is the point: indented `//` lines
+    // `[ \t]` — indented `//` lines count as whole-line comments, which most of them are.
     .replace(/^[ \t]*\/\/.*$/gm, '') // whole-line // comments
     .replace(/([^:'"`])\/\/.*$/gm, '$1'); // trailing // comments (leaves URLs in strings alone)
 }

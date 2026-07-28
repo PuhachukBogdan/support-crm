@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -39,6 +40,15 @@ export interface ObjectStore {
   get(key: string): Promise<Uint8Array | null>;
   /** Remove `key`. Removing something absent is a no-op — this is called on a failure path. */
   delete(key: string): Promise<void>;
+  /**
+   * Whether `key` is present — metadata only, no bytes transferred (feature 017 / research R8).
+   *
+   * It exists for one caller: the purge, which must report "already absent" as a NORMAL outcome
+   * distinct from "deleted" and from "storage refused". `delete` cannot answer that — S3 deletion is
+   * idempotent and silent about whether anything was there — and answering it with `get` would pull a
+   * whole artefact over the wire to learn one boolean about bytes we are about to destroy.
+   */
+  exists(key: string): Promise<boolean>;
 }
 
 /** Config read from the environment, already validated refuse-to-start by `loadUsersConfig`. */
@@ -66,7 +76,7 @@ export function objectStoreConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
 
 /** Errors from the store carry a CLASS, never a key, a filename or a response body (FR-020). */
 export class ObjectStoreError extends Error {
-  constructor(operation: 'put' | 'get' | 'delete', cause: unknown) {
+  constructor(operation: 'put' | 'get' | 'delete' | 'head', cause: unknown) {
     super(`object store ${operation} failed: ${cause instanceof Error ? cause.name : 'unknown'}`);
     this.name = 'ObjectStoreError';
   }
@@ -124,6 +134,18 @@ export class S3ObjectStore implements ObjectStore {
     } catch (err) {
       if (isNotFound(err)) return;
       throw new ObjectStoreError('delete', err);
+    }
+  }
+
+  async exists(key: string): Promise<boolean> {
+    try {
+      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) return false;
+      // A store that cannot be QUESTIONED must not be reported as "the object is gone" — that would
+      // let the purge delete the row and lose the only reference to bytes that still exist.
+      throw new ObjectStoreError('head', err);
     }
   }
 }

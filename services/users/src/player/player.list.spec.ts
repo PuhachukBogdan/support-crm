@@ -353,9 +353,12 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       // Operational is visible for a teamlead…
       expect(p.segment).toBe('seg');
       // …and the portfolio side is not. The list must not have its own projection.
-      expect(p.amNotes).toBe('');
-      expect(p.preferencesJson).toBe('');
-      expect(p.portfolioJson).toBe('');
+      // Absent, not blank (011's FR-014) — see the note on `toPlayerWire` rule 4. Checked with
+      // `hasOwnProperty` because an emptiness test would pass for either, and telling those two apart
+      // is the entire point of the requirement.
+      for (const k of ['amNotes', 'preferencesJson', 'portfolioJson']) {
+        expect(Object.prototype.hasOwnProperty.call(p, k)).toBe(false);
+      }
     }
     // The top-tier payload is absent from every row, at the wire layer.
     expect(JSON.stringify(page.players)).not.toContain('Smith');

@@ -111,12 +111,15 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
 
   it('a linear role sees no operational and no portfolio field', async () => {
     const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('support_agent'))) as Record<string, unknown>;
-    expect(wire.vip).toBe(false); // masked away → proto3 default, NOT the row's `true`
-    expect(wire.segment).toBe('');
-    expect(wire.amNotes).toBe('');
-    expect(wire.preferencesJson).toBe('');
-    expect(wire.portfolioJson).toBe('');
-    expect(wire.customAttributesJson).toBe('');
+    // ⚠️ These assertions used to read `.toBe('')` / `.toBe(false)` — they pinned the DEFECT.
+    // 011's FR-014 requires a withheld field to be ABSENT from the serialized response; the message
+    // was manufacturing proto3 defaults instead, so every key reached the client blanked. Fixed
+    // 2026-07-29 (feature 019); the wire now omits what the mask dropped. `toBeUndefined` rather than
+    // a falsiness check on purpose: blank and absent are exactly what this test must tell apart.
+    for (const k of ['vip', 'segment', 'amNotes', 'preferencesJson', 'portfolioJson', 'customAttributesJson']) {
+      expect(wire[k]).toBeUndefined();
+      expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
+    }
     // …and none of the actual values leaked into any field.
     expect(JSON.stringify(wire)).not.toContain('high-roller');
     expect(JSON.stringify(wire)).not.toContain('after 18:00');
@@ -127,10 +130,10 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
     expect(wire.vip).toBe(true);
     expect(wire.segment).toBe('high-roller');
     expect(wire.customAttributesJson).toContain('affiliate-7');
-    // The portfolio side is a tier up.
-    expect(wire.amNotes).toBe('');
-    expect(wire.preferencesJson).toBe('');
-    expect(wire.portfolioJson).toBe('');
+    // The portfolio side is a tier up — and absent, not blank (FR-014; see the note above).
+    for (const k of ['amNotes', 'preferencesJson', 'portfolioJson']) {
+      expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
+    }
   });
 
   it('an account manager sees the portfolio', async () => {
@@ -142,9 +145,9 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
 
   it('an unknown role is treated as the most restricted, never as privileged', async () => {
     const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('role_invented_next_year'))) as Record<string, unknown>;
-    expect(wire.vip).toBe(false);
-    expect(wire.segment).toBe('');
-    expect(wire.amNotes).toBe('');
+    for (const k of ['vip', 'segment', 'amNotes']) {
+      expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
+    }
   });
 });
 
@@ -154,9 +157,9 @@ describe('*** T021: the ROW is masked before the WIRE message is built ***', () 
     // masking it afterwards would need a second field→tier map keyed by wire names — two maps obliged to
     // agree, which is the defect shape feature 017 found already broken between two filter vocabularies.
     const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('vip_support'))) as Record<string, unknown>;
-    expect(wire.preferencesJson).toBe('');
-    expect(wire.portfolioJson).toBe('');
-    expect(wire.amNotes).toBe('');
+    for (const k of ['preferencesJson', 'portfolioJson', 'amNotes']) {
+      expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
+    }
     // The row itself was fully populated — so absence here can only come from masking.
     expect(ROW.preferences).not.toBeNull();
   });
@@ -209,8 +212,9 @@ describe('*** T025: view-as masks as the PREVIEWED role and audits the REAL call
       { playerId: 'ply-1' },
       md('support_agent', { 'x-is-preview': 'true' }),
     )) as Record<string, unknown>;
-    expect(wire.vip).toBe(false);
-    expect(wire.amNotes).toBe('');
+    for (const k of ['vip', 'amNotes']) {
+      expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
+    }
   });
 
   it('the audit entry names the real caller plus the marker, never the previewed role', async () => {

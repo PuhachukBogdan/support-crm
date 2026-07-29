@@ -8,7 +8,7 @@ import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from '../chats/actor-metadata';
 import { callUploads } from '../uploads/rpc';
-import { parseListQuery } from './wire';
+import { parseListQuery, toPlayerResponse, toPlayerPageResponse } from './wire';
 
 interface PlayerWire {
   playerId: string;
@@ -77,11 +77,21 @@ export class PlayersController implements OnModuleInit {
     return buildActorMetadata(req.claims!, req.effective);
   }
 
-  /** One customer record, masked to the caller's tier by the owning service. */
+  /**
+   * One customer record, masked to the caller's tier by the owning service.
+   *
+   * The response goes through `toPlayerResponse`, which drops default-valued fields so a withheld one
+   * is ABSENT rather than blanked (011's FR-014). Passing the decoded message straight through — as
+   * this route did until 2026-07-29 — carried every key for every role. See `wire.ts` for why the
+   * omission keys off the value and not off the caller's clearance.
+   */
   @Get('players/:playerId')
   @RequiresPermission('crm.contact.view')
-  async getPlayer(@Param('playerId') playerId: string, @Req() req: PlayerReq): Promise<PlayerWire> {
-    return callUploads(this.users.getPlayer({ playerId }, this.meta(req)));
+  async getPlayer(
+    @Param('playerId') playerId: string,
+    @Req() req: PlayerReq,
+  ): Promise<Record<string, unknown>> {
+    return toPlayerResponse(await callUploads(this.users.getPlayer({ playerId }, this.meta(req))));
   }
 
   /**
@@ -96,10 +106,14 @@ export class PlayersController implements OnModuleInit {
   async listPlayers(
     @Query() query: Record<string, unknown>,
     @Req() req: PlayerReq,
-  ): Promise<PlayerPageWire> {
+  ): Promise<{ players: Record<string, unknown>[]; nextPageToken: string }> {
     const { brandId, pageSize, pageToken } = parseListQuery(query);
-    return callUploads(
-      this.users.listPlayersByBrand({ brandId, pageSize, pageToken }, this.meta(req)),
+    // Same projection as the single read — a masked field must not be blanked on one route and absent
+    // on the other, or the page and the card would disagree about the same record.
+    return toPlayerPageResponse(
+      await callUploads(
+        this.users.listPlayersByBrand({ brandId, pageSize, pageToken }, this.meta(req)),
+      ),
     );
   }
 

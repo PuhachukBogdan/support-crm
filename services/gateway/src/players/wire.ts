@@ -1,6 +1,89 @@
 import { BadRequestException } from '@nestjs/common';
 
 /**
+ * ⚠️ THE MASKING GUARANTEE'S LAST MILE (feature 019, 2026-07-29 — fixes a violation of 011's FR-014).
+ *
+ * **What was wrong.** FR-014 requires that "fields a role may not see are ABSENT from the serialized
+ * response (not merely hidden client-side)". They were not. `maskPlayer` omits them correctly, and then
+ * `toPlayerWire` in the users service wrote `?? ''` for each one; proto3 has no presence for singular
+ * scalars, so every key arrived at the client, blanked. Recorded live:
+ * `specs/019-gateway-transport/fixtures/player-get-{admin,support}.json` — `"segment":"standard"` for an
+ * admin, `"segment":""` for a support agent. The value never leaked, so the *intent* of FR-014 held; its
+ * letter did not, and a client could not tell "you may not see this" from "this is empty".
+ *
+ * **Why it was not caught.** 018's live comparison filtered `.value != ""` — it measured non-empty
+ * VALUES while the contract it was checking spoke of KEYS. The assertion that would have failed was
+ * looking somewhere else. Same lesson as 5.1: when a guarantee holds, check WHICH code makes it hold.
+ *
+ * **Why the fix is here and why it omits by VALUE rather than by clearance.** Two requirements pull in
+ * opposite directions, and both are right:
+ *   · FR-014 — a withheld field must be absent.
+ *   · `toPlayerWire`'s own note — the response must not reveal WHICH fields were withheld, because that
+ *     is itself a disclosure about the record.
+ * Marking the proto fields `optional` would satisfy the first and BREAK the second: with explicit
+ * presence a genuinely-empty field arrives as `""` while a withheld one is absent, which hands the caller
+ * an exact list of what it was denied. (It also trips `buf breaking` on a cardinality change.)
+ * Dropping every default-valued field satisfies both: absent means "nothing for you here", and the
+ * caller cannot tell why. That is also just canonical protobuf→JSON, which this edge was not applying.
+ *
+ * **Consequence for producers and for the UI.** A producer must never write a placeholder into a
+ * maskable field — `?? 'n/a'` would sail straight through this. And a surface cannot use emptiness to
+ * decide whether to render a field: the deciding input is the caller's role.
+ */
+const PLAYER_FIELDS = [
+  'playerId',
+  'accountId',
+  'brandIds',
+  'vip',
+  'segment',
+  'amNotes',
+  'customAttributesJson',
+  'preferencesJson',
+  'portfolioJson',
+] as const;
+
+/** True for proto3's default of each supported kind — the values canonical JSON omits. */
+function isProtoDefault(v: unknown): boolean {
+  return (
+    v === undefined ||
+    v === null ||
+    v === '' ||
+    v === false ||
+    v === 0 ||
+    (Array.isArray(v) && v.length === 0)
+  );
+}
+
+/**
+ * Project one decoded `Player` message to its REST body, dropping default-valued fields.
+ *
+ * An EXPLICIT field list, never a spread — the same rule the users service states for the row→wire
+ * step, and for the same reason: a passthrough would forward whatever a future message gains, and the
+ * one field deliberately absent from that contract is a customer PII snapshot.
+ */
+export function toPlayerResponse(msg: unknown): Record<string, unknown> {
+  const src = (msg ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of PLAYER_FIELDS) {
+    const value = src[key];
+    if (!isProtoDefault(value)) out[key] = value;
+  }
+  return out;
+}
+
+/** The paged form. The token stays as-is: empty means exhausted, and that is a documented signal. */
+export function toPlayerPageResponse(page: unknown): {
+  players: Record<string, unknown>[];
+  nextPageToken: string;
+} {
+  const src = (page ?? {}) as { players?: unknown[]; nextPageToken?: string };
+  return {
+    players: (src.players ?? []).map(toPlayerResponse),
+    nextPageToken: src.nextPageToken ?? '',
+  };
+}
+
+/**
  * Fail-closed query parsing for the players edge (feature 018, roadmap 5.1).
  *
  * ── An unrecognised parameter is REFUSED, never ignored ──────────────────────────────────────────

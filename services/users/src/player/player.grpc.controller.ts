@@ -201,9 +201,20 @@ const notFound = () => new RpcException({ code: GrpcStatus.NOT_FOUND, message: '
  *    classifies. A reader comparing contract to policy finds `brand_ids` unclassified and would reasonably
  *    assume it is dropped.
  *
- * A masked-away field is simply absent from `masked`, so it lands as proto3's default. A consumer therefore
- * cannot tell "you may not see this" from "empty" — deliberate: telling a caller WHICH fields were withheld
- * is itself a disclosure about the record.
+ * 4. **A withheld field is OMITTED here, never written as a placeholder** (added 2026-07-29, feature 019).
+ *    This function used to write `?? ''` for each maskable field. proto3 has no presence for singular
+ *    scalars, so the blank travelled and every REST response carried every key — violating 011's FR-014
+ *    ("fields a role may not see are ABSENT from the serialized response"), which two documents claimed
+ *    was already true. The value never leaked; the letter of the requirement did not hold. The edge now
+ *    drops default-valued fields (`services/gateway/src/players/wire.ts`), and this function stops
+ *    manufacturing the defaults that made the drop necessary in the first place.
+ *
+ *    ⚠️ **Never reintroduce a fallback on a maskable field.** `?? ''` is invisible again; `?? 'n/a'`
+ *    would be worse — a non-default value sails straight through the edge's projection.
+ *
+ * A consumer still cannot tell "you may not see this" from "this is empty": both arrive absent. That is
+ * deliberate and is the reason the edge omits by VALUE rather than by clearance — telling a caller WHICH
+ * fields were withheld is itself a disclosure about the record.
  */
 function toPlayerWire(
   masked: Partial<Record<string, unknown>>,
@@ -211,18 +222,33 @@ function toPlayerWire(
   actor: PlayerActor,
 ) {
   const brands = masked.brands as PlayerWithBrands['brands'] | undefined;
-  return {
+  const out: Record<string, unknown> = {
     playerId: (masked.player_id as string) ?? row.player_id,
     accountId: actor.accountId, // rule 2
     brandIds: (brands ?? []).map((b) => b.brand_id), // rule 3
-    vip: (masked.vip as boolean) ?? false,
-    segment: (masked.segment as string) ?? '',
-    amNotes: (masked.am_notes as string) ?? '',
-    customAttributesJson: toJson(masked.custom_attributes),
-    preferencesJson: toJson(masked.preferences),
-    portfolioJson: toJson(masked.portfolio),
     // No gr8 field exists on this message, by design — see rule 1.
   };
+
+  // Rule 4: present only when the mask kept them. Still an explicit list — the loop walks a fixed
+  // pairing of wire name to masked column, so a new column cannot arrive here by accident.
+  const maskable: [string, unknown][] = [
+    ['vip', masked.vip],
+    ['segment', masked.segment],
+    ['amNotes', masked.am_notes],
+    ['customAttributesJson', jsonOrAbsent(masked.custom_attributes)],
+    ['preferencesJson', jsonOrAbsent(masked.preferences)],
+    ['portfolioJson', jsonOrAbsent(masked.portfolio)],
+  ];
+  for (const [key, value] of maskable) {
+    if (value !== undefined && value !== null) out[key] = value;
+  }
+  return out;
+}
+
+/** Like `toJson`, but keeps ABSENCE absent instead of turning it into an empty string (rule 4). */
+function jsonOrAbsent(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return JSON.stringify(value);
 }
 
 /**
@@ -243,8 +269,7 @@ function toOperatorWire(row: OperatorRow, actor: PlayerActor) {
   };
 }
 
-/** A JSON column as its wire string. Absent (masked away or null) ⇒ empty, never the text "null". */
-function toJson(value: unknown): string {
-  if (value === undefined || value === null) return '';
-  return JSON.stringify(value);
-}
+// `toJson` lived here until 2026-07-29 and mapped an absent column to `''`. It was the last of the
+// blanking helpers and is replaced by `jsonOrAbsent`, which keeps absence absent (rule 4). Deleted
+// rather than left unused: a helper that turns "withheld" into "empty" is exactly the shape of the
+// defect feature 019 found, and leaving one in the file invites its reuse.

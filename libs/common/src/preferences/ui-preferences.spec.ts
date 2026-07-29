@@ -118,8 +118,23 @@ describe('*** no default for a preference is defined anywhere but the catalogue 
           `git grep -l -F -e "${key}" -- ${SEARCH_ROOTS.map((r) => `"${r}"`).join(' ')}`,
           { cwd: ROOT, encoding: 'utf8' },
         );
-      } catch {
-        out = ''; // no matches at all — git grep exits non-zero
+      } catch (err) {
+        // ⚠️ **`git grep` exits 1 for "no matches" and 128 for "I could not run" — and the blanket
+        // `catch { out = '' }` this replaces collapsed the two into a clean result.** Found by mirroring
+        // the CI job in a container whose mount was owned by another user: git refused with *dubious
+        // ownership*, the guard scanned nothing, and the only thing that noticed was the reach
+        // assertion below — which reported `Expected > 0, Received 0` and named no cause.
+        //
+        // A guard that cannot see the tree must say so. Silence here is the vacuous pass in its purest
+        // form: permanently green, for as long as git is unavailable.
+        const status = (err as { status?: number }).status;
+        if (status !== 1) {
+          throw new Error(
+            `git grep could not run (exit ${String(status)}) — this guard scanned NOTHING. ` +
+              `It is not a clean result. Original: ${(err as Error).message}`,
+          );
+        }
+        out = '';
       }
       const matched = out.split('\n').filter(Boolean);
 

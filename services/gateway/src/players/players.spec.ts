@@ -96,7 +96,7 @@ describe('*** every route carries permission metadata *** (the 016 wire defect, 
 describe('*** the two new headers reach the owning service ***', () => {
   it('the effective role and the identity are forwarded', async () => {
     const h = harness();
-    await h.ctl.getPlayer('ply-1', h.req);
+    await h.ctl.getPlayer('ply-1', { brandId: 'brand-a' }, h.req);
     const md = h.recorded.meta as { get(k: string): unknown[] };
     expect(md.get('x-actor-account-id')[0]).toBe('acc-1');
     expect(md.get('x-actor-user-id')[0]).toBe('user-1');
@@ -109,7 +109,7 @@ describe('*** the two new headers reach the owning service ***', () => {
   it('the PREVIEWED role is what travels under view-as', async () => {
     const h = harness();
     const previewing = { claims: CLAIMS, effective: effective({ roleKey: 'support_agent', isPreview: true }) } as never;
-    await h.ctl.getPlayer('ply-1', previewing);
+    await h.ctl.getPlayer('ply-1', { brandId: 'brand-a' }, previewing);
     const md = h.recorded.meta as { get(k: string): unknown[] };
     expect(md.get('x-actor-effective-role')[0]).toBe('support_agent');
     expect(md.get('x-is-preview')[0]).toBe('true');
@@ -119,7 +119,7 @@ describe('*** the two new headers reach the owning service ***', () => {
 
   it('*** never an EMPTY permission set *** (016 live defect)', async () => {
     const h = harness();
-    await h.ctl.getPlayer('ply-1', h.req);
+    await h.ctl.getPlayer('ply-1', { brandId: 'brand-a' }, h.req);
     const md = h.recorded.meta as { get(k: string): unknown[] };
     expect(String(md.get('x-actor-permissions')[0] ?? '')).not.toBe('');
   });
@@ -130,7 +130,7 @@ describe('T048a: the EDGE tier refuses, not only the service', () => {
     // The edge tier's own enforcement is the guard's job and is asserted through the metadata above; this
     // covers the other half — that a service-tier refusal reaches the client as a class, never as a message.
     const h = harness({ usersRefuses: true });
-    await expect(h.ctl.getPlayer('ply-1', h.req)).rejects.toMatchObject({ status: 403 });
+    await expect(h.ctl.getPlayer('ply-1', { brandId: 'brand-a' }, h.req)).rejects.toMatchObject({ status: 403 });
   });
 });
 

@@ -5,6 +5,11 @@ import { PlayerRepository } from './player.repository';
 import { PlayerReadController } from './player.grpc.controller';
 import type { PrismaService } from '../prisma.service';
 
+/** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
+function personsStub() {
+  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+}
+
 /**
  * T033–T038 (feature 018, US2) — the brand page, and the guard in front of it.
  *
@@ -171,6 +176,7 @@ describe('*** page tokens: malformed is refused, FOREIGN is accepted and still f
       new PlayerRepository(prisma) as never,
       { getById: jest.fn() } as never,
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
+      personsStub(),
     );
     const res = await failure(
       ctl.listPlayersByBrand({ brandId: 'brand-a', pageToken: 'not-a-token!!' }, md()),
@@ -205,7 +211,7 @@ describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any 
     const players = { getPlayer: jest.fn(), listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })) };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
       players,
       access,
       role,
@@ -270,7 +276,7 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
       players,
       access,
     };
@@ -325,7 +331,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       listByBrand: jest.fn(async () => ({ rows: ROWS, nextCursor: null })),
     };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
       access,
       bulk,
       role,
@@ -377,6 +383,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       players as never,
       { getById: jest.fn() } as never,
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
+      personsStub(),
     );
     const page = (await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'))) as {
       nextPageToken: string;

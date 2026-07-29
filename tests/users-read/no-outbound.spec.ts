@@ -245,13 +245,15 @@ describe('*** FR-027: there is no write surface ***', () => {
     const service = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto);
     expect(service).not.toBeNull();
     const rpcs = [...service![1]!.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
-    expect(rpcs.sort()).toEqual([
-      'GetOperator',
-      'GetPlayer',
-      'ListAuditEntries',
-      'ListPlayersByBrand',
-    ]);
-    // Stated as a property rather than only as a list, so a fifth read RPC does not have to touch this
+
+    // ⚠️ The exact-membership list that used to stand here was REMOVED by feature 020, because this
+    // test's own next comment says a fifth READ rpc should not have to touch it — and the list made
+    // that false. Two tests asserting the same membership also means a contract change has to be
+    // remembered in two places; the completeness check belongs in ONE, and it lives in
+    // `services/users/src/maintenance/hosting.spec.ts`. What belongs HERE is the property.
+    expect(rpcs.length).toBeGreaterThan(0); // the scan really read the contract
+
+    // Stated as a property rather than as a list, so a fifth read RPC does not have to touch this
     // test while a mutation does.
     for (const name of rpcs) {
       expect({ name, isRead: /^(Get|List)/.test(name) }).toEqual({ name, isRead: true });

@@ -11,6 +11,7 @@ import { assertCanMassExport, maskPlayer } from './player.masking';
 import { PlayerRepository, type PlayerRow } from './player.repository';
 import { readPlayerActor, resolveListBrand, type PlayerActor } from './actor';
 import { playerIdentity } from './player.identity';
+import { PersonService } from './person.service';
 
 interface GetPlayerWire {
   /** Required since feature 020 — a platform id alone names two customers, not one. */
@@ -45,6 +46,7 @@ export class PlayerReadController {
     @Inject(PlayerRepository) private readonly players: PlayerRepository,
     @Inject(OperatorRepository) private readonly operators: OperatorRepository,
     @Inject(ContactViewAuditService) private readonly access: ContactViewAuditService,
+    @Inject(PersonService) private readonly persons: PersonService,
   ) {}
 
   /**
@@ -195,6 +197,31 @@ export class PlayerReadController {
    *
    * If an operator record ever grows a personal field, this comment is the one that has to change.
    */
+  /**
+   * Which brand-scoped records make up one human (feature 020).
+   *
+   * **No masking and no access entry, and that is deliberate** — the answer contains no customer
+   * field at all: it is a list of identities, which the caller already had to hold one of to ask.
+   * Gated by the contact permission because knowing that two records are one person is itself a
+   * statement about a customer, even without a value attached.
+   *
+   * `forAccount` bounds it, so a person from another tenant is not "refused" — it is not found.
+   */
+  @GrpcMethod('UsersReadService', 'ListPersonMembers')
+  @RequiresPlayerPermission('crm.contact.view')
+  async listPersonMembers(req: { personId?: string }, metadata: Metadata) {
+    const actor = readPlayerActor(metadata);
+    const personId = String(req?.personId ?? '');
+    if (!personId) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'personId is required',
+      });
+    }
+    const members = await this.persons.membersOf(actor.accountId, personId);
+    return { members: members.map((m) => ({ brandId: m.brandId, playerId: m.playerId })) };
+  }
+
   @GrpcMethod('UsersReadService', 'GetOperator')
   @RequiresPlayerPermission('crm.inbox.view')
   async getOperator(req: GetOperatorWire, metadata: Metadata) {

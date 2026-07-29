@@ -79,13 +79,17 @@ describe('*** UsersMaintenanceService is hosted, not merely written ***', () => 
 describe('*** UsersReadService is served across two controllers, completely ***', () => {
   const proto = readFileSync(USERS_PROTO, 'utf8');
 
-  it('the contract declares exactly four methods on it', () => {
+  it('the contract declares exactly five methods on it', () => {
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
     expect(rpcs.sort()).toEqual([
       'GetOperator',
       'GetPlayer',
       'ListAuditEntries',
+      // Feature 020 (roadmap 5.2): which brand-scoped records make up one human. Chats needs it to
+      // answer a person's feed and cannot join across services, so identity crosses as an explicit
+      // call. Editing this list is the visible act the guard exists to force.
+      'ListPersonMembers',
       'ListPlayersByBrand',
     ]);
   });

@@ -43,8 +43,14 @@ reader, the upload store and artefact expiry, plus `HealthService.Check` and `Pi
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `users_db`.
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, and the six `S3_*` keys (feature 016 — see below).
+`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, the six `S3_*` keys (feature 016 — see below), and
+`CONTACT_HASH_SALT` (feature 020, min 32 chars).
 Validated at boot by [`src/config.ts`](src/config.ts); the error names the KEY, never the value.
+
+The salt has **no default on purpose**. An unsalted hash of an email is a dictionary lookup away from
+the address, and a service that booted without one would build a table of recoverable customer
+contacts while answering every request correctly and keeping every test green. That failure has no
+symptom, so it is refused at startup rather than detected later.
 
 ## Run / test
 ```bash
@@ -64,6 +70,46 @@ Runs as part of `docker compose up` (see [`deploy/local/README.md`](../../deploy
   *not cached yet* (→ `stale`) from *outside GR8's 180-day horizon* (→ not available at this tier). Doing a
   little of that projection early is how those two very different empty states get collapsed into one
   wrong answer.
+
+## ⚠️ A player is `(account_id, brand_id, player_id)` (feature 020, roadmap 5.2 / ADR 0038 §3)
+
+**Read this before touching anything player-shaped.** GR8's `player_id` is unique only **within a
+brand**: the same value under brand A and brand B is routinely **two different human beings**. Until
+2026-07-29 this service used it as the whole primary key, so those two collapsed into one row — one
+card, one VIP flag, one set of AM notes — and the conversation feed served one customer another's
+messages. GR8's own contract says as much: `/players/find` answers with `brand` alongside `playerId`.
+
+- The triple is formed, compared and validated in **one place** —
+  [`src/player/player.identity.ts`](src/player/player.identity.ts). A caller holding only a platform
+  id **cannot construct one**, which is why the composite natural key was chosen over a surrogate:
+  every stale call site fails to compile instead of quietly resolving the wrong person.
+- `account_id` **leads** the key: the isolation predicate the extension injects stays index-aligned,
+  and two future licensees can both hold player `12345`.
+- `PlayerBrand` is **gone**. A row *is* one brand's player.
+- A read addressed by a platform id with no brand is **refused as ambiguous**, never answered with a
+  match. Same for the conversation feed.
+- `identity.structure.spec.ts` fails on a bare `where: { player_id }` anywhere in the service, and on
+  any second place that assembles the triple as a loose literal.
+
+### Two records, one human
+
+A person spanning brands is an explicit, reversible link — `Person` / `PersonMember`, built by
+[`src/player/person.service.ts`](src/player/person.service.ts). It is created **automatically** when
+two records share a normalised email or phone, and **never** when they share a platform id.
+
+The evidence lives in `ContactMatch` as a **salted hash and never a value**: a plaintext column would
+be a new PII surface the tier policy does not classify, masking does not cover and exports do not know
+about. Populated by the GR8 connector at roadmap **7.4**; seeded directly until then.
+
+Three refusals, each for its own reason: never on a shared platform id, never across accounts (the
+search itself is account-bounded, so a foreign match is not *rejected* — it is not *found*), and never
+on an identifier held by more than two records. That last one is not a hedge against the rare wrong
+link the operator accepted; it addresses a different failure — one support placeholder would fuse
+strangers **in bulk**.
+
+A link **copies no data**. That is what makes an automatic decision correctable: unlink and two
+independent records remain, with nothing to restore. Both halves are audited (`player.link` /
+`player.unlink`), carrying the identifier **kind** and never its value.
 
 ## The players + operators read surface (feature 018, roadmap 5.1)
 

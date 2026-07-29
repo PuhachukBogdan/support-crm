@@ -46,14 +46,18 @@ export class FeedController implements OnModuleInit {
   @RequiresPermission('crm.inbox.view')
   async feed(
     @Param('playerId') playerId: string,
-    @Query() q: { pageToken?: string; pageSize?: string },
+    @Query() q: { brandId?: string; pageToken?: string; pageSize?: string },
     @Req() req: ChatsReq,
   ) {
     const md = buildActorMetadata(req.claims!, req.effective);
+    // Feature 020: which player's feed. Without the brand the platform id names two customers, and
+    // merging them is the defect this feature removed — so the owning service refuses, and the edge
+    // forwards the brand rather than inventing one.
     return callChats(
       this.read.getPlayerFeed(
         {
           playerId,
+          brandId: q.brandId ?? '',
           pageToken: q.pageToken ?? '',
           pageSize: q.pageSize ? Number(q.pageSize) : 0,
         },

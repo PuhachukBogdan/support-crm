@@ -4,6 +4,11 @@ import { Metadata, status as GrpcStatus } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import { PlayerReadController } from './player.grpc.controller';
 
+/** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
+function personsStub() {
+  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+}
+
 /**
  * T022 (feature 018, US1) — **"not yours" and "does not exist" are the SAME answer** (FR-011 / SC-004).
  *
@@ -60,7 +65,7 @@ function harness() {
     ),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub()),
     players,
     operators,
     access,
@@ -255,7 +260,7 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
       }),
       recordBulkRead: jest.fn(),
     };
-    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never);
+    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub());
 
     await expect(ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())).rejects.toThrow('audit table unavailable');
     // The record WAS read — the refusal is about recording, not about access — and nothing was returned.
@@ -286,7 +291,12 @@ describe('*** T026: the SERVICE tier decides independently of the gateway *** (P
     const reflect = Reflect as unknown as { getMetadata(key: string, target: object): unknown };
     const proto = PlayerReadController.prototype as unknown as Record<string, object>;
     const handlers = Object.getOwnPropertyNames(proto).filter((n) => n !== 'constructor');
-    expect(handlers.sort()).toEqual(['getOperator', 'getPlayer', 'listPlayersByBrand']);
+    expect(handlers.sort()).toEqual([
+      'getOperator',
+      'getPlayer',
+      'listPersonMembers', // feature 020
+      'listPlayersByBrand',
+    ]);
     for (const name of handlers) {
       expect({
         name,

@@ -5,6 +5,11 @@ import { encodeCursor } from '@crm/common';
 import { PlayerReadController } from './player.grpc.controller';
 import type { PlayerRow } from './player.repository';
 
+/** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
+function personsStub() {
+  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+}
+
 /**
  * T050 (feature 018, roadmap 5.1) — **SEC-26 / Principle IV: no customer value reaches a log.**
  *
@@ -82,7 +87,7 @@ function harness(opts: { row?: PlayerRow | null; auditThrows?: boolean } = {}) {
     })),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub()),
     players,
     operators,
     access,

@@ -14,6 +14,7 @@ import { toPlayerResponse, toPlayerPageResponse } from './wire';
 const CLEARED = {
   playerId: 'ply-1',
   accountId: 'acc-1',
+  brandId: 'b1',
   brandIds: ['b1'],
   vip: true,
   segment: 'high-roller',
@@ -27,6 +28,7 @@ const CLEARED = {
 const MASKED = {
   playerId: 'ply-1',
   accountId: 'acc-1',
+  brandId: 'b1',
   brandIds: ['b1'],
   vip: false,
   segment: '',
@@ -49,7 +51,7 @@ describe('*** a withheld field is ABSENT from the response, not blanked (FR-014)
     ]) {
       expect(Object.prototype.hasOwnProperty.call(out, k)).toBe(false);
     }
-    expect(out).toEqual({ playerId: 'ply-1', accountId: 'acc-1', brandIds: ['b1'] });
+    expect(out).toEqual({ playerId: 'ply-1', accountId: 'acc-1', brandId: 'b1', brandIds: ['b1'] });
   });
 
   it('keeps every populated field for a cleared caller', () => {

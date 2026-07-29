@@ -25,6 +25,13 @@ service UsersReadService {
   // Keyset pagination (Principle VII): opaque page_token, never offset/total.
   rpc ListPlayersByBrand(ListPlayersByBrandRequest) returns (PlayerPage);
 
+  // ── Feature 020 (roadmap 5.2) — additive. Which brand-scoped records make up one human.
+  //
+  // Chats needs it to answer a person's conversation feed and cannot join across services
+  // (Principle VIII), so identity crosses HERE, as an explicit call — the same way chats already
+  // dials this service for uploads. Chats never derives a person itself; it asks.
+  rpc ListPersonMembers(ListPersonMembersRequest) returns (PersonMemberList);
+
   // ── Feature 015 (audit trail, roadmap 4.8) — additive. One RPC per source; the gateway fans out
   // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
   // exists anywhere — append-only means there is no mutation path to expose.
@@ -38,6 +45,20 @@ message GetPlayerRequest {
   // platform id does not identify a customer, it names two. Absent ⇒ INVALID_ARGUMENT, never an
   // arbitrary match. Added as a new field rather than by changing field 1, so the change is additive.
   string brand_id = 2;
+}
+
+// Feature 020. The members are full identities: a bare platform id would name two customers.
+message ListPersonMembersRequest {
+  string person_id = 1;
+}
+
+message PlayerRef {
+  string brand_id = 1;
+  string player_id = 2;
+}
+
+message PersonMemberList {
+  repeated PlayerRef members = 1;
 }
 
 message GetOperatorRequest {

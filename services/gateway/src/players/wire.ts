@@ -33,6 +33,11 @@ import { BadRequestException } from '@nestjs/common';
 const PLAYER_FIELDS = [
   'playerId',
   'accountId',
+  // Feature 020: the record's own brand — part of its identity, and the thing a card needs to show
+  // which brand a customer came from. Its absence from this list was caught by the live run: the
+  // explicit projection did its job and dropped a field nobody had added to it, which is the
+  // difference between an allow-list and a spread.
+  'brandId',
   'brandIds',
   'vip',
   'segment',
@@ -96,6 +101,24 @@ export function toPlayerPageResponse(page: unknown): {
  * then silently discarded by the transport, producing a confident wrong answer.
  */
 const ALLOWED_LIST_PARAMS = ['brandId', 'pageSize', 'pageToken'] as const;
+
+/**
+ * The single-record read takes `brandId` and nothing else (feature 020).
+ *
+ * Required, and refused rather than defaulted: GR8's `player_id` is unique only within a brand, so a
+ * request naming only the platform id identifies two customers. Same fail-closed stance as the list —
+ * an unrecognised parameter is refused, not ignored, because dropping is the widening direction.
+ */
+export function parseGetQuery(query: Record<string, unknown>): string {
+  const unknown = Object.keys(query ?? {}).filter((k) => k !== 'brandId');
+  if (unknown.length > 0) {
+    // KEY names only — a query value can be a customer identifier (SEC-26).
+    throw new BadRequestException(`unknown query parameter: ${unknown.sort().join(', ')}`);
+  }
+  const brandId = typeof query?.brandId === 'string' ? query.brandId.trim() : '';
+  if (!brandId) throw new BadRequestException('brandId is required');
+  return brandId;
+}
 
 export interface ListQuery {
   brandId: string;

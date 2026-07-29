@@ -2,6 +2,11 @@ import { Metadata } from '@grpc/grpc-js';
 import { PlayerReadController } from './player.grpc.controller';
 import type { PlayerRow } from './player.repository';
 
+/** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
+function personsStub() {
+  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+}
+
 /**
  * T020 / T021 / T025 (feature 018, US1) — **masking is real, per role, and happens in the right ORDER.**
  *
@@ -72,7 +77,7 @@ function harness(row: PlayerRow | null = ROW) {
   };
   const operators = { getById: jest.fn(async () => null) };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub()),
     players,
     access,
     views,

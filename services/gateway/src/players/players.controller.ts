@@ -8,7 +8,7 @@ import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from '../chats/actor-metadata';
 import { callUploads } from '../uploads/rpc';
-import { parseListQuery, toPlayerResponse, toPlayerPageResponse } from './wire';
+import { parseListQuery, parseGetQuery, toPlayerResponse, toPlayerPageResponse } from './wire';
 
 interface PlayerWire {
   playerId: string;
@@ -89,9 +89,16 @@ export class PlayersController implements OnModuleInit {
   @RequiresPermission('crm.contact.view')
   async getPlayer(
     @Param('playerId') playerId: string,
+    @Query() query: Record<string, unknown>,
     @Req() req: PlayerReq,
   ): Promise<Record<string, unknown>> {
-    return toPlayerResponse(await callUploads(this.users.getPlayer({ playerId }, this.meta(req))));
+    // ⚠️ The brand is REQUIRED (feature 020): a platform id alone names two customers, not one, so
+    // there is no correct record to return — only a lucky one. Refused here, before the call, for the
+    // same reason the owning service refuses it: the ambiguity is in the request, not in the data.
+    const brandId = parseGetQuery(query);
+    return toPlayerResponse(
+      await callUploads(this.users.getPlayer({ playerId, brandId }, this.meta(req))),
+    );
   }
 
   /**

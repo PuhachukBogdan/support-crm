@@ -141,6 +141,28 @@ export const AUDIT_ACTIONS = {
     label: 'Player detached from an account manager',
   },
 
+  // ── identity (feature 020, roadmap 5.2 / ADR 0038 §3) ──
+  //
+  // Two records becoming one person is a statement about a HUMAN, and it is made AUTOMATICALLY on a
+  // matching email or phone. An automatic decision needs a record of itself: without these entries a
+  // wrong link would be visible only as a customer card that quietly contains someone else.
+  //
+  // The entry names WHICH KIND of identifier established it (`email` | `phone`) and never the value —
+  // the class's existing allow-list already permits a bare kind, and that it needs no allow-list change
+  // is the evidence this shape was anticipated rather than improvised.
+  'player.link': {
+    class: 'assignment',
+    writer: 'users',
+    status: 'live',
+    label: 'Two player records recognised as one person',
+  },
+  'player.unlink': {
+    class: 'assignment',
+    writer: 'users',
+    status: 'live',
+    label: 'A player record separated from a person',
+  },
+
   // ── retention (roadmap 7.3 + ADR 0015) ──
   'audit.trim': {
     class: 'retention',

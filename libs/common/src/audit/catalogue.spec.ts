@@ -28,6 +28,32 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     );
   });
 
+  /**
+   * The live set, stated once. Both the exact-membership check and the per-action check read it, so an
+   * action cannot become live — by promotion OR by being born that way — without editing this list.
+   */
+  const LIVE_ACTIONS: AuditAction[] = [
+    'role.assign',
+    'role.revoke',
+    'permission.grant',
+    'permission.revoke',
+    'permission.reset',
+    'automation.delete',
+    'contact.reveal',
+    'audit.read',
+    // Feature 017 (roadmap 4.10): written by `chats` inside the transaction that marks an export
+    // `ready`. Its detail allow-list (format / rowCount / scope) is unchanged from 015 — and
+    // `rowCount` is why: it is only knowable once the artefact exists, so this entry always
+    // belonged at completion. 015 had the timing right and the writer wrong.
+    'export.create',
+    // Feature 020 (roadmap 5.2): two records recognised as one person, and the reverse. Written by
+    // `users` at the moment the link is made — automatically, on a matching email or phone — which is
+    // exactly why it needs an entry: an automatic decision with no record of itself is only visible
+    // later, as a customer card that quietly contains someone else.
+    'player.link',
+    'player.unlink',
+  ];
+
   it('every action resolves to a class and a writer', () => {
     for (const action of Object.keys(AUDIT_ACTIONS) as AuditAction[]) {
       expect(AUDIT_CLASSES).toContain(classOf(action));
@@ -35,22 +61,25 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     }
   });
 
-  it('ships the actions whose writers exist today', () => {
-    for (const action of [
-      'role.assign',
-      'role.revoke',
-      'permission.grant',
-      'permission.revoke',
-      'permission.reset',
-      'automation.delete',
-      'contact.reveal',
-      'audit.read',
-      // Feature 017 (roadmap 4.10): written by `chats` inside the transaction that marks an export
-      // `ready`. Its detail allow-list (format / rowCount / scope) is unchanged from 015 — and
-      // `rowCount` is why: it is only knowable once the artefact exists, so this entry always
-      // belonged at completion. 015 had the timing right and the writer wrong.
-      'export.create',
-    ] as AuditAction[]) {
+  /**
+   * ⚠️ **This assertion is an EXACT membership check since feature 020, and it was not before.**
+   *
+   * It used to iterate a declared list and assert each entry is `live` — which proves those actions are
+   * live and says nothing about the ones that are not listed. So a brand-new action added straight to
+   * the catalogue as `live` slipped past every guard here, while the catalogue's own header promises
+   * *"a spec asserts the exact membership of each, so promoting one is a visible act rather than a quiet
+   * one"*. That held for a PROMOTION (which changes the non-live set below) and not for an ADDITION —
+   * and an addition is the ordinary case from here on. Found by adding two and watching nothing fail.
+   */
+  it('ships EXACTLY the actions whose writers exist today', () => {
+    const live = (Object.keys(AUDIT_ACTIONS) as AuditAction[]).filter(
+      (a) => AUDIT_ACTIONS[a]!.status === 'live',
+    );
+    expect(live.sort()).toEqual(LIVE_ACTIONS.slice().sort());
+  });
+
+  it('every declared live action really is live', () => {
+    for (const action of LIVE_ACTIONS) {
       expect(AUDIT_ACTIONS[action]!.status).toBe('live');
     }
   });

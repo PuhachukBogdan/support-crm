@@ -22,6 +22,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 import { OperatorRepository } from './operator/operator.repository';
 import { PlayerAccessGuard } from './player/player.guard';
 import { PlayerReadController } from './player/player.grpc.controller';
+import { PersonService } from './player/person.service';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
@@ -36,6 +37,7 @@ import { PlayerReadController } from './player/player.grpc.controller';
   imports: [UploadsModule, MaintenanceModule],
   controllers: [HealthGrpcController, PingGrpcController, AuditReadController, PlayerReadController],
   providers: [
+    PersonService,
     PrismaService,
     PlayerRepository,
     OperatorRepository,

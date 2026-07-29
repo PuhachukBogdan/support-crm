@@ -1,0 +1,27 @@
+{
+  "status": 200,
+  "path": "/conversations/seed-conv-sla-0000-00000000001",
+  "body": {
+    "id": "seed-conv-sla-0000-00000000001",
+    "brandId": "seed-brand-0000-0000-000000000001",
+    "playerId": "seed-player-001",
+    "status": "CONVERSATION_STATUS_OPEN",
+    "priority": "normal",
+    "assigneeOperatorId": "",
+    "channel": "",
+    "reference": "",
+    "category": "",
+    "subCategory": "",
+    "classifiedBy": "",
+    "createdAt": "2026-07-26T18:53:14.412Z",
+    "updatedAt": "2026-07-28T22:44:24.330Z",
+    "firstReplySla": {
+      "outcome": "SLA_OUTCOME_MET",
+      "startedAt": "2026-07-26T19:05:01.390Z",
+      "deadlineAt": "2026-07-26T19:06:01.390Z",
+      "targetMinutes": 1,
+      "firstReplyAt": "2026-07-26T19:05:02.447Z",
+      "firstReplySeconds": 1
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "status": 200,
+  "path": "/conversations?pageSize=2&pageToken=WyIyMDI2LTA3LTI2VDE1OjU2OjExLjY1NFoiLCJzZWVkLWNvbnYtcmVzb2x2ZWQtMDAwMC0wMDAwMDAwMSJd",
+  "body": {
+    "conversations": [
+      {
+        "id": "seed-conv-pending-0000-000000001",
+        "brandId": "seed-brand-0000-0000-000000000001",
+        "playerId": "seed-player-001",
+        "status": "CONVERSATION_STATUS_PENDING",
+        "priority": "normal",
+        "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
+        "channel": "",
+        "lastActivityAt": "2026-07-28T22:44:24.262Z",
+        "createdAt": "2026-07-26T15:56:11.645Z"
+      },
+      {
+        "id": "seed-conv-open-0000-000000000001",
+        "brandId": "seed-brand-0000-0000-000000000001",
+        "playerId": "seed-player-001",
+        "status": "CONVERSATION_STATUS_OPEN",
+        "priority": "high",
+        "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
+        "channel": "",
+        "lastActivityAt": "2026-07-28T22:44:24.212Z",
+        "createdAt": "2026-07-26T15:56:11.637Z"
+      }
+    ],
+    "nextPageToken": ""
+  }
+}

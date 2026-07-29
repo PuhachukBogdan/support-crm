@@ -1,0 +1,129 @@
+import type { DataAccess } from '../data-access';
+import type { Query, PaginatedResult, ResourceName } from '../types';
+import { MAX_PAGE_SIZE } from '../types';
+import { clientRefusal, dataErrorForStatus } from '../errors';
+import { rowFor, type Operation, type RouteRow } from './registry';
+import { createFetchPort, type HttpPort, type HttpResponse } from './http-port';
+
+/**
+ * T014/T015 [US1] — the real `DataAccess`, over the gateway's REST edge (feature 019, roadmap 8.4).
+ *
+ * ── There is NO conditional on a resource name in this file, and that is enforced ───────────────
+ * Everything resource-specific is a field on a registry row. Adding a resource is adding a row;
+ * `registry.structure.test.ts` fails if a branch appears here. That is what makes the operator's
+ * constraint — later work ADDS, never rewrites — a property of the code rather than an intention.
+ *
+ * ── It passes records through untouched, deliberately ───────────────────────────────────────────
+ * No defaulting, no normalising, no filling of missing fields. The server decides what a caller may
+ * see, and a client-side default would reconstruct exactly the disclosure it refused to make. It
+ * matters more than it looks: the live run of 2026-07-29 found the gateway already re-materialises
+ * withheld fields as blanks, so the data arriving here is ALREADY lossy — adding a second layer of
+ * invention on top would make "empty" completely unreadable. See `contracts/gateway-rest.md`.
+ */
+export class GatewayDataAccess implements DataAccess {
+  constructor(private readonly http: HttpPort = createFetchPort()) {}
+
+  async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
+    const row = this.rowWith(resource, 'list');
+    const res = await this.http({ path: row.path, query: this.queryFor(row, query) });
+    const body = this.okBody(res) as Record<string, unknown>;
+
+    const items = (body[row.collection] as T[] | undefined) ?? [];
+    // An empty token means exhausted. Treating '' as a cursor loops forever and looks like a slow
+    // list rather than a crash — the worst kind of bug to meet in a UI.
+    const token = typeof body.nextPageToken === 'string' ? body.nextPageToken : '';
+    const nextCursor = token === '' ? null : token;
+
+    // Derived from the cursor, never from item count: a full page is not evidence of a next one,
+    // and an empty page carrying a token is legal.
+    return { items, nextCursor, hasMore: nextCursor !== null };
+  }
+
+  async get<T = unknown>(resource: ResourceName, id: string): Promise<T> {
+    const row = this.rowWith(resource, 'get');
+    const res = await this.http({ path: `${row.path}/${encodeURIComponent(id)}` });
+    return this.okBody(res) as T;
+  }
+
+  // The unused parameters are omitted rather than underscored: TypeScript accepts an implementation
+  // with fewer parameters, and this repository suppresses no-unused-vars nowhere. When a page needs
+  // one of these, the parameter arrives with the implementation that uses it.
+  async create<T = unknown>(resource: ResourceName): Promise<T> {
+    return this.notImplemented(resource, 'create');
+  }
+
+  async update<T = unknown>(resource: ResourceName): Promise<T> {
+    return this.notImplemented(resource, 'update');
+  }
+
+  async remove(resource: ResourceName): Promise<void> {
+    return this.notImplemented(resource, 'remove');
+  }
+
+  /** Resolve the row and confirm the operation exists for it — a missing op fails by name. */
+  private rowWith(resource: ResourceName, op: Operation): RouteRow {
+    const row = rowFor(resource);
+    if (!row.ops.includes(op)) this.notImplemented(resource, op);
+    return row;
+  }
+
+  /**
+   * An operation that has no implementation yet refuses loudly and by name. A silent no-op or an
+   * empty success would let a screen believe it saved something (FR-010).
+   */
+  private notImplemented(resource: ResourceName, op: Operation): never {
+    throw clientRefusal(`"${op}" is not implemented for "${resource}" yet`);
+  }
+
+  /**
+   * Translate the caller's query into the parameters THIS route accepts.
+   *
+   * Anything undeclared is refused before a request exists. The two consumed routes disagree about
+   * an unrecognised parameter — `/players` refuses it, `/conversations` silently drops it — so
+   * relying on the server would mean a stray filter is loud on one route and produces a CONFIDENT
+   * WRONG ANSWER on the other. Both recorded live (E5, E6).
+   */
+  private queryFor(row: RouteRow, query: Query): Record<string, string> {
+    if (query.sort && query.sort.length > 0) {
+      throw clientRefusal('sorting is not supported by this resource');
+    }
+
+    if (!Number.isInteger(query.limit) || query.limit <= 0) {
+      throw clientRefusal('limit must be a positive integer');
+    }
+    if (query.limit > MAX_PAGE_SIZE) {
+      // Refused, never clamped: a silently reduced page size teaches a caller the parameter is
+      // advisory, and the next thing it sends is something worse on a path that matters.
+      throw clientRefusal(`limit must not exceed ${MAX_PAGE_SIZE}`);
+    }
+
+    const out: Record<string, string> = { [row.pageSizeParam]: String(query.limit) };
+    if (query.cursor) out[row.pageTokenParam] = query.cursor;
+
+    const filters = query.filters ?? {};
+    for (const key of Object.keys(filters)) {
+      const wire = row.params[key];
+      // The KEY is named, never the value — a query value can be a customer identifier (SEC-26),
+      // following `services/gateway/src/players/wire.ts`.
+      if (!wire) throw clientRefusal(`unknown filter for this resource: ${key}`);
+      const value = filters[key];
+      if (value === undefined || value === null || value === '') continue;
+      out[wire] = String(value);
+    }
+
+    for (const key of row.required) {
+      const wire = row.params[key]!;
+      if (!out[wire]) throw clientRefusal(`${key} is required for this resource`);
+    }
+
+    return out;
+  }
+
+  /** One place turns a status into a failure class; nothing reads the body to build a message. */
+  private okBody(res: HttpResponse): unknown {
+    if (res.status < 200 || res.status >= 300 || res.unparseable) {
+      throw dataErrorForStatus(res.unparseable ? 0 : res.status);
+    }
+    return res.body;
+  }
+}

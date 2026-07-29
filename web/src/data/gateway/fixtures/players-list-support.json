@@ -1,0 +1,9 @@
+{
+  "status": 403,
+  "path": "/players?brandId=seed-brand-0000-0000-000000000001",
+  "body": {
+    "message": "forbidden",
+    "error": "Forbidden",
+    "statusCode": 403
+  }
+}

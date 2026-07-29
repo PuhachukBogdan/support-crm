@@ -1,0 +1,9 @@
+{
+  "status": 404,
+  "path": "/conversations/does-not-exist-019",
+  "body": {
+    "message": "not found",
+    "error": "Not Found",
+    "statusCode": 404
+  }
+}

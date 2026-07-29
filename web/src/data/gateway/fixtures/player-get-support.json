@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "path": "/players/seed-player-001",
+  "body": {
+    "playerId": "seed-player-001",
+    "accountId": "seed-account-0000-0000-000000000001",
+    "brandIds": [
+      "seed-brand-0000-0000-000000000001"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "status": 400,
+  "path": "/players",
+  "body": {
+    "message": "brandId is required",
+    "error": "Bad Request",
+    "statusCode": 400
+  }
+}

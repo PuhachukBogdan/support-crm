@@ -1,0 +1,9 @@
+{
+  "status": 400,
+  "path": "/players?brandId=seed-brand-0000-0000-000000000001&nope=1",
+  "body": {
+    "message": "unknown query parameter: nope",
+    "error": "Bad Request",
+    "statusCode": 400
+  }
+}

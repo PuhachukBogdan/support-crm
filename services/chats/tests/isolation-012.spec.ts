@@ -59,11 +59,10 @@ function fakePrisma() {
   return { forAccount } as unknown as PrismaService;
 }
 
-function md(accountId: string, brands = ['brand-a']): Metadata {
+function md(accountId: string): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'op-1');
-  m.set('x-actor-brands', brands.join(','));
   return m;
 }
 

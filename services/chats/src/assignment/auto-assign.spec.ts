@@ -67,11 +67,10 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   };
 }
 
-function md(accountId = 'acc-1', brands: string[] = ['brand-a']): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'u1');
-  m.set('x-actor-brands', brands.join(','));
   m.set('x-actor-permissions', 'crm.conversation.assign');
   return m;
 }

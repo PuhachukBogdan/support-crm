@@ -4,11 +4,10 @@ import { MessageRepository } from './message.repository';
 import { MessageReadController } from './message.grpc.controller';
 import type { UploadsClient } from '../uploads/uploads.client';
 
-function md(accountId = 'acc-1', brands = ['brand-a']): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'op-1');
-  m.set('x-actor-brands', brands.join(','));
   return m;
 }
 

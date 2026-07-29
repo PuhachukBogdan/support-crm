@@ -28,11 +28,10 @@ function row(over: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function md(accountId = 'acc-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'u1');
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 

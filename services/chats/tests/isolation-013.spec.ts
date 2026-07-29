@@ -161,7 +161,6 @@ function md(accountId: string, perms: string[]): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'u1');
-  m.set('x-actor-brands', 'brand-a');
   m.set('x-actor-permissions', perms.join(','));
   return m;
 }

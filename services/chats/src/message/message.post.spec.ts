@@ -7,11 +7,10 @@ import type { FirstReplyClock } from '../sla/first-reply.clock';
 import { MessageWriteController } from './message.grpc.controller';
 import type { UploadsClient } from '../uploads/uploads.client';
 
-function md(accountId = 'acc-1', userId = 'op-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1', userId = 'op-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', userId);
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 
@@ -79,7 +78,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
     const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi' },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     expect(create.mock.calls[0]![0].data).toMatchObject({
       author_type: 'operator',
@@ -95,7 +94,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
     const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'psst', mentions: ['op-2'] },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     expect(create.mock.calls[0]![0].data).toMatchObject({ private: true, mentions: ['op-2'] });
     expect(res.kind).toBe('MESSAGE_KIND_PRIVATE_NOTE');
@@ -106,7 +105,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
     const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi', mentions: ['op-2'] },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     expect(create.mock.calls[0]![0].data.mentions).toEqual([]);
   });
@@ -123,7 +122,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
     const { prisma } = fakePrisma(null); // conversation not found in account
     const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     await expect(
-      ctrl.postMessage({ conversationId: 'nope', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' }, md('acc-1', 'op-1', ['brand-a'])),
+      ctrl.postMessage({ conversationId: 'nope', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' }, md('acc-1', 'op-1')),
     ).rejects.toBeInstanceOf(RpcException);
   });
 
@@ -132,7 +131,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
     const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
     const res = await ctrl.recordIncomingMessage(
       { conversationId: 'c1', body: 'help', authorId: 'player-9' },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     expect(create.mock.calls[0]![0].data).toMatchObject({ author_type: 'player', private: false });
     expect(res.kind).toBe('MESSAGE_KIND_INCOMING_CUSTOMER');

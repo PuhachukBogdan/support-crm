@@ -37,11 +37,10 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   return { prisma: { forAccount } as unknown as PrismaService, conversation, forAccount };
 }
 
-function md(accountId = 'acc-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'u1');
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 
@@ -61,7 +60,7 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
   it('returns detail for a conversation in a permitted brand', async () => {
     const { prisma, forAccount } = fakePrisma({ findFirst: jest.fn().mockResolvedValue(detailRow()) });
     const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
-    const res = await ctrl.getConversation({ id: 'c1' }, md('acc-1', ['brand-a']));
+    const res = await ctrl.getConversation({ id: 'c1' }, md('acc-1'));
     expect(forAccount).toHaveBeenCalledWith('acc-1');
     expect(res).toMatchObject({ id: 'c1', brandId: 'brand-a', status: 'CONVERSATION_STATUS_OPEN' });
   });
@@ -69,7 +68,7 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
   it('is NOT_FOUND when the id is absent in this account (no cross-account read)', async () => {
     const { prisma } = fakePrisma({ findFirst: jest.fn().mockResolvedValue(null) });
     const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
-    await expect(ctrl.getConversation({ id: 'other-acct' }, md('acc-1', ['brand-a']))).rejects.toBeInstanceOf(
+    await expect(ctrl.getConversation({ id: 'other-acct' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
     );
   });
@@ -136,7 +135,7 @@ describe('Conversation writes (US1)', () => {
     const ctrl = new ConversationWriteController(new ConversationRepository(prisma), noEvents());
     const res = await ctrl.setConversationStatus(
       { conversationId: 'c1', status: 'CONVERSATION_STATUS_RESOLVED' },
-      md('acc-1', ['brand-a']),
+      md('acc-1'),
     );
     expect(updateMany).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { status: 'resolved' } });
     expect(res.status).toBe('CONVERSATION_STATUS_RESOLVED');

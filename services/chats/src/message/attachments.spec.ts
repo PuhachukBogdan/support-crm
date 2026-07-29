@@ -19,11 +19,10 @@ import type { FirstReplyClock } from '../sla/first-reply.clock';
  */
 const CONV = 'c1';
 
-function md(accountId = 'acc-1', userId = 'op-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1', userId = 'op-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', userId);
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 
@@ -170,7 +169,7 @@ describe('a valid attachment is written WITH its message', () => {
         body: 'here you go',
         uploadIds: ['u-1', 'u-2'],
       },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     expect(messages).toHaveLength(1);
     expect(attachments).toHaveLength(2);
@@ -190,7 +189,7 @@ describe('a valid attachment is written WITH its message', () => {
     const { client, claimSpy } = fakeUploads();
     await controller(prisma, client).postMessage(
       { conversationId: CONV, kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'plain' },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     expect(attachments).toEqual([]);
     // No uploads, no cross-service hop. The common case must not pay for the rare one.
@@ -202,7 +201,7 @@ describe('a valid attachment is written WITH its message', () => {
     const { client } = fakeUploads(['u-1']);
     await controller(prisma, client).postMessage(
       { conversationId: CONV, kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x', uploadIds: ['u-1', 'u-1'] },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     // The unique index would refuse the second row anyway; collapsing first means the write does not
     // depend on a constraint violation to be correct.
@@ -224,7 +223,7 @@ describe('*** a refused attachment writes NOTHING *** (FR-015)', () => {
           body: 'sneaky',
           uploadIds: ['u-theirs'],
         },
-        md('acc-1', 'op-1', ['brand-a']),
+        md('acc-1', 'op-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
     expect(messages).toEqual([]);
@@ -237,7 +236,7 @@ describe('*** a refused attachment writes NOTHING *** (FR-015)', () => {
     await expect(
       controller(prisma, client).postMessage(
         { conversationId: CONV, kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x', uploadIds: ['u-ghost'] },
-        md('acc-1', 'op-1', ['brand-a']),
+        md('acc-1', 'op-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
     expect(messages).toEqual([]);
@@ -248,7 +247,7 @@ describe('*** a refused attachment writes NOTHING *** (FR-015)', () => {
     const { client, claimSpy } = fakeUploads(['u-1']);
     await controller(prisma, client).postMessage(
       { conversationId: CONV, kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x', uploadIds: ['u-1'] },
-      md('acc-1', 'op-1', ['brand-a']),
+      md('acc-1', 'op-1'),
     );
     // Research R8: claim → write fails toward wasted bytes; write → claim fails toward a REFERENCED
     // upload still marked `pending`, which a reclaim job would delete. Wasted storage beats data loss.
@@ -269,7 +268,7 @@ describe('*** a refused attachment writes NOTHING *** (FR-015)', () => {
     await expect(
       controller(prisma, client).postMessage(
         { conversationId: CONV, kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x', uploadIds: ['u-1'] },
-        md('acc-1', 'op-1', ['brand-a']),
+        md('acc-1', 'op-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
     // A message posted without its attachment is not a degraded success — the agent believes the
@@ -284,7 +283,7 @@ describe('*** a refused attachment writes NOTHING *** (FR-015)', () => {
     await expect(
       controller(prisma, client).postMessage(
         { conversationId: 'nope', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x', uploadIds: ['u-1'] },
-        md('acc-1', 'op-1', ['brand-a']),
+        md('acc-1', 'op-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
     // Claiming for a conversation that does not exist would strand the upload in `claimed` forever.
@@ -301,7 +300,7 @@ describe('the id list is bounded (Principle VII / FR-023)', () => {
     await expect(
       controller(prisma, client).postMessage(
         { conversationId: CONV, kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x', uploadIds: ids },
-        md('acc-1', 'op-1', ['brand-a']),
+        md('acc-1', 'op-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
     expect(claimSpy).not.toHaveBeenCalled();
@@ -319,7 +318,7 @@ describe('the id list is bounded (Principle VII / FR-023)', () => {
           body: 'x',
           uploadIds: [{ id: 'u-1' } as unknown as string],
         },
-        md('acc-1', 'op-1', ['brand-a']),
+        md('acc-1', 'op-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
   });

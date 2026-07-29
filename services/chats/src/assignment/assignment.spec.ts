@@ -43,11 +43,10 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   return { prisma: { forAccount } as unknown as PrismaService, conversation, forAccount };
 }
 
-function md(accountId = 'acc-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'u1');
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 
@@ -66,7 +65,7 @@ describe('AssignConversation (US1)', () => {
     });
     const res = await build(prisma).assignConversation(
       { conversationId: 'c1', operatorId: 'op-a' },
-      md('acc-1', ['brand-a']),
+      md('acc-1'),
     );
 
     expect(forAccount).toHaveBeenCalledWith('acc-1');
@@ -86,7 +85,7 @@ describe('AssignConversation (US1)', () => {
     });
     const res = await build(prisma).assignConversation(
       { conversationId: 'c1', operatorId: 'op-b' },
-      md('acc-1', ['brand-a']),
+      md('acc-1'),
     );
     expect(conversation.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1' },
@@ -104,7 +103,7 @@ describe('AssignConversation (US1)', () => {
     });
     const res = await build(prisma).assignConversation(
       { conversationId: 'c1', operatorId: '' },
-      md('acc-1', ['brand-a']),
+      md('acc-1'),
     );
     expect(conversation.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1' },

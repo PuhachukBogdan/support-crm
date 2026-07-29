@@ -282,10 +282,25 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     };
   }
 
-  it('a brand the caller may NOT serve yields an empty page — never a wider result', async () => {
+  /**
+   * ⚠️ THREE CASES STRUCK on 2026-07-29, kept with their reasoning rather than deleted.
+   *
+   *   • "a brand the caller may NOT serve yields an empty page"
+   *   • "a permitted brand is passed through"
+   *   • "an absent brand scope defers exactly as the conversation reads do"
+   *
+   * All three supplied the caller's permitted brand set **by hand** via `x-actor-brands`. Nothing in
+   * the product ever set that header, so for four phases they proved a helper's arithmetic over an
+   * input the production path could not produce — while reading as evidence that brand access control
+   * worked. There is one support department; a brand never decides who may see what (ADR 0038 §1).
+   *
+   * What survives below is the behaviour that is actually real: a list with NO brand is an empty page,
+   * because a player is identified by (account_id, brand_id, player_id) and the query is otherwise
+   * unanswerable — a filter, not a scope.
+   */
+  it('a list with NO brand yields an empty page — the query is unanswerable, not broader', async () => {
     const h = brandHarness();
-    const scoped = md('am', { 'x-actor-brands': 'brand-a,brand-b' });
-    const page = await h.ctl.listPlayersByBrand({ brandId: 'brand-z' }, scoped);
+    const page = await h.ctl.listPlayersByBrand({ brandId: '' }, md('am'));
 
     expect(page).toEqual({ players: [], nextPageToken: '' });
     // The dangerous direction is widening: the query must not run unfiltered.
@@ -294,15 +309,7 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     expect(h.access.recordBulkRead).not.toHaveBeenCalled();
   });
 
-  it('a permitted brand is passed through', async () => {
-    const h = brandHarness();
-    await h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am', { 'x-actor-brands': 'brand-a,brand-b' }));
-    expect(h.players.listByBrand).toHaveBeenCalledWith('acc-1', 'brand-a', 50, null);
-  });
-
-  it('an absent brand scope defers exactly as the conversation reads do', async () => {
-    // Brands is roadmap 5.2. Until it populates the caller's set, the requested brand is used as-is —
-    // mirroring the existing deferral rather than inventing a stricter or looser third behaviour.
+  it('the requested brand is passed through, and the caller does not narrow it', async () => {
     const h = brandHarness();
     await h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'));
     expect(h.players.listByBrand).toHaveBeenCalledWith('acc-1', 'brand-a', 50, null);

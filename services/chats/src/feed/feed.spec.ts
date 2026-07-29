@@ -44,11 +44,10 @@ function fakePrisma(store: ReturnType<typeof conv>[]) {
   return { prisma: { forAccount } as unknown as PrismaService, findMany, forAccount };
 }
 
-function md(accountId = 'acc-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'op-1');
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 
@@ -61,7 +60,7 @@ describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 
     const { prisma } = fakePrisma([conv('a', 'brand-a'), conv('bb', 'brand-b')]);
     const res = await ctrlFor(prisma).getPlayerFeed(
       { playerId: 'p1', brandId: 'brand-a' },
-      md('acc-1', ['brand-a', 'brand-b']),
+      md('acc-1'),
     );
     expect(res.conversations.map((c) => c.brandId)).toEqual(['brand-a']);
   });
@@ -70,7 +69,7 @@ describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 
     const { prisma } = fakePrisma([conv('a', 'brand-a'), conv('bb', 'brand-b')]);
     const res = await ctrlFor(prisma).getPlayerFeed(
       { playerId: 'p1', brandId: 'brand-b' },
-      md('acc-1', ['brand-a', 'brand-b']),
+      md('acc-1'),
     );
     expect(res.conversations.map((c) => c.brandId)).toEqual(['brand-b']);
   });
@@ -79,7 +78,7 @@ describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 
     // The platform id names two customers, so there is no correct feed to return — only a lucky one.
     const { prisma, findMany } = fakePrisma([conv('a', 'brand-a')]);
     await expect(
-      ctrlFor(prisma).getPlayerFeed({ playerId: 'p1' }, md('acc-1', ['brand-a'])),
+      ctrlFor(prisma).getPlayerFeed({ playerId: 'p1' }, md('acc-1')),
     ).rejects.toMatchObject({ error: { code: 3 } });
     // Refused on shape, before any read — the answer cannot depend on what happens to be stored.
     expect(findMany).not.toHaveBeenCalled();
@@ -88,7 +87,7 @@ describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 
   it('an EMPTY brand counts as absent, not as "any brand"', async () => {
     const { prisma, findMany } = fakePrisma([conv('a', 'brand-a')]);
     await expect(
-      ctrlFor(prisma).getPlayerFeed({ playerId: 'p1', brandId: '' }, md('acc-1', ['brand-a'])),
+      ctrlFor(prisma).getPlayerFeed({ playerId: 'p1', brandId: '' }, md('acc-1')),
     ).rejects.toMatchObject({ error: { code: 3 } });
     expect(findMany).not.toHaveBeenCalled();
   });
@@ -97,7 +96,7 @@ describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 
     const { prisma, forAccount } = fakePrisma([conv('a', 'brand-a')]);
     await ctrlFor(prisma).getPlayerFeed(
       { playerId: 'p1', brandId: 'brand-a' },
-      md('acc-1', ['brand-a']),
+      md('acc-1'),
     );
     // Isolation is via forAccount, not a `where` the caller controls.
     expect(forAccount).toHaveBeenCalledWith('acc-1');
@@ -107,7 +106,7 @@ describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 
     const { prisma, findMany } = fakePrisma([conv('a', 'brand-a')]);
     const res = await ctrlFor(prisma).getPlayerFeed(
       { playerId: '', brandId: 'brand-a' },
-      md('acc-1', ['brand-a']),
+      md('acc-1'),
     );
     expect(res.conversations).toEqual([]);
     expect(findMany).not.toHaveBeenCalled();

@@ -32,13 +32,26 @@ export interface PlayerActor {
   effectiveRole: string;
   /** View-as active. The audit entry records the REAL caller plus this marker, never the previewed role. */
   underPreview: boolean;
-  /**
-   * Permitted brand ids. `undefined` = brand scope NOT YET POPULATED (Brands service is roadmap 5.2), in
-   * which case no brand restriction is applied — mirroring exactly what the conversation reads already do
-   * rather than inventing a third behaviour for the same unfinished dependency.
-   */
-  brands?: string[];
 }
+
+/**
+ * ⚠️ `PlayerActor.brands` and the `x-actor-brands` read were REMOVED on 2026-07-29 (ADR 0038 §1).
+ *
+ * They carried "the brand ids this caller may serve", read from a header the gateway set only when
+ * `claims.brands` was non-empty — and **nothing in the product ever populated that set**. So through
+ * four phases the header was never sent, the field was always `undefined`, and the intersection in
+ * `resolveListBrand` below could not fire.
+ *
+ * There is ONE support department: the same people handle every brand in one queue, so a brand never
+ * decides who may see what. Brand is part of a PLAYER'S IDENTITY (feature 020) and a FILTER a caller
+ * may ask for. It is not a permission.
+ *
+ * **Why this comment exists rather than a silent deletion.** Feature 020's cleanup removed the
+ * gateway's sender, `ActorContext.brands` in `chats` and its eight call sites — and missed THIS file
+ * entirely, because the search followed call chains out from where the symptom was noticed instead of
+ * enumerating services. Roadmap 5.2 then claimed the machinery was gone while one service still read
+ * it. `tests/data-model/no-brand-scope-remnants.spec.ts` now fails if any of it comes back.
+ */
 
 function readStr(md: Metadata | undefined, key: string): string {
   const raw: MetadataValue | undefined = md?.get?.(key)?.[0];
@@ -62,8 +75,6 @@ export function readPlayerActor(md: Metadata | undefined): PlayerActor {
   if (!accountId) throw forbidden();
 
   const permsRaw = readStr(md, 'x-actor-permissions');
-  const brandsRaw = readStr(md, 'x-actor-brands');
-  const brands = brandsRaw ? brandsRaw.split(',').filter(Boolean) : undefined;
   return {
     accountId,
     userId: readStr(md, 'x-actor-user-id'),
@@ -72,24 +83,26 @@ export function readPlayerActor(md: Metadata | undefined): PlayerActor {
     // here would move a privilege decision into a metadata reader.
     effectiveRole: readStr(md, 'x-actor-effective-role'),
     underPreview: readStr(md, 'x-is-preview') === 'true',
-    ...(brands ? { brands } : {}),
   };
 }
 
 /**
- * The brand a list may read, intersected with the caller's permitted set.
+ * The brand a list reads — a **FILTER, never a scope**.
  *
- * `null` means **an empty page** — never "no restriction". That direction is the whole point: a brand the
- * caller may not serve must yield nothing, and the dangerous failure here is the widening one, where a
- * request for one brand quietly becomes a request for every brand.
+ * > A filter narrows what the caller ASKED FOR. A scope narrows what they are ALLOWED to ask for.
+ * > Only the first exists in this product (ADR 0038 §1).
  *
- * When the caller's brand scope is not yet populated (`brands` undefined) the requested brand is used
- * as-is, which is precisely what the conversation reads do while the Brands service is still roadmap 5.2.
- * Mirroring that deferral rather than inventing a stricter or looser one keeps the two paths answerable
- * with one sentence.
+ * A player is identified by `(account_id, brand_id, player_id)` (feature 020), so a list without a
+ * brand is not a broader query — it is an unanswerable one. `null` therefore means **an empty page**,
+ * never "no restriction": the dangerous direction here is the widening one, where a request missing
+ * its brand quietly becomes a request for every brand.
+ *
+ * This kept the same shape as `resolveBrandIn` in `services/chats/src/security/actor-context.ts`
+ * after both lost their brand-scope intersection — two paths answerable with one sentence.
+ *
+ * ⚠️ It no longer takes the actor, and that is deliberate rather than tidying: a signature that still
+ * accepted one would keep suggesting the caller's identity narrows the result. It does not.
  */
-export function resolveListBrand(actor: PlayerActor, requestedBrandId: string): string | null {
-  if (!requestedBrandId) return null;
-  if (!actor.brands) return requestedBrandId;
-  return actor.brands.includes(requestedBrandId) ? requestedBrandId : null;
+export function resolveListBrand(requestedBrandId: string): string | null {
+  return requestedBrandId ? requestedBrandId : null;
 }

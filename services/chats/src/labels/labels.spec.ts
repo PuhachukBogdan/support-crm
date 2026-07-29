@@ -54,11 +54,10 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   };
 }
 
-function md(accountId = 'acc-1', brands?: string[]): Metadata {
+function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
   m.set('x-actor-user-id', 'u1');
-  if (brands) m.set('x-actor-brands', brands.join(','));
   return m;
 }
 
@@ -69,8 +68,8 @@ describe('Labels — attach / detach idempotency (SC-006)', () => {
   it('attach upserts the link, so attaching twice is a no-op', async () => {
     const { prisma, conversationLabel } = fakePrisma();
     const ctrl = build(prisma);
-    await ctrl.attachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1', ['brand-a']));
-    await ctrl.attachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1', ['brand-a']));
+    await ctrl.attachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1'));
+    await ctrl.attachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1'));
 
     expect(conversationLabel.upsert).toHaveBeenCalledTimes(2);
     const call = conversationLabel.upsert.mock.calls[0][0] as Record<string, unknown>;
@@ -83,7 +82,7 @@ describe('Labels — attach / detach idempotency (SC-006)', () => {
       linkDeleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     });
     await expect(
-      build(prisma).detachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1', ['brand-a'])),
+      build(prisma).detachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1')),
     ).resolves.toEqual({ ok: true });
     expect(conversationLabel.deleteMany).toHaveBeenCalledWith({
       where: { conversation_id: 'c1', label_id: 'l1' },
@@ -105,7 +104,7 @@ describe('Labels — scoping and access', () => {
     await expect(
       build(prisma).attachLabel(
         { conversationId: 'c1', labelId: 'foreign-label' },
-        md('acc-1', ['brand-a']),
+        md('acc-1'),
       ),
     ).rejects.toBeInstanceOf(RpcException);
     expect(conversationLabel.upsert).not.toHaveBeenCalled();

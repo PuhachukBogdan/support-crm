@@ -140,9 +140,11 @@ export class PlayerReadController {
      */
     assertCanMassExport(actor.effectiveRole);
 
-    const brandId = resolveListBrand(actor, String(req?.brandId ?? ''));
-    // A brand the caller may not serve is an EMPTY PAGE, never a wider result. The dangerous direction here
-    // is widening: a request for one brand quietly becoming a request for all of them.
+    const brandId = resolveListBrand(String(req?.brandId ?? ''));
+    // A list without a brand is an EMPTY PAGE, never a wider result. A player is identified by
+    // (account_id, brand_id, player_id) — feature 020 — so a missing brand makes the query unanswerable,
+    // and the dangerous direction is the widening one: a request for one brand quietly becoming a request
+    // for all of them.
     if (!brandId) return { players: [], nextPageToken: '' };
 
     let cursor;

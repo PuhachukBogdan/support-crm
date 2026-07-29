@@ -255,3 +255,44 @@ model AuditEntry {
   @@index([account_id, actor_user_id, created_at]) // "what did this user do"
   @@index([account_id, target_ref, created_at]) // "what happened to this record" / "who accessed this player"
 }
+
+/// The OPERATOR's own appearance settings (feature 021, roadmap 5.6 — ADR 0035 §7).
+///
+/// ⚠️ NOT `Player.preferences_json`. That column is the CUSTOMER's preferences — VIP portfolio data
+/// about a real human being, tier `am_only`, masked from most roles. This table is an employee's own
+/// theme and font size: cosmetic, self-owned, readable by nobody else, gated by no permission. Two
+/// completely different things, named apart on purpose (spec 021 FR-022) — the roadmap-4.15 failure
+/// shape, where "custom attributes" existed on `Player` while the requirement meant `Conversation`.
+///
+/// ── ONE ROW PER KEY, and that is the load-bearing decision ─────────────────────────────────────
+/// A single `preferences_json` column IS the untyped bucket this feature exists to prevent:
+/// validation would live only in the service, and the database would accept whatever anything wrote.
+/// With a row per key the closed catalogue (libs/common/src/preferences) has a physical counterpart,
+/// a partial write is an upsert of exactly the named keys — so two browser tabs changing different
+/// settings cannot clobber each other without any locking — and a key retired from the catalogue is
+/// simply a row the reader ignores. Feature 018 already had to NARROW `custom_attributes_json`
+/// because one column holding three tiers of data could not be masked; a blob defers modelling
+/// rather than avoiding it.
+///
+/// ── Keyed by the authenticated person, not by `Operator` ───────────────────────────────────────
+/// The validated session carries the account and the auth user id, and `Operator.auth_user_id` is a
+/// soft reference this project never joins. Keying here costs no lookup on a read that will run on
+/// EVERY page render once 8.8 lands (Principle VII), and it works for a person who has no `Operator`
+/// row yet.
+///
+/// No row exists until the person sets something: reading returns catalogue defaults and creates
+/// nothing. There is deliberately no permission column, no scope column and no visibility column —
+/// if a preference could decide what a user may SEE, it belongs in RBAC (ADR 0035's hard boundary),
+/// and a column here is where someone would later put one.
+model OperatorUiPreference {
+  account_id   String
+  auth_user_id String // soft ref to auth.User.id — resolved from the session, never joined
+  key          String // a member of the closed catalogue; an unknown key is refused before the write
+  value        String // a member of that key's closed value set
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Every access is by (account_id, auth_user_id) prefix or by the full key. The primary-key index
+  // serves both; a second index here would be cargo.
+  @@id([account_id, auth_user_id, key])
+}

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import { stripComments } from '@crm/common';
 
 /**
  * ⚠️ Brand scope is REMOVED, not switched off (ADR 0038 §1) — and this guard exists because removing
@@ -99,50 +100,12 @@ function* walk(dir: string): Generator<string> {
 }
 
 /**
- * Remove `//` and block comments while PRESERVING string literals.
+ * The detector, extracted so the self-check below can exercise the pipeline it actually is.
  *
- * Naively deleting from `//` to end-of-line would truncate any line containing a `//` inside a string
- * — and a truncated line is a token this guard silently stops seeing. A false pass in a guard is worse
- * than no guard, so the scan walks the source rather than running a regex over it.
+ * `stripComments` moved to `@crm/common` an hour after this guard was written, when the feature-021
+ * boundary guard failed on its own comments in exactly the same way. Two copies of a detector is one
+ * copy that is wrong.
  */
-export function stripComments(src: string): string {
-  let out = '';
-  for (let i = 0; i < src.length; ) {
-    const c = src[i];
-    const next = src[i + 1];
-    if (c === '/' && next === '/') {
-      while (i < src.length && src[i] !== '\n') i++;
-      continue;
-    }
-    if (c === '/' && next === '*') {
-      i += 2;
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
-      i += 2;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      out += c;
-      i++;
-      while (i < src.length && src[i] !== c) {
-        if (src[i] === '\\') {
-          out += src[i] + (src[i + 1] ?? '');
-          i += 2;
-          continue;
-        }
-        out += src[i];
-        i++;
-      }
-      out += c;
-      i++;
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
-/** The detector, extracted so the self-check below can exercise the pipeline it actually is. */
 export function findRemnants(source: string): string[] {
   const code = stripComments(source);
   return FORBIDDEN.filter((f) => code.includes(f.token)).map((f) => f.token);

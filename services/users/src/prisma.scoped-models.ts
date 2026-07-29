@@ -24,4 +24,8 @@ export const SCOPED_MODELS = [
   // "not yours" and "does not exist" are the same query result rather than two branches a future
   // edit could separate (FR-011). The storage key's account prefix is legibility, NOT authorization.
   'Upload',
+  // Feature 021 (roadmap 5.6): the operator's own appearance settings. Cosmetic, but still tenant
+  // data — a person belongs to an account, and `forAccount` is what makes "not yours" and "does not
+  // exist" the same query result rather than two branches a later edit could separate.
+  'OperatorUiPreference',
 ] as const;

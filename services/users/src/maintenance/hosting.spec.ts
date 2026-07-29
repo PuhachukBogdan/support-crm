@@ -5,6 +5,10 @@ import { USERS_PACKAGE, USERS_PROTO } from '@crm/common';
 import { AppModule } from '../app.module';
 import { MaintenanceModule } from './maintenance.module';
 import { MaintenanceController } from './maintenance.controller';
+// Feature 021 (roadmap 5.6): the operator UI-preference surface — a NEW gRPC service in an EXISTING
+// package, which is the case most likely to be assumed rather than checked.
+import { UiPreferencesModule } from '../preferences/ui-preferences.module';
+import { UiPreferencesController } from '../preferences/ui-preferences.grpc.controller';
 
 const ROOT = resolve(__dirname, '..', '..', '..', '..');
 
@@ -124,5 +128,55 @@ describe('*** UsersReadService is served across two controllers, completely ***'
     const names = controllers.map((c) => (c as { name?: string })?.name ?? '');
     expect(names).toContain('PlayerReadController');
     expect(names).toContain('AuditReadController');
+  });
+});
+
+/**
+ * T025 (feature 021, roadmap 5.6) — **`OperatorUiPreferencesService` is SERVED, not merely written.**
+ *
+ * A NEW gRPC service in an EXISTING package: the case most likely to be assumed rather than checked,
+ * because "no new package entry is needed" sounds like nothing to verify. It is exactly what feature
+ * 015 got wrong live — `users` hosted only the health and ping packages, so a federated read failed
+ * against a service that was up, healthy and answering. All four links are asserted rather than
+ * reasoned about.
+ */
+describe('*** OperatorUiPreferencesService is hosted, not merely written ***', () => {
+  const proto = readFileSync(USERS_PROTO, 'utf8');
+
+  it('the service and both rpcs are declared in the proto the users server loads', () => {
+    expect(proto).toMatch(/service\s+OperatorUiPreferencesService\s*\{/);
+    expect(proto).toMatch(/rpc\s+GetOperatorUiPreferences\s*\(/);
+    expect(proto).toMatch(/rpc\s+UpdateOperatorUiPreferences\s*\(/);
+  });
+
+  it('its package is the one already hosted — verified, not assumed', () => {
+    const declared = /^\s*package\s+([\w.]+)\s*;/m.exec(proto)?.[1];
+    expect(declared).toBe(USERS_PACKAGE);
+  });
+
+  it('every declared rpc has a handler', () => {
+    // Derived from the proto, so a third rpc added to the contract with no handler fails here.
+    const src = readFileSync(
+      join(ROOT, 'services', 'users', 'src', 'preferences', 'ui-preferences.grpc.controller.ts'),
+      'utf8',
+    ).replace(/\s+/g, ' ');
+    const block = /service\s+OperatorUiPreferencesService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const declared = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
+
+    expect(declared.length).toBeGreaterThan(0); // the pattern found the block at all
+    const unhandled = declared.filter(
+      (rpc) => !src.includes(`@GrpcMethod('OperatorUiPreferencesService', '${rpc}')`),
+    );
+    expect(unhandled).toEqual([]);
+  });
+
+  it('the controller is registered in its module', () => {
+    const controllers = Reflect.getMetadata('controllers', UiPreferencesModule) as unknown[];
+    expect(controllers).toContain(UiPreferencesController);
+  });
+
+  it('the module is imported by the app module — the link that was missing in 015', () => {
+    const imports = Reflect.getMetadata('imports', AppModule) as unknown[];
+    expect(imports).toContain(UiPreferencesModule);
   });
 });

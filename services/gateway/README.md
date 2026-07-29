@@ -82,3 +82,27 @@ Full stack: `docker compose up` (see [`deploy/local/README.md`](../../deploy/loc
   every audit entry in the product recorded "no preview" regardless of the truth. The two newer headers
   were added **additively** rather than by repurposing `x-actor-role`, because changing a header's meaning
   is the kind of change nothing fails on.
+
+## `/me/ui-preferences` (feature 021, roadmap 5.6) — the only edge gated by NO permission
+
+`GET` and `PATCH`, forwarding to `OperatorUiPreferencesService` in `users`. The operator's own theme
+and font-size step. **Not** `Player.preferences_json`, which is customer data.
+
+- **`/me`, never `/operators/:id/…`** — the isolation guarantee is the ABSENCE of a parameter, not a
+  check. With `/me` there is no path segment that could name another person, so a later
+  `/operators/:id/ui-preferences` fails a structural test rather than passing review.
+- **`PATCH`, not `PUT`** — the body is a partial set of keys, and `PUT` would advertise whole-record
+  replacement. `PATCH` is in the guard's mutating set, which is what makes the view-as write-block
+  apply.
+- **Shape validation only.** Whether a key exists and whether a value is allowed is the owning
+  service's decision against the closed catalogue (Principle II). A second copy of those rules here is
+  the drift feature 017 found live, where two export vocabularies had already diverged. A spec asserts
+  this edge names no preference key at all.
+- **⚠️ Both routes carry `@ResolvesPermissions()` and no `@RequiresPermission`** — and that is the one
+  decision in the folder. The view-as write-block runs for every route with claims, so `PATCH` under a
+  preview is already refused here; but `req.effective` is populated only for routes with permission
+  metadata, and `x-is-preview` comes from exactly that. Without the decorator the owning service's
+  independent refusal becomes unreachable **with every test green**, because this tier already covers
+  the case. The decorator itself is pinned by a test, over a route list derived from the controller.
+- **Not "no authorization"**: the global AuthGuard still requires a session. What is absent is a
+  *permission* check, because no permission gates a person's own font size (ADR 0035's hard boundary).

@@ -18,6 +18,13 @@ export * from './uploads';
 // Feature 017 (roadmap 4.10): the export scope catalogue + the CSV serializer — shared by the
 // gateway (scope validation, permission key) and chats (production).
 export * from './exports';
+// Shared infrastructure for STRUCTURAL GUARDS (not product code, not run by any service). Extracted
+// on 2026-07-29 when two guards written the same afternoon both needed comment-stripping: a guard
+// that bans a token from the source must not ban it from the comment that documents its removal.
+export * from './testing';
+// Feature 021 (roadmap 5.6): the operator UI-preference catalogue — the OPERATOR's appearance
+// settings, never `Player.preferences_json` (the customer's VIP portfolio data, tier `am_only`).
+export * from './preferences';
 // Feature 018 (roadmap 5.1): keyset paging primitives. ⚠️ `services/chats/src/shared/cursor.ts` is a
 // second, service-local copy of the same shape that predates this one and was deliberately not
 // migrated (research R6) — a pointer sits in both files.

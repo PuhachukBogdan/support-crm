@@ -112,6 +112,11 @@ message Player {
   // later: no producer has ever written it, because nothing served this message until 5.1.
   string custom_attributes_json = 7;
   // ── feature 018 (roadmap 5.1): the split that makes the message maskable ──────────────────────
+  // ⚠️ THE CUSTOMER's preferences — VIP portfolio data about a real human being. NOT an operator's
+  // UI settings: those are `OperatorUiPreferencesService` at the end of this file (feature 021), and
+  // the two are named apart so a search for one never returns the other. Roadmap 4.15's gap survived
+  // seven features because "custom attributes" existed on `Player` while the requirement meant
+  // `Conversation` — the name being taken made everyone assume the thing was built.
   string preferences_json = 8;      // tier: am_only
   string portfolio_json = 9;        // tier: am_only
   // The brand this record belongs to — part of its IDENTITY, never part of an access decision
@@ -278,4 +283,65 @@ message PurgeResult {
   int32 purged = 1;                 // object AND row both gone
   int32 object_missing = 2;         // object already absent, row removed anyway — NORMAL, not an error
   int32 failed = 3;                 // storage refused; the row stays and the next tick retries
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Feature 021 (roadmap 5.6, ADR 0035 §7) — the OPERATOR's own appearance settings.
+//
+// ⚠️ NOT `Player.preferences_json` (field 8 above). That field is the CUSTOMER's preferences — VIP
+// portfolio data about a real human being, tier `am_only`, masked from most roles. THIS service
+// carries an employee's theme and font size: cosmetic, self-owned, readable by nobody else.
+//
+// Two completely different things, and they are named apart on purpose: a search for
+// `preferences_json` must never return this service, and a search for `UiPreference` must never
+// return the customer's field. That is the roadmap-4.15 failure shape — "custom attributes" existed
+// on `Player` while the requirement meant `Conversation`, and the name being taken is what made
+// everyone assume the thing was built.
+//
+// A SEPARATE service rather than two rpcs on `UsersReadService`: a write on a service named *Read*
+// is a lie in the contract, and this product has twice paid for names that stopped matching their
+// contents. New service, EXISTING package — additive, so `buf breaking` stays clean, and no new
+// hosting entry is needed. "No new entry needed" is precisely the assumption feature 015 got wrong
+// live, so `hosting.spec.ts` asserts all four links rather than reasoning about them.
+//
+// NO PERMISSION gates these operations and none is created for them. ADR 0035's hard boundary:
+// hiding something through a preference is not a restriction, and revealing something through a
+// preference cannot grant access. The metadata read is `x-actor-account-id`, `x-actor-user-id` and
+// `x-is-preview` — deliberately NOT `x-actor-permissions` (nothing to check) and NOT
+// `x-actor-effective-role` (nothing here is masked, and reading a role would be the first step
+// toward a preference that depends on one).
+//
+// NOT AUDITED, by decision (0019/SEC-29 records sensitive actions; a theme toggle is not one, and
+// ~58 agents toggling several times a day would bury the entries that matter).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service OperatorUiPreferencesService {
+  rpc GetOperatorUiPreferences(GetOperatorUiPreferencesRequest) returns (OperatorUiPreferences);
+  rpc UpdateOperatorUiPreferences(UpdateOperatorUiPreferencesRequest) returns (OperatorUiPreferences);
+}
+
+// Deliberately EMPTY. The subject is the authenticated caller, taken from the actor metadata. Adding
+// a subject field here would be adding the very parameter that makes reading someone else's settings
+// possible — the isolation guarantee is the ABSENCE of it, not a check.
+message GetOperatorUiPreferencesRequest {}
+
+message UpdateOperatorUiPreferencesRequest {
+  // The keys to change, and ONLY those. Keys not named keep their stored value, or their default if
+  // none was stored. An empty map is REFUSED — an empty change is a caller defect, not a no-op to
+  // absorb silently.
+  //
+  // A map rather than typed fields: a field per preference would put the catalogue in the contract,
+  // so adding a key would need a regenerate and a coordinated deploy — the opposite of the additive
+  // property the catalogue exists to have. The map's openness is closed on the other side, where
+  // every key and value is validated against `libs/common/src/preferences`.
+  map<string, string> values = 1;
+}
+
+message OperatorUiPreferences {
+  // ALWAYS the complete catalogue: stored values where they exist, system defaults where they do not.
+  // A caller never has to know a default, which is what keeps defaults from being copied into every
+  // client and drifting — feature 017 found two vocabularies that had already diverged.
+  //
+  // No masking here and therefore no absent-vs-blank distinction to preserve: every key is present
+  // with a real value, and an empty string is not a member of any key's allowed set.
+  map<string, string> values = 1;
 }

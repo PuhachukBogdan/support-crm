@@ -12,6 +12,10 @@ import { ExportsEdgeModule } from './exports/exports.module';
 // Feature 018 (roadmap 5.1): the players + operators read edge. Exists so the SECOND authorization tier
 // is exercised by something real and so the point can be validated live — no screen, no write.
 import { PlayersEdgeModule } from './players/players.module';
+// Feature 021 (roadmap 5.6): `/me/ui-preferences` — the OPERATOR's own theme and font size. The only
+// edge in this list gated by NO permission, deliberately: a preference may never decide what someone
+// is allowed to see (ADR 0035's hard boundary). NOT `Player.preferences_json`.
+import { UiPreferencesEdgeModule } from './preferences/ui-preferences.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -36,6 +40,7 @@ import { PlayersEdgeModule } from './players/players.module';
     // Feature 017 (roadmap 4.10): the exports edge. Issues no links and holds no storage config.
     ExportsEdgeModule,
     PlayersEdgeModule,
+    UiPreferencesEdgeModule,
   ],
 })
 export class AppModule {}

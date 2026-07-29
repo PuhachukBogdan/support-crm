@@ -252,3 +252,53 @@ The narrowing is structural on four axes, all asserted by
 - **`Upload.expires_at`** is the predicate and lives here, on the row the credential holder owns, so
   deletion never depends on another service being reachable. The export record in `chats_db` carries the
   same computed value for the product-facing answer; both derive from one catalogue constant.
+
+## The operator's own UI preferences (feature 021, roadmap 5.6) — the surface with NO permission
+
+Theme mode and font-size step, per person, so settings follow someone between machines. Browser-local
+storage cannot do that; the cookie at 8.8 is only the server-rendering mirror, never the record.
+
+**⚠️ NOT `Player.preferences_json`.** That column is the **customer's** preferences — VIP portfolio
+data about a real human being, tier `am_only`, masked from most roles. This table is an employee's own
+appearance: cosmetic, self-owned, readable by nobody else. Two different things, named apart so a grep
+for one never returns the other (`src/preferences/boundary.spec.ts` enforces it in both directions).
+The 4.15 gap survived seven features because "custom attributes" existed on `Player` while the
+requirement meant `Conversation`, and the name being taken made everyone assume the thing was built.
+
+- **gRPC surface** (additive, in the owned contract): `OperatorUiPreferencesService.GetOperatorUiPreferences`
+  / `UpdateOperatorUiPreferences`. A **separate** service, not two rpcs on `UsersReadService` — a write
+  on a service named *Read* is a lie in the contract. `src/maintenance/hosting.spec.ts` asserts all four
+  hosting links, because a new service in an existing package is the case most likely to be assumed.
+- **Catalogue**: [`libs/common/src/preferences/ui-preferences.ts`](../../libs/common/src/preferences/ui-preferences.ts)
+  — closed and additive, the sixth in this product. Adding a key is a row there and nothing else: no
+  migration, no backfill, no change to the read path.
+- **Table**: `OperatorUiPreference`, keyed `(account_id, auth_user_id, key)`. See
+  [`prisma/schema.prisma`](prisma/schema.prisma).
+
+### Gotchas
+
+- **One row per key, deliberately.** A JSON column *is* the untyped bucket this feature exists to
+  prevent — validation would live only here while the database accepted anything. Per-key rows also
+  make a partial write an upsert, so two tabs changing different settings cannot clobber each other
+  with no locking anywhere.
+- **A read creates nothing.** Absence is answered from the catalogue. Materialising a row on first
+  read would mean every page render writes.
+- **Keyed by the authenticated person, not by `Operator`.** The session already carries account and
+  auth user id, and `Operator.auth_user_id` is a soft ref this project never joins. It also works
+  before an `Operator` row exists.
+- **A stored key or value the catalogue no longer defines is IGNORED on read**, never an error —
+  otherwise retiring a key or narrowing a value set would be a data migration.
+- **Validate the whole patch, then write.** A partially applied write is the worst outcome available:
+  the caller gets an error and the record changed anyway.
+- **Refusals name the key and never the value.** Echoing arbitrary submitted input into a message is
+  how it reaches a log (Principle IV).
+- **No permission, and none may be added.** ADR 0035's hard boundary: hiding something through a
+  preference is not a restriction, and revealing something through one cannot grant access. The
+  boundary spec asserts this path reads no permission set and no role.
+- **Not audited, on purpose.** 0019/SEC-29 records sensitive actions; ~58 agents toggling a theme
+  several times a day would bury the entries that matter. The reason is stated at the write path so
+  the absence does not read as an oversight.
+- **⚠️ The REST routes must keep `@ResolvesPermissions()`.** Without it the gateway never populates
+  `req.effective`, `x-is-preview` is never forwarded, and this service's preview refusal becomes
+  unreachable — with every test still green, because the gateway's own write-block already covers the
+  case. Pinned by `services/gateway/src/preferences/ui-preferences.spec.ts`.

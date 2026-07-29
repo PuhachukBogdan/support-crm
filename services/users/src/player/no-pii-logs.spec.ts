@@ -3,7 +3,7 @@ import { join, resolve, sep } from 'node:path';
 import { Metadata } from '@grpc/grpc-js';
 import { encodeCursor } from '@crm/common';
 import { PlayerReadController } from './player.grpc.controller';
-import type { PlayerWithBrands } from './player.repository';
+import type { PlayerRow } from './player.repository';
 
 /**
  * T050 (feature 018, roadmap 5.1) — **SEC-26 / Principle IV: no customer value reaches a log.**
@@ -32,7 +32,8 @@ const SENSITIVE = {
   custom: 'SECRET-affiliate-7',
 };
 
-const ROW: PlayerWithBrands = {
+const ROW: PlayerRow = {
+  brand_id: 'brand-a',
   player_id: 'ply-1',
   account_id: 'acc-1',
   vip: true,
@@ -46,7 +47,6 @@ const ROW: PlayerWithBrands = {
   gr8_stale: false,
   created_at: new Date('2026-07-28T08:00:00.000Z'),
   updated_at: new Date('2026-07-28T08:30:00.000Z'),
-  brands: [{ player_id: 'ply-1', brand_id: 'brand-a' }],
 };
 
 function md(role: string, over: Record<string, string> = {}): Metadata {
@@ -59,7 +59,7 @@ function md(role: string, over: Record<string, string> = {}): Metadata {
   return m;
 }
 
-function harness(opts: { row?: PlayerWithBrands | null; auditThrows?: boolean } = {}) {
+function harness(opts: { row?: PlayerRow | null; auditThrows?: boolean } = {}) {
   const row = opts.row === undefined ? ROW : opts.row;
   const access = {
     recordView: jest.fn(async () => {
@@ -70,7 +70,7 @@ function harness(opts: { row?: PlayerWithBrands | null; auditThrows?: boolean } 
     }),
   };
   const players = {
-    getPlayerById: jest.fn(async () => row),
+    getPlayer: jest.fn(async () => row),
     listByBrand: jest.fn(async () => ({ rows: row ? [row] : [], nextCursor: null })),
   };
   const operators = {
@@ -131,7 +131,7 @@ describe('*** a successful read writes no customer value anywhere ***', () => {
     'GetPlayer as %s leaks nothing',
     async (role) => {
       const h = harness();
-      const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-1' }, md(role)));
+      const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role)));
       for (const value of values) expect(output).not.toContain(value);
       expect(output).not.toMatch(/SECRET/);
     },
@@ -159,7 +159,7 @@ describe('*** a successful read writes no customer value anywhere ***', () => {
 describe('*** the REFUSAL paths are the ones that leak, and these do not ***', () => {
   it('a record that does not exist logs no identifier beyond what the caller sent', async () => {
     const h = harness({ row: null });
-    const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-missing' }, md('am')));
+    const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-missing', brandId: 'brand-a' }, md('am')));
     expect(output).not.toMatch(/SECRET/);
   });
 
@@ -187,10 +187,10 @@ describe('*** the REFUSAL paths are the ones that leak, and these do not ***', (
     // The most dangerous shape: the read has already happened, the row is in hand, and the error branch is
     // the natural place to dump context "for diagnosis".
     const h = harness({ auditThrows: true });
-    const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-1' }, md('am')));
+    const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am')));
     expect(output).not.toMatch(/SECRET/);
     // And the refusal is real — otherwise this test passes on a path that silently returned the data.
-    await expect(h.ctl.getPlayer({ playerId: 'ply-1' }, md('am'))).rejects.toBeDefined();
+    await expect(h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am'))).rejects.toBeDefined();
   });
 });
 

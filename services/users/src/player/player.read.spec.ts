@@ -1,6 +1,6 @@
 import { Metadata } from '@grpc/grpc-js';
 import { PlayerReadController } from './player.grpc.controller';
-import type { PlayerWithBrands } from './player.repository';
+import type { PlayerRow } from './player.repository';
 
 /**
  * T020 / T021 / T025 (feature 018, US1) — **masking is real, per role, and happens in the right ORDER.**
@@ -16,7 +16,8 @@ import type { PlayerWithBrands } from './player.repository';
  *    **wire** layer; asserting them on the masked row would be testing the wrong thing, and would pass
  *    while a spread leaked.
  */
-const ROW: PlayerWithBrands = {
+const ROW: PlayerRow = {
+  brand_id: 'brand-a',
   player_id: 'ply-1',
   account_id: 'acc-1',
   vip: true,
@@ -30,10 +31,6 @@ const ROW: PlayerWithBrands = {
   gr8_stale: false,
   created_at: new Date('2026-07-28T08:00:00.000Z'),
   updated_at: new Date('2026-07-28T08:30:00.000Z'),
-  brands: [
-    { player_id: 'ply-1', brand_id: 'brand-a' },
-    { player_id: 'ply-1', brand_id: 'brand-b' },
-  ],
 };
 
 function md(role: string, over: Record<string, string> = {}): Metadata {
@@ -54,7 +51,7 @@ interface AuditCall {
   underPreview: boolean;
 }
 
-function harness(row: PlayerWithBrands | null = ROW) {
+function harness(row: PlayerRow | null = ROW) {
   const views: AuditCall[] = [];
   const bulk: AuditCall[] = [];
   const access = {
@@ -70,7 +67,7 @@ function harness(row: PlayerWithBrands | null = ROW) {
     ),
   };
   const players = {
-    getPlayerById: jest.fn(async () => row),
+    getPlayer: jest.fn(async () => row),
     listByBrand: jest.fn(async () => ({ rows: row ? [row] : [], nextCursor: null })),
   };
   const operators = { getById: jest.fn(async () => null) };
@@ -86,7 +83,7 @@ function harness(row: PlayerWithBrands | null = ROW) {
 describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () => {
   it('each tier is a superset of the one below, by KEYS not values', async () => {
     const present = async (role: string) => {
-      const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md(role))) as Record<string, unknown>;
+      const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role))) as Record<string, unknown>;
       // "Present" means a non-default value: a masked-away field lands as proto3's default, so the honest
       // question at the wire layer is which fields carry data.
       return new Set(
@@ -110,7 +107,7 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
   });
 
   it('a linear role sees no operational and no portfolio field', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('support_agent'))) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('support_agent'))) as Record<string, unknown>;
     // ⚠️ These assertions used to read `.toBe('')` / `.toBe(false)` — they pinned the DEFECT.
     // 011's FR-014 requires a withheld field to be ABSENT from the serialized response; the message
     // was manufacturing proto3 defaults instead, so every key reached the client blanked. Fixed
@@ -126,7 +123,7 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
   });
 
   it('an operational role sees operational fields and NOT the portfolio', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('teamlead'))) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('teamlead'))) as Record<string, unknown>;
     expect(wire.vip).toBe(true);
     expect(wire.segment).toBe('high-roller');
     expect(wire.customAttributesJson).toContain('affiliate-7');
@@ -137,14 +134,14 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
   });
 
   it('an account manager sees the portfolio', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('am'))) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am'))) as Record<string, unknown>;
     expect(wire.amNotes).toBe('prefers calls after 18:00');
     expect(wire.preferencesJson).toContain('telegram');
     expect(wire.portfolioJson).toContain('gold');
   });
 
   it('an unknown role is treated as the most restricted, never as privileged', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('role_invented_next_year'))) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('role_invented_next_year'))) as Record<string, unknown>;
     for (const k of ['vip', 'segment', 'amNotes']) {
       expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
     }
@@ -156,7 +153,7 @@ describe('*** T021: the ROW is masked before the WIRE message is built ***', () 
     // The ordering proof. Masking runs on the row's own field names, so building the message first and
     // masking it afterwards would need a second field→tier map keyed by wire names — two maps obliged to
     // agree, which is the defect shape feature 017 found already broken between two filter vocabularies.
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('vip_support'))) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('vip_support'))) as Record<string, unknown>;
     for (const k of ['preferencesJson', 'portfolioJson', 'amNotes']) {
       expect(Object.prototype.hasOwnProperty.call(wire, k)).toBe(false);
     }
@@ -176,7 +173,7 @@ describe('*** the GR8 snapshot never reaches the WIRE — asserted at the right 
        * the actual guarantee. A row-layer assertion would fail for the broad roles and would tell us
        * nothing about what a client receives.
        */
-      const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md(role))) as Record<string, unknown>;
+      const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role))) as Record<string, unknown>;
       expect(Object.keys(wire).some((k) => /gr8/i.test(k))).toBe(false);
       const serialized = JSON.stringify(wire);
       expect(serialized).not.toContain('Smith');
@@ -190,17 +187,32 @@ describe('*** account_id survives — it is mapped OUTSIDE masking ***', () => {
     // It is unclassified, so masking drops it for EVERY role including the broadest. Reading it from the
     // masked row would have made this field empty for everybody — the response carrying no account at all.
     // It comes from the caller's own context instead, because that is what it is: context, not customer data.
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md(role))) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role))) as Record<string, unknown>;
     expect(wire.accountId).toBe('acc-1');
   });
 });
 
-describe('brand ids are derived from the classified relation', () => {
-  it('every brand the player belongs to is listed', async () => {
-    // The policy classifies `brands` (the relation); `brand_ids` is not a classified field at all, so the
-    // wire list has to be derived from whatever survived masking.
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md('support_agent'))) as Record<string, unknown>;
-    expect(wire.brandIds).toEqual(['brand-a', 'brand-b']);
+describe('the brand on the wire is the record’s own — feature 020', () => {
+  it('a record reports exactly ONE brand: the one it belongs to', async () => {
+    // ⚠️ This test previously asserted `brandIds === ['brand-a', 'brand-b']` — one record carrying two
+    // brands, derived from the `brands` relation. That WAS the defect: GR8's player_id is unique only
+    // within a brand, so a row spanning two brands is two customers merged into one. `brand_id` is part
+    // of the identity now, and `brandIds` is deprecated, carrying the single brand for consumers that
+    // still read it.
+    const wire = (await harness().ctl.getPlayer(
+      { playerId: 'ply-1', brandId: 'brand-a' },
+      md('support_agent'),
+    )) as Record<string, unknown>;
+    expect(wire.brandId).toBe('brand-a');
+    expect(wire.brandIds).toEqual(['brand-a']);
+  });
+
+  it('a request without a brand is refused as ambiguous, never answered with a guess', async () => {
+    // The refusal FR-003 asks for: the platform id alone names two customers, so there is no correct
+    // record to return — only a lucky one.
+    await expect(
+      harness().ctl.getPlayer({ playerId: 'ply-1' } as { playerId: string }, md('support_agent')),
+    ).rejects.toMatchObject({ error: { code: 3 } });
   });
 });
 
@@ -209,7 +221,7 @@ describe('*** T025: view-as masks as the PREVIEWED role and audits the REAL call
     // The whole point of view-as. The resolver puts the previewed role in the effective role, so the owner
     // previewing an agent sees what the agent sees.
     const wire = (await harness().ctl.getPlayer(
-      { playerId: 'ply-1' },
+      { playerId: 'ply-1', brandId: 'brand-a' },
       md('support_agent', { 'x-is-preview': 'true' }),
     )) as Record<string, unknown>;
     for (const k of ['vip', 'amNotes']) {
@@ -219,7 +231,7 @@ describe('*** T025: view-as masks as the PREVIEWED role and audits the REAL call
 
   it('the audit entry names the real caller plus the marker, never the previewed role', async () => {
     const h = harness();
-    await h.ctl.getPlayer({ playerId: 'ply-1' }, md('am', { 'x-is-preview': 'true' }));
+    await h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am', { 'x-is-preview': 'true' }));
     expect(h.views).toHaveLength(1);
     expect(h.views[0]!.actorUserId).toBe('user-1');
     expect(h.views[0]!.underPreview).toBe(true);

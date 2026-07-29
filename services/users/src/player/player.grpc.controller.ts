@@ -8,10 +8,13 @@ import { ContactViewAuditService } from './contact-view-audit.service';
 import { PlayerAccessGuard } from './player.guard';
 import { RequiresPlayerPermission } from './requires-player-permission.decorator';
 import { assertCanMassExport, maskPlayer } from './player.masking';
-import { PlayerRepository, type PlayerWithBrands } from './player.repository';
+import { PlayerRepository, type PlayerRow } from './player.repository';
 import { readPlayerActor, resolveListBrand, type PlayerActor } from './actor';
+import { playerIdentity } from './player.identity';
 
 interface GetPlayerWire {
+  /** Required since feature 020 — a platform id alone names two customers, not one. */
+  brandId?: string;
   playerId?: string;
 }
 interface GetOperatorWire {
@@ -56,10 +59,30 @@ export class PlayerReadController {
   @RequiresPlayerPermission('crm.contact.view')
   async getPlayer(req: GetPlayerWire, metadata: Metadata) {
     const actor = readPlayerActor(metadata);
-    const row = (await this.players.getPlayerById(
-      actor.accountId,
-      String(req?.playerId ?? ''),
-    )) as PlayerWithBrands | null;
+
+    /**
+     * ⚠️ The brand is REQUIRED and its absence is refused, not defaulted (feature 020, FR-003).
+     *
+     * GR8's `player_id` is unique only within a brand, so a request naming only a platform id does
+     * not identify a customer — it names two. Answering it with "the first match" is how one person's
+     * card came to show another's data. `playerIdentity` cannot be built from a partial triple, so the
+     * refusal happens here rather than deep in a query.
+     */
+    let identity;
+    try {
+      identity = playerIdentity({
+        accountId: actor.accountId,
+        brandId: String(req?.brandId ?? ''),
+        playerId: String(req?.playerId ?? ''),
+      });
+    } catch {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'brandId and playerId are both required',
+      });
+    }
+
+    const row = (await this.players.getPlayer(identity)) as PlayerRow | null;
 
     // Unknown id and another account's id land here identically — one answer, one message, no oracle.
     if (!row) throw notFound();
@@ -80,7 +103,8 @@ export class PlayerReadController {
     await this.access.recordView(
       actor.accountId,
       actor.userId,
-      row.player_id,
+      // The full subject — the trail has to say WHICH customer, and a platform id alone no longer does.
+      { brandId: row.brand_id, playerId: row.player_id },
       actor.effectiveRole,
       actor.underPreview,
     );
@@ -218,14 +242,21 @@ const notFound = () => new RpcException({ code: GrpcStatus.NOT_FOUND, message: '
  */
 function toPlayerWire(
   masked: Partial<Record<string, unknown>>,
-  row: PlayerWithBrands,
+  row: PlayerRow,
   actor: PlayerActor,
 ) {
-  const brands = masked.brands as PlayerWithBrands['brands'] | undefined;
   const out: Record<string, unknown> = {
     playerId: (masked.player_id as string) ?? row.player_id,
     accountId: actor.accountId, // rule 2
-    brandIds: (brands ?? []).map((b) => b.brand_id), // rule 3
+    /**
+     * Rule 3, rewritten by feature 020. `brand_id` is now a COLUMN on the row and part of its
+     * identity, so it is read straight from the row rather than derived from a brand-union edge that
+     * no longer exists. `brandIds` keeps its field number and its repeated type — the contract
+     * deprecates it in place rather than narrowing it, because consumers already read it — and it
+     * carries the one brand this record belongs to.
+     */
+    brandId: row.brand_id,
+    brandIds: [row.brand_id],
     // No gr8 field exists on this message, by design — see rule 1.
   };
 

@@ -30,8 +30,8 @@ function md(account = 'acc-1'): Metadata {
 function harness() {
   const access = { recordView: jest.fn(async () => undefined), recordBulkRead: jest.fn(async () => undefined) };
   const players = {
-    getPlayerById: jest.fn(async (accountId: string, playerId: string) =>
-      accountId === 'acc-1' && playerId === 'ply-1'
+    getPlayer: jest.fn(async (id: { accountId: string; brandId: string; playerId: string }) =>
+      id.accountId === 'acc-1' && id.playerId === 'ply-1'
         ? {
             player_id: 'ply-1',
             account_id: 'acc-1',
@@ -78,41 +78,76 @@ const failure = async (p: Promise<unknown>): Promise<{ code?: number; message?: 
 
 describe('*** GetPlayer: unknown and not-yours are byte-identical ***', () => {
   it('the owner reads their own record', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1' }, md())) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())) as Record<string, unknown>;
     expect(wire.playerId).toBe('ply-1');
   });
 
   it.each([
     ['an unknown id', 'ply-nope', 'acc-1'],
     ['a real id from ANOTHER account', 'ply-1', 'acc-2'],
-    ['an empty id', '', 'acc-1'],
   ])('%s → the same NOT_FOUND, status and message', async (_label, id, account) => {
-    const res = await failure(harness().ctl.getPlayer({ playerId: id }, md(account)));
+    const res = await failure(harness().ctl.getPlayer({ playerId: id, brandId: 'brand-a' }, md(account)));
     expect(res.code).toBe(GrpcStatus.NOT_FOUND);
     expect(res.message).toBe('not found');
   });
 
+  /**
+   * ⚠️ CHANGED DELIBERATELY BY FEATURE 020 — an empty identifier is now INVALID_ARGUMENT, not NOT_FOUND.
+   *
+   * It used to be grouped with the two cases above so that all three answered identically. That
+   * grouping conflated two different properties. **The one that matters is preserved untouched**: an
+   * unknown id and another account's id remain byte-identical, so nothing tells a caller which records
+   * exist — that is the oracle, and it is still closed (the two cases above).
+   *
+   * An EMPTY id is not a record at all; it is a malformed request, judged on the request's SHAPE before
+   * anything is read. It can reveal nothing about which ids exist, because no id was supplied. Reporting
+   * it as "not found" was, if anything, the less honest answer.
+   */
+  it.each([
+    ['an empty player id', { playerId: '', brandId: 'brand-a' }],
+    ['a missing brand', { playerId: 'ply-1' } as { playerId: string; brandId?: string }],
+    ['an empty brand', { playerId: 'ply-1', brandId: '' }],
+  ])('%s → INVALID_ARGUMENT, evaluated before any read', async (_label, req) => {
+    const h = harness();
+    const res = await failure(h.ctl.getPlayer(req as { playerId: string }, md()));
+    expect(res.code).toBe(GrpcStatus.INVALID_ARGUMENT);
+    // Refused on shape alone — the repository was never asked, so the answer cannot depend on data.
+    expect(h.players.getPlayer).not.toHaveBeenCalled();
+  });
+
+  it('the refusal names the parameters and never the id that was sent', async () => {
+    const res = await failure(
+      harness().ctl.getPlayer({ playerId: 'seed-player-001' } as { playerId: string }, md()),
+    );
+    expect(res.message).toContain('brandId');
+    expect(res.message).not.toContain('seed-player-001');
+  });
+
   it('the account always goes INTO the query — it is never compared afterwards', async () => {
     const h = harness();
-    await h.ctl.getPlayer({ playerId: 'ply-1' }, md());
-    expect(h.players.getPlayerById).toHaveBeenCalledWith('acc-1', 'ply-1');
+    await h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md());
+    expect(h.players.getPlayer).toHaveBeenCalledWith({
+      accountId: 'acc-1',
+      brandId: 'brand-a',
+      playerId: 'ply-1',
+    });
   });
 
   it('a missing account context is refused before any read (Principle I)', async () => {
     const h = harness();
     const bare = new Metadata();
     bare.set('x-actor-user-id', 'user-1');
-    expect((await failure(h.ctl.getPlayer({ playerId: 'ply-1' }, bare))).code).toBe(
+    expect((await failure(h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, bare))).code).toBe(
       GrpcStatus.PERMISSION_DENIED,
     );
-    expect(h.players.getPlayerById).not.toHaveBeenCalled();
+    expect(h.players.getPlayer).not.toHaveBeenCalled();
   });
 
   it('*** a 404 writes NO audit entry — nothing was revealed ***', async () => {
     // The property feature 015's live run recorded for deletions, applied here: no entry filed for a reveal
     // that never happened. Auditing a miss would also make the trail an enumeration oracle of its own.
     const h = harness();
-    await failure(h.ctl.getPlayer({ playerId: 'ply-nope' }, md()));
+    await failure(h.ctl.getPlayer({ playerId: 'ply-nope', brandId: 'brand-a' }, md()));
     expect(h.access.recordView).not.toHaveBeenCalled();
   });
 });
@@ -196,7 +231,7 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
      * that asymmetry is the honest state of the feature rather than half a test.
      */
     const players = {
-      getPlayerById: jest.fn(async () => ({
+      getPlayer: jest.fn(async () => ({
         player_id: 'ply-1',
         account_id: 'acc-1',
         vip: true,
@@ -222,9 +257,9 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
     };
     const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never);
 
-    await expect(ctl.getPlayer({ playerId: 'ply-1' }, md())).rejects.toThrow('audit table unavailable');
+    await expect(ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())).rejects.toThrow('audit table unavailable');
     // The record WAS read — the refusal is about recording, not about access — and nothing was returned.
-    expect(players.getPlayerById).toHaveBeenCalled();
+    expect(players.getPlayer).toHaveBeenCalled();
   });
 });
 

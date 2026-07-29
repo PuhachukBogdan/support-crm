@@ -43,7 +43,7 @@ const ROWS = [
   gr8_stale: true,
   created_at: new Date(r.at),
   updated_at: new Date(r.at),
-  brands: [{ player_id: r.id, brand_id: 'brand-a' }],
+  brand_id: 'brand-a',
 }));
 
 /**
@@ -55,12 +55,12 @@ function pagingPrisma(rows = ROWS) {
   const findMany = jest.fn(async (args: Record<string, unknown>) => {
     calls.push(args);
     const where = args.where as {
-      brands?: { some: { brand_id: string } };
+      brand_id?: string;
       OR?: Array<Record<string, unknown>>;
     };
-    let out = rows.filter((r) =>
-      where.brands ? r.brands.some((b) => b.brand_id === where.brands!.some.brand_id) : true,
-    );
+    // Feature 020: the brand is a plain column predicate now. The fake follows the real query — it
+    // used to reach through the `PlayerBrand` edge, which no longer exists.
+    let out = rows.filter((r) => (where.brand_id ? r.brand_id === where.brand_id : true));
 
     if (where.OR) {
       const lt = (where.OR[0] as { created_at: { lt: Date } }).created_at.lt;
@@ -192,16 +192,17 @@ describe('*** page tokens: malformed is refused, FOREIGN is accepted and still f
     const page = await repo.listByBrand('acc-1', 'brand-a', 10, decodeCursor(foreign));
     // Resumed mid-list rather than refused…
     expect(page.rows.map((r) => r.player_id)).toEqual(['p4', 'p3', 'p5', 'p6', 'p7']);
-    // …and every record still belongs to the requested brand.
+    // …and every record still belongs to the requested brand. Feature 020: the brand is a COLUMN on
+    // the row now, not an edge to search — the filter, the sort and this assertion all read one table.
     for (const row of page.rows) {
-      expect(row.brands.some((b) => b.brand_id === 'brand-a')).toBe(true);
+      expect(row.brand_id).toBe('brand-a');
     }
   });
 });
 
 describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any entry ***', () => {
   function guardHarness(role: string) {
-    const players = { getPlayerById: jest.fn(), listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })) };
+    const players = { getPlayer: jest.fn(), listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })) };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
       ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never),
@@ -264,7 +265,7 @@ describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any 
 describe('*** T036: the brand is intersected with the caller PERMITTED set ***', () => {
   function brandHarness() {
     const players = {
-      getPlayerById: jest.fn(),
+      getPlayer: jest.fn(),
       listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })),
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
@@ -320,7 +321,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       ),
     };
     const players = {
-      getPlayerById: jest.fn(),
+      getPlayer: jest.fn(),
       listByBrand: jest.fn(async () => ({ rows: ROWS, nextCursor: null })),
     };
     return {
@@ -366,7 +367,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
 
   it('the page token round-trips through the edge shape', async () => {
     const players = {
-      getPlayerById: jest.fn(),
+      getPlayer: jest.fn(),
       listByBrand: jest.fn(async () => ({
         rows: ROWS.slice(0, 2),
         nextCursor: { createdAt: '2026-07-28T11:00:00.000Z', id: 'p2' },

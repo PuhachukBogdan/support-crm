@@ -33,6 +33,11 @@ service UsersReadService {
 
 message GetPlayerRequest {
   string player_id = 1;
+  // ⚠️ REQUIRED since feature 020 (roadmap 5.2 / ADR 0038 §3). `player_id` is unique only WITHIN a
+  // brand — the same value under two brands is two different people — so a request naming only the
+  // platform id does not identify a customer, it names two. Absent ⇒ INVALID_ARGUMENT, never an
+  // arbitrary match. Added as a new field rather than by changing field 1, so the change is additive.
+  string brand_id = 2;
 }
 
 message GetOperatorRequest {
@@ -64,13 +69,17 @@ message ListPlayersByBrandRequest {
 // (Established by executing the masking during feature 018's analysis pass.)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 message Player {
-  string player_id = 1;             // tier: open
+  string player_id = 1;             // tier: open — unique only WITHIN a brand (feature 020)
   // NOT tier-classified, and mapped OUTSIDE the masking step — it is the caller's own tenant id,
   // i.e. CONTEXT rather than customer data. Adding it to the tier map would be the wrong repair: a
   // tenancy value would acquire a clearance level it has no business having, and unclassified fields
   // are dropped for EVERY role (including admin), so this field would otherwise always be empty.
   string account_id = 2;
-  repeated string brand_ids = 3;    // tier: open — DERIVED from the classified `brands` relation
+  // ⚠️ DEPRECATED by feature 020 — use `brand_id` (field 10). Kept with its number and its repeated
+  // type because consumers already read it: narrowing a repeated field to "always one" is a meaning
+  // change on live data, and `buf breaking` would flag the removal. It now carries exactly one
+  // element — this record's brand. Remove in a later change, once nothing reads it.
+  repeated string brand_ids = 3 [deprecated = true];
   bool vip = 4;                     // tier: operational
   string segment = 5;               // tier: operational
   string am_notes = 6;              // tier: am_only
@@ -84,6 +93,9 @@ message Player {
   // ── feature 018 (roadmap 5.1): the split that makes the message maskable ──────────────────────
   string preferences_json = 8;      // tier: am_only
   string portfolio_json = 9;        // tier: am_only
+  // The brand this record belongs to — part of its IDENTITY, never part of an access decision
+  // (ADR 0038 §1: one support department serves every brand). Field 10 = additive.
+  string brand_id = 10;             // tier: open
 }
 
 message Operator {

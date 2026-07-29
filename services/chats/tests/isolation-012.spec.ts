@@ -92,12 +92,21 @@ describe('cross-account isolation sweep (SC-003)', () => {
     ).rejects.toBeInstanceOf(RpcException);
   });
 
-  it('player feed merges within-account only (same player_id never crosses accounts)', async () => {
-    const res = await new FeedReadController(repo()).getPlayerFeed({ playerId: 'p1' }, md('acc-1'));
+  it('the SAME player_id in two accounts stays two feeds (Principle I)', async () => {
+    // Feature 020 added the brand to the request; the isolation property this test exists for is
+    // untouched — and it is now the LESSER of two separations, since the same id under two brands
+    // inside ONE account is also two customers (see feed.spec.ts).
+    const res = await new FeedReadController(repo()).getPlayerFeed(
+      { playerId: 'p1', brandId: 'brand-a' },
+      md('acc-1'),
+    );
     expect(res.conversations.map((c) => c.id)).toEqual(['c1']);
 
     // …and from acc-2's side, only c2 — symmetric proof.
-    const other = await new FeedReadController(repo()).getPlayerFeed({ playerId: 'p1' }, md('acc-2'));
+    const other = await new FeedReadController(repo()).getPlayerFeed(
+      { playerId: 'p1', brandId: 'brand-a' },
+      md('acc-2'),
+    );
     expect(other.conversations.map((c) => c.id)).toEqual(['c2']);
   });
 });

@@ -1,13 +1,22 @@
 /**
  * Account-scoped models in users_db — the tables the isolation extension (feature 007) enforces
- * `account_id` on. The PlayerBrand join/union edge is omitted: it carries no account_id and is
- * scoped through the Player parent (the player-union brand exception is brand-level, never account-
- * level — see data-model.md). Cross-checked against schema.prisma by
- * tests/data-model/account-scope-coverage.spec.ts.
+ * `account_id` on. Cross-checked against schema.prisma by
+ * `tests/data-model/account-scope-coverage.spec.ts`, which is what caught the three feature-020
+ * tables below before they shipped unscoped.
+ *
+ * The old `PlayerBrand` edge used to be the documented omission here (no `account_id` of its own,
+ * scoped through the Player parent). It is gone — feature 020 put the brand in the player's key —
+ * so the exception it needed is gone with it.
  */
 export const SCOPED_MODELS = [
   'Operator',
   'Player',
+  // Feature 020 (roadmap 5.2): all three carry `account_id` and all three are tenant data. The
+  // coverage guard failed the moment they were added without being listed here, which is the whole
+  // reason that guard exists — an unscoped tenant table is a cross-account read waiting for a query.
+  'ContactMatch',
+  'Person',
+  'PersonMember',
   // Feature 015 (roadmap 4.8): the general audit trail. Identical model in all three services —
   // the table cannot be shared (Principle VIII) and the entry lives in its action's transaction.
   'AuditEntry',

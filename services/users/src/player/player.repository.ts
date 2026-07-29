@@ -1,52 +1,56 @@
 import { Injectable, Inject } from '@nestjs/common';
 import type { Cursor } from '@crm/common';
 import { PrismaService } from '../prisma.service';
+import { identityWhere, type PlayerIdentity } from './player.identity';
 
 /**
- * Read path for the Player entity (feature 006 US3, roadmap 2.7). Keyed by the domain
- * `player_id`; includes the brand-union edges so callers get ONE unified player across 1..N
- * brands (ADR 0032 §0.1). The GR8 snapshot is returned verbatim (opaque) — no typing here.
+ * Read path for the Player entity (feature 006 US3, roadmap 2.7).
  *
- * Feature 007: the read runs under the account-scoped client (`forAccount`), so the player is
- * confined to the caller's account (Principle I) — while the brand-union is preserved (the
- * player-union brand exception is brand-level, never account-level). The `accountId` is supplied
- * by the caller; until Auth (Phase 3) authenticates it, callers/tests pass it explicitly.
+ * ⚠️ **Keyed by the TRIPLE `(account_id, brand_id, player_id)` since feature 020** — never by the
+ * platform id alone. GR8's `player_id` is unique only within a brand, so the same value under two
+ * brands is two different people; the old single-key read returned one row for both of them. Every
+ * method here takes a `PlayerIdentity`, which cannot be constructed from a platform id on its own —
+ * that is what turns "we forgot the brand here" from a wrong answer into a compile error.
  *
- * Explicit @Inject: the service runtime (tsx/esbuild) emits no decorator metadata, so the DI
- * token must be explicit (Phase-1 gotcha).
+ * The brand-union `include` is gone with the edge: one row IS one brand's player. A human spanning
+ * brands is a `Person` (feature 020), asserted on a matching email or phone, never on id equality.
+ *
+ * Feature 007: reads run under the account-scoped client (`forAccount`), so a player is confined to
+ * the caller's account (Principle I). The account now also leads the primary key, so a collision
+ * across accounts is refused by the database rather than only filtered by the query.
+ *
+ * Explicit @Inject: the service runtime (tsx/esbuild) emits no decorator metadata, so the DI token
+ * must be explicit (Phase-1 gotcha).
  */
 @Injectable()
 export class PlayerRepository {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  /** Unified, account-scoped read by domain key; null when the player is unknown in this account. */
-  getPlayerById(accountId: string, playerId: string) {
-    return this.prisma.forAccount(accountId).player.findUnique({
-      where: { player_id: playerId },
-      include: { brands: true },
+  /** Account-scoped read by the full identity; null when unknown in this account and brand. */
+  getPlayer(id: PlayerIdentity) {
+    return this.prisma.forAccount(id.accountId).player.findUnique({
+      where: identityWhere(id),
     });
   }
 
   /**
    * One keyset page of a brand's players (feature 018, roadmap 5.1 — research R5).
    *
-   * ── Why the ORDER lives on this table and the FILTER goes through the edge ───────────────────
-   * The brand membership is an edge table with no `account_id` of its own — it is scoped through this
-   * parent, which is the documented exception in `prisma.scoped-models.ts`. So the filter is a relation
-   * predicate (`brands: { some: { brand_id } }`) while the ordering and the cursor stay on `Player`,
-   * where the account predicate the isolation extension injects also lands. One index —
-   * `(account_id, created_at, player_id)` — therefore serves the filter, the sort and the tie-break at
-   * once. Ordering on the edge instead would put the sort on one table and the tie-break on another,
-   * and the "exactly once" guarantee would depend on join order.
+   * ── The filter is now a plain predicate, not a relation ──────────────────────────────────────
+   * It used to reach through the `PlayerBrand` edge (`brands: { some: { brand_id } }`) because brand
+   * membership lived there. Feature 020 put `brand_id` in the key, so the edge is gone and this is a
+   * direct column comparison: filter, sort and tie-break now happen on one table, served by one index
+   * `(account_id, brand_id, created_at, player_id)`. Fewer moving parts and one hop less.
    *
    * ── The tie-break is not decoration ──────────────────────────────────────────────────────────
-   * `player_id` breaks a `created_at` tie. Without it, two records created in the same instant sit on a
-   * page boundary in an order the database is free to change between queries, and one of them is silently
+   * `player_id` breaks a `created_at` tie. Without it, two records created in the same instant sit on
+   * a page boundary in an order the database is free to change between queries, and one is silently
    * skipped while the other repeats — the lesson feature 015 recorded for its own trail.
    *
-   * ── `player_id` alone would be the wrong cursor ───────────────────────────────────────────────
+   * ── `player_id` alone would be the wrong cursor ──────────────────────────────────────────────
    * It is a DOMAIN key supplied from outside, so its ordering is arbitrary and unstable as a page
-   * boundary. `created_at` is ours and monotonic.
+   * boundary. `created_at` is ours and monotonic. Since feature 020 it is not even unique on its own,
+   * which is one more reason it could never have been the cursor.
    *
    * Takes `limit + 1` to learn whether a further page exists — no `COUNT`, no offset (Principle VII).
    */
@@ -55,8 +59,8 @@ export class PlayerRepository {
     brandId: string,
     limit: number,
     cursor: Cursor | null,
-  ): Promise<{ rows: PlayerWithBrands[]; nextCursor: Cursor | null }> {
-    const where: Record<string, unknown> = { brands: { some: { brand_id: brandId } } };
+  ): Promise<{ rows: PlayerRow[]; nextCursor: Cursor | null }> {
+    const where: Record<string, unknown> = { brand_id: brandId };
     if (cursor) {
       const at = new Date(cursor.createdAt);
       where.OR = [
@@ -69,8 +73,7 @@ export class PlayerRepository {
       where,
       orderBy: [{ created_at: 'desc' }, { player_id: 'desc' }],
       take: limit + 1,
-      include: { brands: true },
-    })) as PlayerWithBrands[];
+    })) as PlayerRow[];
 
     const hasMore = rows.length > limit;
     const kept = hasMore ? rows.slice(0, limit) : rows;
@@ -83,9 +86,15 @@ export class PlayerRepository {
   }
 }
 
-/** A player row with its brand edges, as both reads return it. */
-export type PlayerWithBrands = {
+/**
+ * A player row as both reads return it.
+ *
+ * Renamed from `PlayerWithBrands` by feature 020: there are no brand edges to carry, and the old
+ * name asserted the very thing that was wrong — that one row spans brands. `brand_id` is a column.
+ */
+export type PlayerRow = {
   player_id: string;
+  brand_id: string;
   account_id: string;
   vip: boolean;
   segment: string | null;
@@ -98,5 +107,4 @@ export type PlayerWithBrands = {
   gr8_stale: boolean;
   created_at: Date;
   updated_at: Date;
-  brands: { player_id: string; brand_id: string }[];
 };

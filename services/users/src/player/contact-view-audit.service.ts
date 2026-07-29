@@ -48,10 +48,18 @@ const TIER_RANK: Record<FieldTier, number> = { open: 0, operational: 1, am_only:
 export class ContactViewAuditService {
   constructor(@Inject(AuditRepository) private readonly audit: AuditRepository) {}
 
+  /**
+   * ⚠️ Takes the full IDENTITY since feature 020, not a bare `playerId`.
+   *
+   * An entry reading "user X revealed contact fields of player 12345" stopped naming a customer the
+   * moment the same platform id could belong to two people under two brands. The trail would have said
+   * *someone was looked at* without saying *who* — ambiguous exactly where a trail has to be precise,
+   * and unfixable afterwards because the missing part was never written down.
+   */
   async recordView(
     accountId: string,
     actorUserId: string,
-    playerId: string,
+    subject: { brandId: string; playerId: string },
     roleKey: string,
     underPreview = false,
   ): Promise<void> {
@@ -81,7 +89,9 @@ export class ContactViewAuditService {
     await this.audit.append(accountId, {
       action: 'contact.reveal',
       actorUserId,
-      targetRef: playerId,
+      // The subject is the brand-scoped identity. The brand is not PII and not a value from the
+      // record — it is which customer was read, which is the entry's whole job.
+      targetRef: `${subject.brandId}/${subject.playerId}`,
       underPreview,
       // Tier NAME only — never a value. The per-class allow-list in libs/common/audit/detail.ts is what
       // makes that structural rather than a convention observed here.

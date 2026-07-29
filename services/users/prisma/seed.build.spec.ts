@@ -1,5 +1,11 @@
 import { buildSeed } from './seed.build';
-import { SEED_ACCOUNT_ID, SEED_AUTH_USER_ID, SEED_PLAYER_ID, SEED_BRAND_ID } from '@crm/common';
+import {
+  SEED_ACCOUNT_ID,
+  SEED_AUTH_USER_ID,
+  SEED_PLAYER_ID,
+  SEED_BRAND_ID,
+  SEED_BRAND_ID_2,
+} from '@crm/common';
 
 /**
  * US1 (feature 008): the users seed builder yields an operator + a player linked to the brand via the
@@ -18,9 +24,23 @@ describe('users seed builder', () => {
     expect(seed.operators[0]!.auth_user_id).toBe(SEED_AUTH_USER_ID);
   });
 
-  it('the player is keyed by the shared player_id and links the brand via the union edge', () => {
-    expect(seed.players[0]!.player_id).toBe(SEED_PLAYER_ID);
-    expect(seed.playerBrands[0]).toEqual({ player_id: SEED_PLAYER_ID, brand_id: SEED_BRAND_ID });
+  it('*** the SAME platform id is seeded under BOTH brands, as two different people ***', () => {
+    // Feature 020's permanent fixture. GR8's player_id is unique only within a brand, so this is what
+    // real data looks like — and it is the case that four phases of tests never once exercised.
+    expect(seed.players).toHaveLength(2);
+    expect(seed.players.map((p) => p.player_id)).toEqual([SEED_PLAYER_ID, SEED_PLAYER_ID]);
+    expect(seed.players.map((p) => p.brand_id)).toEqual([SEED_BRAND_ID, SEED_BRAND_ID_2]);
+  });
+
+  it('the two collide only on the id — every other field differs, and would have been overwritten', () => {
+    const [a, b] = seed.players;
+    expect(a!.vip).not.toBe(b!.vip);
+    expect(a!.segment).not.toBe(b!.segment);
+    expect(a!.am_notes).not.toBe(b!.am_notes);
+  });
+
+  it('the brand-union edge is gone — a row IS one brand’s player', () => {
+    expect(seed).not.toHaveProperty('playerBrands');
   });
 
   it('the GR8 cache seam is left unpopulated/stale', () => {

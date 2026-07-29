@@ -55,8 +55,14 @@ function protoMessageFields(protoText: string, message: string): string[] {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^[ \t]*\/\/.*$/gm, '');
   const fields: string[] = [];
-  // `[repeated|optional] <type> <name> = <n>;` — the name is the token before `=`.
-  const re = /^\s*(?:repeated\s+|optional\s+)?[\w.]+\s+(\w+)\s*=\s*\d+\s*;/gm;
+  // `[repeated|optional] <type> <name> = <n> [options];` — the name is the token before `=`.
+  //
+  // ⚠️ The trailing option group is NOT optional in this pattern by accident. Without it the scanner
+  // silently skipped `repeated string brand_ids = 3 [deprecated = true];` and reported a contract
+  // that was one field short — in a test whose own name promises nothing below it can pass vacuously.
+  // A scanner that drops what it does not recognise makes every assertion downstream weaker than it
+  // reads (feature 020).
+  const re = /^\s*(?:repeated\s+|optional\s+)?[\w.]+\s+(\w+)\s*=\s*\d+\s*(?:\[[^\]]*\]\s*)?;/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) fields.push(m[1]!);
   return fields;
@@ -78,7 +84,20 @@ describe('the scan reads the real artefacts (nothing below can pass vacuously)',
       'custom_attributes_json',
       'preferences_json',
       'portfolio_json',
+      // Feature 020 — the record's own brand, part of its identity. `brand_ids` above is deprecated
+      // in place (kept for consumers that already read it) and now carries exactly one element.
+      'brand_id',
     ]);
+  });
+
+  it('the extractor sees a field carrying options (it did not, until feature 020)', () => {
+    const fixture = [
+      'message X {',
+      '  string plain = 1;',
+      '  repeated string annotated = 2 [deprecated = true];',
+      '}',
+    ].join('\n');
+    expect(protoMessageFields(fixture, 'X')).toEqual(['plain', 'annotated']);
   });
 
   it('the field-name extractor ignores comments and takes the name, not the type', () => {
@@ -201,7 +220,15 @@ describe('*** every customer field is classified, in exactly one tier ***', () =
    * a tenancy value a clearance level it has no business having. It is named here so the exemption is a
    * decision with one place to change, not a hole.
    */
-  const CONTEXT_NOT_CUSTOMER_DATA = ['account_id'];
+  const CONTEXT_NOT_CUSTOMER_DATA = [
+    'account_id',
+    // Feature 020 — RELATIONS, not customer fields, and never serialized to the wire.
+    // `contact_matches` holds salted hashes and no plaintext, so there is nothing to classify;
+    // `person_links` holds membership (which person, which kind of identifier), never a value.
+    // Classifying them would give the tier map entries that name no customer data.
+    'contact_matches',
+    'person_links',
+  ];
 
   it('the Player columns split into exactly {classified} ∪ {context}', () => {
     const columns = player.fields.map((f) => f.name);

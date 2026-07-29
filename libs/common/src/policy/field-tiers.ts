@@ -39,7 +39,11 @@ export const FIELD_TIERS: Readonly<Record<string, FieldTier>> = {
   player_id: 'open',
   created_at: 'open', // registration-date proxy in our system
   updated_at: 'open',
-  brands: 'open',
+  // Feature 020: the brand is a COLUMN and part of the player's identity. Open, as `brands` was —
+  // a linear role could always see which brand a customer came from; what changed is that the value
+  // now identifies the record rather than listing a union. (`brands` stays for the deprecated wire
+  // field until nothing reads it.)
+  brand_id: 'open',
   gr8_stale: 'open',
   gr8_fetched_at: 'open',
   // operational — VIP Support and above (routing / segment signal).

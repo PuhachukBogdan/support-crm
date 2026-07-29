@@ -33,8 +33,28 @@ model Operator {
 /// Player-lite: identity + our own fields + an OPAQUE GR8-cache seam. vip/segment are columns
 /// (indexed) because they drive routing filters (Principle VII); free classification lives in
 /// custom_attributes (R5). GR8's typed projection is deferred to 7.4 — we don't own its schema.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// ⚠️ A PLAYER IS IDENTIFIED BY (account_id, brand_id, player_id) — feature 020, ADR 0038 §3.
+///
+/// `player_id` came from GR8 and is unique only WITHIN a brand. The same value under brand A and
+/// brand B is routinely TWO DIFFERENT HUMAN BEINGS. Until 2026-07-29 this model used it as the whole
+/// primary key, so those two people collapsed into ONE ROW — one card, one VIP flag, one set of AM
+/// notes — and the conversation feed then served one customer another's messages.
+///
+/// GR8's own contract corroborates it: `POST /players/find` answers with `brand` alongside
+/// `playerId`, and uses email/phone as the person-level identifier. That document has been in this
+/// repository since 2026-07-21 — four days AFTER ADR 0032 declared `player_id` globally unique.
+///
+/// `account_id` leads the key so the isolation predicate the Prisma extension injects stays
+/// index-aligned, AND so two future licensees can both hold player `12345` (the same mistake, one
+/// layer up, fixed in the same change).
+///
+/// Cross-brand linking of two records into one HUMAN is a separate, evidence-based act — see
+/// `ContactMatch` / `Person` below. It is never a consequence of two platform ids being equal.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
 model Player {
-  player_id         String   @id // domain key (not a generated uuid)
+  player_id         String // domain key from GR8 — unique only WITHIN a brand
+  brand_id          String // soft ref to brands.Brand.id (no cross-service FK)
   account_id        String
   vip               Boolean  @default(false)
   segment           String?
@@ -51,33 +71,94 @@ model Player {
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
-  brands PlayerBrand[]
+  contact_matches ContactMatch[]
+  person_links    PersonMember[]
 
+  @@id([account_id, brand_id, player_id])
   @@index([account_id])
   @@index([account_id, vip])
   @@index([account_id, segment])
   /// Feature 018 (roadmap 5.1): the keyset page for ListPlayersByBrand. ONE index serving three jobs
   /// at once — the `account_id` predicate the isolation extension injects, the `(created_at, player_id)`
   /// sort, and the tie-break that keeps a record from being skipped when several share an instant.
-  /// Without it the brand list filters on an index and then sorts, which is fine at seed scale and is
-  /// not a shape to ship (Principle VII).
-  @@index([account_id, created_at, player_id])
+  /// Feature 020 adds `brand_id` after the account: the brand list is now a direct predicate on this
+  /// table (the edge it used to resolve through is gone), so the index must filter and sort in one pass.
+  @@index([account_id, brand_id, created_at, player_id])
 }
 
-/// The brand-union edge (ADR 0032 §0.2): associates a player with a brand by a SOFT `brand_id`
-/// value (brand identity lives in brands_db; resolved via brands.proto, never joined —
-/// Principle VIII). Composite key supports exactly-one-brand and many-brand players.
-model PlayerBrand {
-  player_id String
-  brand_id  String // soft ref to brands.Brand.id (no cross-service FK)
+/// ⚠️ `PlayerBrand` was REMOVED by feature 020. With brand in the key, one row IS one brand's player,
+/// so a many-to-many edge between a player and brands can no longer state anything true. Its one
+/// legitimate job — "this human exists on several brands" — moved to `Person` below, where it is a
+/// statement about a PERSON rather than a property of a row. Its `[brand_id, player_id]` index went
+/// with it: it existed only to make the edge-then-parent join pageable, and that join is gone.
 
-  player Player @relation(fields: [player_id], references: [player_id], onDelete: Cascade)
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// Contact-match projection (feature 020 — data-model §3). The evidence cross-brand linking runs on.
+///
+/// ⚠️ STORES A SALTED HASH, NEVER THE VALUE, and that is a security requirement rather than a
+/// preference. A normalised-plaintext column would create a NEW PII surface outside the opaque GR8
+/// snapshot: one the tier policy does not classify, masking does not cover, exports do not know
+/// about, and a log could reach. A hash matches equality exactly as well and is useless if read.
+/// The salt is required at boot (`CONTACT_HASH_SALT`) — an unsalted hash of an email is reversible
+/// by dictionary.
+///
+/// Populated by the GR8 connector at roadmap 7.4 from the snapshot; seeded directly in tests and the
+/// live run, because that snapshot is empty until then.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+model ContactMatch {
+  account_id String
+  brand_id   String
+  player_id  String
+  kind       String // 'email' | 'phone' — the KIND is recorded, the value never is
+  value_hash String // salted hash of the NORMALISED value
+  created_at DateTime @default(now())
 
-  @@id([player_id, brand_id])
-  @@index([brand_id]) // for ListPlayersByBrand (users.proto)
-  /// Feature 018: the existing `brand_id`-only index can FILTER but not ORDER. The brand list resolves
-  /// through this edge and then pages on the parent, so the edge lookup wants the pair.
-  @@index([brand_id, player_id])
+  player Player @relation(fields: [account_id, brand_id, player_id], references: [account_id, brand_id, player_id], onDelete: Cascade)
+
+  @@id([account_id, brand_id, player_id, kind])
+  /// The matcher's only lookup: "who else has this hash, within this account". Account leads so the
+  /// isolation predicate stays index-aligned and a match can never be found across tenants.
+  @@index([account_id, value_hash])
+}
+
+/// A human, spanning one or more brand-scoped player records within ONE account (feature 020).
+/// Created automatically when two records share a contact hash — never when they share a player_id.
+model Person {
+  id         String   @id @default(uuid())
+  account_id String
+  created_at DateTime @default(now())
+
+  members PersonMember[]
+
+  @@index([account_id])
+}
+
+/// A player record's participation in a person.
+///
+/// `linked_on` records WHICH KIND of identifier established the link ('email' | 'phone') and never
+/// the value (SEC-26). A link copies NO data between members: they keep their own notes, VIP flag,
+/// segment and snapshot. That is what makes an automatic decision correctable — unlinking restores
+/// two independent records with nothing left behind.
+model PersonMember {
+  person_id  String
+  account_id String
+  brand_id   String
+  player_id  String
+  linked_on  String // 'email' | 'phone'
+  created_at DateTime @default(now())
+
+  person Person @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [account_id, brand_id, player_id], references: [account_id, brand_id, player_id], onDelete: Cascade)
+
+  /// `account_id` LEADS the key. Not cosmetic: the isolation extension injects an `account_id`
+  /// predicate into every query on this table, and a composite index that does not lead with it
+  /// cannot serve that predicate. `tests/data-model/indexes.spec.ts` enforces the rule repo-wide and
+  /// is what caught this key when it was first written `[person_id, …]`.
+  @@id([account_id, person_id, brand_id, player_id])
+  /// A player record belongs to at most one person — enforced by the database, not by a service
+  /// remembering to check.
+  @@unique([account_id, brand_id, player_id])
+  @@index([account_id])
 }
 
 /// One stored byte stream (feature 016, roadmap 4.9 — SEC-1/SEC-10/SEC-39).

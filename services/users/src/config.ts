@@ -28,6 +28,18 @@ export function loadUsersConfig(env: NodeJS.ProcessEnv = process.env) {
       S3_ACCESS_KEY_ID: z.string().min(1),
       S3_SECRET_ACCESS_KEY: z.string().min(1),
       S3_FORCE_PATH_STYLE: z.string().min(1),
+      /**
+       * Salt for the contact-match hashes (feature 020, roadmap 5.2 / data-model I-7).
+       *
+       * REQUIRED, with no default, and that is the whole point. Cross-brand player linking
+       * compares a hash of a normalised email or phone; an UNSALTED hash of an email is
+       * reversible by dictionary in seconds, so a service that booted without a salt would
+       * quietly build a table of recoverable customer contacts and every test would stay green.
+       * Refusing to start is the honest failure (SEC-6), exactly as for the S3 block above.
+       *
+       * 32 chars minimum so a placeholder like "salt" cannot satisfy it.
+       */
+      CONTACT_HASH_SALT: z.string().min(32),
     },
     env,
   );

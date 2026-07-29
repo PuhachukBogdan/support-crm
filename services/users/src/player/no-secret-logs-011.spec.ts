@@ -60,7 +60,7 @@ describe('masking + contact-view audit leak no PII value (FR-014/016/023)', () =
       }),
     );
     try {
-      await svc.recordView('acct-A', 'am-1', 'p-9', 'am');
+      await svc.recordView('acct-A', 'am-1', { brandId: 'brand-a', playerId: 'p-9' }, 'am');
     } finally {
       spies.forEach((s) => s.mockRestore());
     }

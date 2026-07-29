@@ -33,6 +33,7 @@ const COMPLETE: NodeJS.ProcessEnv = {
   S3_ACCESS_KEY_ID: 'AKIAEXAMPLEKEYID',
   S3_SECRET_ACCESS_KEY: 'r34l-l00king-but-synthetic-secret',
   S3_FORCE_PATH_STYLE: 'true',
+  CONTACT_HASH_SALT: 'synthetic-salt-for-tests-0123456789abcdef',
 };
 
 describe('users config: the object store is a boot requirement (feature 016)', () => {
@@ -85,5 +86,42 @@ describe('users config: the object store is a boot requirement (feature 016)', (
       expect(message).not.toContain(COMPLETE.S3_ACCESS_KEY_ID!);
       expect(message).not.toContain(COMPLETE.DATABASE_URL!);
     }
+  });
+});
+
+/**
+ * T001 (feature 020) — the contact-hash salt is a boot requirement.
+ *
+ * Same shape of failure as the S3 block, one layer nastier: an UNSALTED hash of an email is
+ * reversible by dictionary in seconds. A service that booted without a salt would build a table of
+ * recoverable customer contacts, serve every request correctly, and keep every test green. There is
+ * no observable symptom — which is precisely why it has to be refused at boot.
+ */
+describe('users config: the contact-hash salt is a boot requirement (feature 020)', () => {
+  it('refuses to start when the salt is absent', () => {
+    const withoutSalt: NodeJS.ProcessEnv = { ...COMPLETE };
+    delete withoutSalt.CONTACT_HASH_SALT;
+    expect(() => loadUsersConfig(withoutSalt)).toThrow(ConfigError);
+  });
+
+  it('refuses a salt short enough to be a placeholder', () => {
+    // "salt", "changeme", "dev" — the values that get committed and then forgotten.
+    expect(() => loadUsersConfig({ ...COMPLETE, CONTACT_HASH_SALT: 'salt' })).toThrow(ConfigError);
+    expect(() => loadUsersConfig({ ...COMPLETE, CONTACT_HASH_SALT: 'changeme' })).toThrow(ConfigError);
+  });
+
+  it('the refusal names the KEY and never the value', () => {
+    try {
+      loadUsersConfig({ ...COMPLETE, CONTACT_HASH_SALT: 'too-short-secret' });
+      throw new Error('expected a refusal');
+    } catch (err) {
+      const text = String((err as Error).message);
+      expect(text).toContain('CONTACT_HASH_SALT');
+      expect(text).not.toContain('too-short-secret');
+    }
+  });
+
+  it('a sufficiently long salt loads', () => {
+    expect(loadUsersConfig({ ...COMPLETE }).CONTACT_HASH_SALT).toHaveLength(41);
   });
 });

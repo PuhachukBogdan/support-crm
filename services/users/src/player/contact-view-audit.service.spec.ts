@@ -26,13 +26,16 @@ describe('ContactViewAuditService', () => {
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
 
-    await svc.recordView('acc1', 'god-or-am', 'player-9', 'am');
+    await svc.recordView('acc1', 'god-or-am', { brandId: 'brand-a', playerId: 'player-9' }, 'am');
 
     expect(create).toHaveBeenCalledTimes(1);
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(arg.data.action).toBe('contact.reveal');
     expect(arg.data.actor_user_id).toBe('god-or-am');
-    expect(arg.data.target_ref).toBe('player-9');
+    // Feature 020: the subject is the BRAND-SCOPED customer. `player-9` alone stopped naming a person
+    // the moment the same platform id could belong to two people under two brands — an access trail
+    // that cannot say WHICH customer was read is ambiguous exactly where it must not be.
+    expect(arg.data.target_ref).toBe('brand-a/player-9');
     expect(arg.data.detail_json).toEqual({ tier: 'am_only' }); // most-sensitive tier AM surfaces
     // No field value anywhere in the row.
     expect(JSON.stringify(arg.data)).not.toMatch(/notes|phone|email|preferences/i);
@@ -41,7 +44,7 @@ describe('ContactViewAuditService', () => {
   it('records the REAL actor plus the preview marker, never the previewed role', async () => {
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
-    await svc.recordView('acc1', 'god', 'player-9', 'am', true);
+    await svc.recordView('acc1', 'god', { brandId: 'brand-a', playerId: 'player-9' }, 'am', true);
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(arg.data.actor_user_id).toBe('god');
     expect(arg.data.under_preview).toBe(true);
@@ -63,7 +66,7 @@ describe('ContactViewAuditService', () => {
      */
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
-    await svc.recordView('acc1', 'agent', 'player-9', 'support_agent');
+    await svc.recordView('acc1', 'agent', { brandId: 'brand-a', playerId: 'player-9' }, 'support_agent');
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -75,7 +78,7 @@ describe('ContactViewAuditService', () => {
     // edit would "fix" it toward the record's contents.
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
-    await svc.recordView('acc1', 'am-1', 'player-empty', 'am');
+    await svc.recordView('acc1', 'am-1', { brandId: 'brand-a', playerId: 'player-empty' }, 'am');
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(arg.data.detail_json).toEqual({ tier: 'am_only' });
   });
@@ -111,6 +114,6 @@ describe('ContactViewAuditService', () => {
       throw new Error('db down');
     });
     const svc = new ContactViewAuditService(repo);
-    await expect(svc.recordView('acc1', 'am1', 'player-9', 'am')).rejects.toThrow('db down');
+    await expect(svc.recordView('acc1', 'am1', { brandId: 'brand-a', playerId: 'player-9' }, 'am')).rejects.toThrow('db down');
   });
 });

@@ -110,7 +110,10 @@ service ChatsReadService {
   rpc ListConversations(ListConversationsRequest) returns (ConversationPage);
   rpc GetConversation(GetConversationRequest) returns (Conversation);
   rpc GetThread(GetThreadRequest) returns (MessagePage);
-  rpc GetPlayerFeed(GetPlayerFeedRequest) returns (ConversationPage); // brand-union within account (US3)
+  rpc GetPlayerFeed(GetPlayerFeedRequest) returns (ConversationPage); // ONE brand's player (feature 020)
+  // ── Feature 020 — additive. The cross-brand view, for a HUMAN established from a matching email or
+  // phone. Kept separate from the call above on purpose: see GetPersonFeedRequest.
+  rpc GetPersonFeed(GetPersonFeedRequest) returns (ConversationPage);
   // ── Feature 013 (workflow, roadmap 4.4–4.5) — additive ──
   rpc ListConversationLabels(ConversationIdRequest) returns (LabelList);
   rpc ListLabels(Empty) returns (LabelList);
@@ -165,6 +168,25 @@ message MessagePage {
 
 message GetPlayerFeedRequest {
   string player_id = 1;
+  ThreadProjection projection = 2;
+  string page_token = 3;
+  int32 page_size = 4;
+  // ⚠️ REQUIRED since feature 020 (roadmap 5.2 / ADR 0038 §3). This feed used to merge conversations
+  // across brands by `player_id` alone — "brand-union" — and Track B proved it did. GR8's id is unique
+  // only WITHIN a brand, so wherever the platform reuses one, that merge showed an agent ANOTHER
+  // PERSON'S conversations. The feed now keys on the triple; a genuine cross-brand human is a Person
+  // (`GetPersonFeed`), established from a matching email or phone, never from an id collision.
+  string brand_id = 5;
+}
+
+// Feature 020 — the conversations of one HUMAN across the brands they were linked on.
+//
+// A different question from GetPlayerFeed, and deliberately a different call rather than a flag: one
+// asks "what has this account written to us", the other "what has this person written to us". A single
+// call whose meaning depends on data it does not name is the shape of the defect being repaired.
+// Each returned conversation still carries its own brand — the union never hides where a row came from.
+message GetPersonFeedRequest {
+  string person_id = 1;
   ThreadProjection projection = 2;
   string page_token = 3;
   int32 page_size = 4;

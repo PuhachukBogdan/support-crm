@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
 import { parseExportFilters } from './wire';
@@ -18,7 +18,14 @@ import { parseExportFilters } from './wire';
 const ROOT = resolve(__dirname, '..', '..', '..', '..');
 const EXPORTS_DIR = join(ROOT, 'services', 'gateway', 'src', 'exports');
 
-const FILES = ['exports.controller.ts', 'wire.ts', 'exports.module.ts'];
+/**
+ * Derived from the folder, not hand-listed (fixed 2026-07-29). The list used to be the literal
+ * three files that existed the day it was written, so a NEW file in this folder inherited the
+ * guarantee in prose and nothing in the test — the guard would have stayed green while the leak
+ * it exists to prevent walked in beside it. The floor below keeps the derivation itself honest:
+ * a rename that empties the scan must fail loudly rather than pass on nothing.
+ */
+const FILES = readdirSync(EXPORTS_DIR).filter((n) => n.endsWith('.ts') && !n.endsWith('.spec.ts'));
 
 function codeOf(name: string): string {
   return readFileSync(join(EXPORTS_DIR, name), 'utf8')
@@ -60,6 +67,11 @@ describe('*** a refusal names the KEY and never echoes the VALUE ***', () => {
 });
 
 describe('*** nothing in the exports folder logs at all ***', () => {
+  it('the scan covers the whole folder and is not empty', () => {
+    expect(FILES).toEqual(expect.arrayContaining(['exports.controller.ts', 'wire.ts']));
+    expect(FILES.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('there is no logger and no console call', () => {
     // The strongest available form of this guarantee, and it costs nothing here: the edge has nothing to
     // say that the audit trail does not already record. Feature 016's live 403 was diagnosed from the

@@ -20,7 +20,6 @@ const CLAIMS: RequestClaims = {
   userId: 'user-1',
   accountId: 'acc-1',
   roles: ['admin'],
-  brands: ['brand-a', 'brand-b'],
 };
 
 const effective = (over: Partial<EffectivePermissions> = {}): EffectivePermissions => ({
@@ -45,7 +44,6 @@ describe('*** every previously-set header keeps its EXACT value *** (11 shipped 
     ['x-actor-account-id', 'acc-1'],
     ['x-actor-user-id', 'user-1'],
     ['x-actor-permissions', 'crm.inbox.view,crm.contact.view'],
-    ['x-actor-brands', 'brand-a,brand-b'],
   ])('%s is unchanged', (key, expected) => {
     expect(read(legacy, key)).toBe(expected);
     expect(read(modern, key)).toBe(expected);
@@ -59,7 +57,6 @@ describe('*** every previously-set header keeps its EXACT value *** (11 shipped 
       'x-actor-user-id',
       'x-actor-role',
       'x-actor-permissions',
-      'x-actor-brands',
     ]) {
       expect(read(modern, key)).toBe(read(legacy, key));
     }
@@ -73,11 +70,12 @@ describe('*** every previously-set header keeps its EXACT value *** (11 shipped 
     expect(read(buildActorMetadata(CLAIMS, undefined), 'x-actor-permissions')).toBe('');
   });
 
-  it('brands are omitted when absent or empty, exactly as before', () => {
-    const noBrands = buildActorMetadata({ ...CLAIMS, brands: undefined }, effective());
-    const emptyBrands = buildActorMetadata({ ...CLAIMS, brands: [] }, effective());
-    expect(noBrands.get('x-actor-brands')).toHaveLength(0);
-    expect(emptyBrands.get('x-actor-brands')).toHaveLength(0);
+  it('*** no brand header is emitted at all (feature 020) ***', () => {
+    // The header used to be set when the caller's brand set was non-empty — and nothing ever
+    // populated that set, so it was never sent, through four phases. Removed with the set itself:
+    // an authorization input that cannot arrive is not a deferral, it is a misleading artefact.
+    const md = buildActorMetadata(CLAIMS, effective());
+    expect(md.get('x-actor-brands')).toHaveLength(0);
   });
 });
 

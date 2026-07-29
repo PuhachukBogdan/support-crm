@@ -1,0 +1,13 @@
+-- Feature 020 cleanup (roadmap 5.2 / ADR 0038 §1) — per-operator brand access is not a concept here.
+--
+-- `BrandAccessRule` modelled "operator X may read/answer brand Y". The operation has ONE support
+-- department: the same people handle brand A, brand B and every later brand at the same time, so
+-- restricting an operator to a brand serves nothing.
+--
+-- It was also never used — nothing ever wrote a rule, nothing read one, and the RPC meant to check
+-- them (`CheckBrandAccess`) was declared in the contract since feature 006 and served by nothing.
+--
+-- Dropped rather than kept "in case": this table is precisely where a future engineer would add the
+-- restrictions the operation does not want, and leaving it standing is an argument that they belong
+-- somewhere. Brand is part of a PLAYER'S IDENTITY (feature 020) and a filter a caller may ask for.
+DROP TABLE IF EXISTS "BrandAccessRule";

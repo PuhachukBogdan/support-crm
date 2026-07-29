@@ -41,7 +41,7 @@ function stubs(over: Record<string, jest.Mock> = {}) {
 
 const req = () =>
   ({
-    claims: { accountId: 'acc-1', userId: 'u1', roles: ['teamlead'], brands: ['brand-a'] },
+    claims: { accountId: 'acc-1', userId: 'u1', roles: ['teamlead'] },
     effective: {
       permissionKeys: ['crm.labels.manage', 'crm.templates.manage', 'crm.macros.use'],
     },
@@ -76,12 +76,11 @@ describe('Workflow REST edge — permissions declared per route (SC-005)', () =>
 });
 
 describe('Workflow REST edge — proxying', () => {
-  it('propagates x-actor metadata (identity + brands from validated claims)', async () => {
+  it('propagates x-actor metadata (identity from validated claims)', async () => {
     const { labels, calls } = stubs();
     await labels.list(req());
     const md = calls.listLabels.mock.calls[0][1] as Metadata;
     expect(md.get('x-actor-account-id')[0]).toBe('acc-1');
-    expect(md.get('x-actor-brands')[0]).toBe('brand-a');
     expect(md.get('x-actor-permissions')[0]).toContain('crm.labels.manage');
   });
 

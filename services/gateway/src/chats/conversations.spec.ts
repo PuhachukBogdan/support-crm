@@ -22,19 +22,18 @@ function makeCtrl() {
 
 const req = () =>
   ({
-    claims: { accountId: 'acc-1', userId: 'u1', roles: ['support_agent'], brands: ['brand-a'] },
+    claims: { accountId: 'acc-1', userId: 'u1', roles: ['support_agent'] },
     effective: { permissionKeys: ['crm.inbox.view', 'crm.conversation.reply'] },
   }) as never;
 
 describe('ConversationsController (gateway proxy, US1)', () => {
-  it('proxies list with mapped status and x-actor metadata (identity + brands from claims, R1/R3)', async () => {
+  it('proxies list with mapped status and x-actor metadata (identity from claims, R1)', async () => {
     const { ctrl, listConversations } = makeCtrl();
     await ctrl.list({ status: 'open' }, req());
     const [reqArg, md] = listConversations.mock.calls[0] as [Record<string, unknown>, Metadata];
     expect(reqArg.status).toBe('CONVERSATION_STATUS_OPEN');
     expect(md.get('x-actor-account-id')[0]).toBe('acc-1');
     expect(md.get('x-actor-permissions')[0]).toContain('crm.inbox.view');
-    expect(md.get('x-actor-brands')[0]).toBe('brand-a');
   });
 
   it('proxies get by id with metadata', async () => {

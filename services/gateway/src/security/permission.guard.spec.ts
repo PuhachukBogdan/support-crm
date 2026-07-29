@@ -9,7 +9,6 @@ import { ViewAsContext } from './view-as.context';
 import {
   ALLOW_UNDER_PREVIEW_KEY,
   REQUIRED_PERMISSION_KEY,
-  REQUIRES_BRAND_PARAM_KEY,
 } from './requires-permission.decorator';
 
 /**
@@ -18,7 +17,7 @@ import {
  * annotated routes are gated. Effective permissions come from the cache (or Auth on a miss).
  */
 type ReqShape = {
-  claims?: { userId: string; accountId: string; roles: string[]; brands?: string[] };
+  claims?: { userId: string; accountId: string; roles: string[] };
   params?: Record<string, string>;
   method?: string;
 };
@@ -65,7 +64,6 @@ function makeContext(
 ): ExecutionContext {
   jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key: unknown) => {
     if (key === REQUIRED_PERMISSION_KEY) return meta.required;
-    if (key === REQUIRES_BRAND_PARAM_KEY) return meta.brandParam;
     if (key === ALLOW_UNDER_PREVIEW_KEY) return meta.allowUnderPreview;
     return undefined;
   });
@@ -119,15 +117,17 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('403 when the requested brand is outside the caller brand scope (FR-004)', async () => {
-    const { guard, reflector } = makeGuard({});
-    const ctx = makeContext(
-      reflector,
-      { brandParam: 'brandId' },
-      { claims: { ...CLAIMS, brands: ['brand-A'] }, params: { brandId: 'brand-B' } },
-    );
-    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
-  });
+  /**
+   * ⚠️ A test asserting "403 when the requested brand is outside the caller brand scope (FR-004)"
+   * stood here and was REMOVED by feature 020 (ADR 0038 §1) along with the branch it covered.
+   *
+   * It passed for four phases while the production path could not reach that branch at all: the
+   * decorator was never applied to a route, and `claims.brands` was populated by nothing. The test
+   * supplied both by hand, so it proved the guard's logic and nothing about the product.
+   *
+   * There is one support department. A brand never decides who may see what — it is part of a
+   * player's IDENTITY (feature 020) and a filter a caller may ask for.
+   */
 
   it('resolves via Auth on a cache MISS, then enforces (R-1)', async () => {
     const { guard, reflector, resolveEffectivePermissions, cache } = makeGuard({

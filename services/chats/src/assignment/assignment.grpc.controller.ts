@@ -4,7 +4,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, mayAccessBrand } from '../security/actor-context';
+import { readActorContext } from '../security/actor-context';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { AssignmentRepository } from './assignment.repository';
@@ -42,7 +42,7 @@ export class AssignmentWriteController {
 
     // Resource-check the target's brand BEFORE mutating (same rule as 012's status write).
     const existing = await this.conversations.getById(ctx.accountId, conversationId);
-    if (!existing || !mayAccessBrand(ctx, existing.brand_id)) {
+    if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
 

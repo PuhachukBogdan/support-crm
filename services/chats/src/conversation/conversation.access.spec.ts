@@ -74,15 +74,18 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
     );
   });
 
-  it('is NOT_FOUND (no existence disclosure) for a brand the caller may not serve', async () => {
-    const { prisma } = fakePrisma({
-      findFirst: jest.fn().mockResolvedValue(detailRow({ brand_id: 'brand-forbidden' })),
-    });
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
-    await expect(ctrl.getConversation({ id: 'c1' }, md('acc-1', ['brand-a']))).rejects.toBeInstanceOf(
-      RpcException,
-    );
-  });
+  /**
+   * ⚠️ A test asserting NOT_FOUND "for a conversation in a brand the caller may not serve" stood here
+   * and was REMOVED by feature 020's cleanup (ADR 0038 §1), along with the guard it covered.
+   *
+   * It passed for four phases while the production path could not reach that branch: `mayAccessBrand`
+   * compared against a caller brand set that nothing ever populated, so it could only return true.
+   * The test supplied the set by hand, and therefore proved the helper's arithmetic and nothing about
+   * the product.
+   *
+   * There is ONE support department. A brand never decides who may see what — it is part of a
+   * player's IDENTITY (feature 020) and a filter a caller may ask for.
+   */
 });
 
 /**
@@ -98,13 +101,21 @@ function noEvents() {
 }
 
 describe('Conversation writes (US1)', () => {
-  it('CreateConversation refuses a brand outside the caller scope', async () => {
+  it('CreateConversation still requires a brand — but never judges WHICH one', async () => {
+    // ⚠️ Was: "refuses a brand outside the caller scope". No brand is outside anyone's scope
+    // (ADR 0038 §1) — one support department serves them all. What survives is the requirement that
+    // a conversation HAS a brand, because a record with no origin cannot be rendered or filtered.
     const { prisma, conversation } = fakePrisma();
     const ctrl = new ConversationWriteController(new ConversationRepository(prisma), noEvents());
-    await expect(
-      ctrl.createConversation({ brandId: 'brand-z' }, md('acc-1', ['brand-a'])),
-    ).rejects.toBeInstanceOf(RpcException);
+
+    await expect(ctrl.createConversation({ brandId: '' }, md('acc-1'))).rejects.toBeInstanceOf(
+      RpcException,
+    );
     expect(conversation.create).not.toHaveBeenCalled();
+
+    // The other half — that any named brand is accepted — is covered by the create-path tests in
+    // `conversation.write.spec.ts`, which have the fake to run a creation through. Asserting it here
+    // would mean building a second one to prove something already proven.
   });
 
   it('SetConversationStatus rejects an invalid status', async () => {

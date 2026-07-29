@@ -20,7 +20,6 @@ import { ViewAsContext } from './view-as.context';
 import {
   ALLOW_UNDER_PREVIEW_KEY,
   REQUIRED_PERMISSION_KEY,
-  REQUIRES_BRAND_PARAM_KEY,
   REQUIRES_PURPOSE_PARAM_KEY,
   REQUIRES_SCOPE_PARAM_KEY,
   RESOLVE_PERMISSIONS_KEY,
@@ -46,7 +45,7 @@ interface ResolveGrpc {
 /**
  * Global RBAC enforcement guard (feature 011, T016/T017). Runs AFTER the AuthGuard (which sets
  * `req.claims`). Enforces authorization in the policy layer (Principle II) — NOT the UI. Only
- * routes annotated with `@RequiresPermission` / `@RequiresBrandParam` are gated; others pass.
+ * routes annotated with `@RequiresPermission` are gated; others pass.
  *
  * Resolution (R-1): read the caller's effective permissions from the Redis cache; on a miss call
  * `AuthService.ResolveEffectivePermissions` (Auth = source of truth) and cache the result. The
@@ -75,10 +74,6 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
       context.getHandler(),
       context.getClass(),
     ]);
-    const brandParam = this.reflector.getAllAndOverride<string | undefined>(
-      REQUIRES_BRAND_PARAM_KEY,
-      [context.getHandler(), context.getClass()],
-    );
     // Feature 016: the required key is named by the route's upload PURPOSE, not by a literal.
     const purposeParam = this.reflector.getAllAndOverride<string | undefined>(
       REQUIRES_PURPOSE_PARAM_KEY,
@@ -122,7 +117,7 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
     }
 
     // Not permission-gated → pass (the global AuthGuard already required a session).
-    if (!required && !brandParam && !purposeParam && !scopeParam && !resolveOnly) return true;
+    if (!required && !purposeParam && !scopeParam && !resolveOnly) return true;
     if (!claims) throw new UnauthorizedException(); // fail closed (Principle II).
 
     /**
@@ -160,15 +155,17 @@ export class PermissionGuard implements CanActivate, OnModuleInit {
       scopeRequired = scope.permission;
     }
 
-    // Brand/queue scope (FR-004): if the route names a brand param and the caller's brand scope is
-    // known and excludes it → 403. (When claims.brands is absent, brand enforcement lands with the
-    // Brands service — Phase 5; the permission check below still applies.)
-    if (brandParam) {
-      const brandId = (req.params as Record<string, string> | undefined)?.[brandParam];
-      if (brandId && Array.isArray(claims.brands) && !claims.brands.includes(brandId)) {
-        throw new ForbiddenException();
-      }
-    }
+    /**
+     * ⚠️ A brand-scope 403 used to live here and was REMOVED by feature 020's cleanup (ADR 0038 §1).
+     *
+     * It was dead twice over: `@RequiresBrandParam` was never applied to a single route, and even had
+     * it been, the check read `claims.brands` — a set nothing in the product ever populated. An
+     * authorization branch that cannot fire, in the guard every route passes through, is worse than
+     * no branch: it reads as a live control to whoever comes next.
+     *
+     * There is one support department and a brand never decides who may see what. Brand is part of a
+     * PLAYER'S IDENTITY (feature 020) and a filter a caller may ask for. It is not a permission.
+     */
 
     // Both sources of a required key are enforced. A route could name a static key AND a purpose
     // param; resolving once and checking every key that applies is the deny-by-default reading.

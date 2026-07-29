@@ -41,7 +41,7 @@ function stubs(over: Record<string, jest.Mock> = {}) {
 
 const req = () =>
   ({
-    claims: { accountId: 'acc-1', userId: 'u1', roles: ['teamlead'], brands: ['brand-a'] },
+    claims: { accountId: 'acc-1', userId: 'u1', roles: ['teamlead'] },
     effective: { permissionKeys: ['crm.automations.manage'] },
   }) as never;
 

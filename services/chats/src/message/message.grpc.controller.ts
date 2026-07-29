@@ -4,7 +4,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, mayAccessBrand, type ActorContext } from '../security/actor-context';
+import { readActorContext, type ActorContext } from '../security/actor-context';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
 import { toMessageWire, projectionFromWire } from '../shared/wire';
 import { DomainEventPublisher } from '../events/events.publisher';
@@ -89,7 +89,7 @@ async function assertConversationAccess(
   conversationId: string,
 ): Promise<void> {
   const brand = await repo.conversationBrand(ctx.accountId, conversationId);
-  if (brand === null || !mayAccessBrand(ctx, brand)) throw notFound();
+  if (brand === null) throw notFound();
 }
 
 /** ChatsReadService.GetThread — STAFF (all kinds) vs CUSTOMER (private notes excluded, R4). */

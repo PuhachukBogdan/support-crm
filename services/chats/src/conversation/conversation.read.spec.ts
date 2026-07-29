@@ -55,29 +55,36 @@ describe('ConversationReadController.listConversations (US1)', () => {
 
     const res = await ctrl.listConversations(
       { status: 'CONVERSATION_STATUS_OPEN', priority: 'high', playerId: 'p1' },
-      md('acc-1', ['brand-a', 'brand-b']),
+      md('acc-1'),
     );
 
     expect(forAccount).toHaveBeenCalledWith('acc-1'); // account isolation (Principle I)
     const args = findMany.mock.calls[0][0];
     expect(args.where).toMatchObject({ status: 'open', priority: 'high', player_id: 'p1' });
-    expect(args.where.brand_id).toEqual({ in: ['brand-a', 'brand-b'] }); // ∩ permitted brands (R3)
+    // No brand predicate: the caller asked for none. The intersection-with-permitted-brands that used
+    // to be asserted here is gone with the concept (ADR 0038 §1) — account isolation still holds, and
+    // it is now the only wall.
+    expect(args.where.brand_id).toBeUndefined();
     expect(args.orderBy).toEqual([{ created_at: 'desc' }, { id: 'desc' }]);
     expect(res.conversations[0]).toMatchObject({ id: 'c1', status: 'CONVERSATION_STATUS_OPEN' });
   });
 
-  it('applies no brand filter when the caller brand scope is absent (Phase-5 defer)', async () => {
+  it('applies no brand filter when the caller asked for none', async () => {
     const { prisma, findMany } = fakePrisma([row()]);
     const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
     await ctrl.listConversations({}, md('acc-1')); // no brands metadata
     expect(findMany.mock.calls[0][0].where.brand_id).toBeUndefined();
   });
 
-  it('narrows to the requested brand only when it is permitted (else empty result set)', async () => {
+  it('narrows to the brand the caller ASKED FOR — a filter, not a scope', async () => {
+    // ⚠️ Was: "narrows to the requested brand only when it is PERMITTED (else empty result set)".
+    // There is no such thing as an unpermitted brand (ADR 0038 §1): one support department serves
+    // every brand. A filter narrows what you asked for; a scope narrows what you may ask for. Only
+    // the first exists, so asking for any brand returns that brand.
     const { prisma, findMany } = fakePrisma([]);
     const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
-    await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1', ['brand-a']));
-    expect(findMany.mock.calls[0][0].where.brand_id).toEqual({ in: [] }); // asked a brand they can't serve
+    await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1'));
+    expect(findMany.mock.calls[0][0].where.brand_id).toEqual({ in: ['brand-z'] });
   });
 
   it('caps an oversized page_size and returns a next token when more remain', async () => {

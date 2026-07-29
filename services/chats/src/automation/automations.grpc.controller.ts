@@ -158,7 +158,6 @@ export class AutomationsController {
         name,
         definition,
         authorUserId: ctx.userId,
-        authorBrands: ctx.brands ?? [],
         position: Number.isFinite(req?.position) ? Math.max(0, Math.trunc(req!.position!)) : 0,
         active: req?.active ?? true,
       });

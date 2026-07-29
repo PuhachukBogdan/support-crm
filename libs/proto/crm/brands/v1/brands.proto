@@ -13,7 +13,20 @@ package crm.brands.v1;
 
 service BrandsReadService {
   rpc GetBrand(GetBrandRequest) returns (Brand);
-  rpc CheckBrandAccess(CheckBrandAccessRequest) returns (BrandAccessResult);
+
+  // Feature 020 (roadmap 5.2): every brand of the account, for rendering a record's origin.
+  rpc ListBrands(ListBrandsRequest) returns (BrandList);
+
+  // ⚠️ DEPRECATED by feature 020 (ADR 0038 §1) — "may this operator access this brand" is not a
+  // question this product asks. There is ONE support department: the same people handle every brand,
+  // so a brand never decides who may see what. It is part of a PLAYER'S IDENTITY (feature 020) and a
+  // filter a caller may ask for.
+  //
+  // It stays in the contract ONLY because removing an rpc trips `buf breaking`, and the compatibility
+  // gate is worth more than the tidiness. Nothing serves it and nothing may: `hosting.spec.ts` asserts
+  // the served set, so wiring a handler is a failing test rather than a quiet revival. Delete it in a
+  // change that is allowed to break the contract.
+  rpc CheckBrandAccess(CheckBrandAccessRequest) returns (BrandAccessResult) { option deprecated = true; };
 }
 
 message GetBrandRequest {
@@ -25,6 +38,21 @@ message Brand {
   string account_id = 2;
   string name = 3;
   bool active = 4;
+  // Feature 020 — the visual identity an agent recognises. `slug` is the stable handle; `icon` and
+  // `accent` are how a record's origin is shown. Brand-neutral by construction: the values are data,
+  // never hardcoded anywhere in the product (Principle VI).
+  string slug = 5;
+  string icon = 6;
+  string accent = 7;
+}
+
+message ListBrandsRequest {
+  // Absent ⇒ every brand of the account, active or not. Administration needs the inactive ones.
+  bool active_only = 1;
+}
+
+message BrandList {
+  repeated Brand brands = 1;
 }
 
 message CheckBrandAccessRequest {

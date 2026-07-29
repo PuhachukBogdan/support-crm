@@ -23,6 +23,8 @@ export const CHATS_PACKAGE = 'crm.chats.v1';
 // only ping + health) and every service's proto now imports the shared audit shapes.
 export const USERS_PACKAGE = 'crm.users.v1';
 export const AUDIT_PACKAGE = 'crm.audit.v1';
+// Feature 020 (roadmap 5.2): the brand registry is served for the first time.
+export const BRANDS_PACKAGE = 'crm.brands.v1';
 
 export const PING_PROTO = join(PROTO_ROOT, 'crm', 'ping', 'v1', 'ping.proto');
 export const HEALTH_PROTO = join(PROTO_ROOT, 'crm', 'health', 'v1', 'health.proto');
@@ -30,6 +32,7 @@ export const AUTH_PROTO = join(PROTO_ROOT, 'crm', 'auth', 'v1', 'auth.proto');
 export const CHATS_PROTO = join(PROTO_ROOT, 'crm', 'chats', 'v1', 'chats.proto');
 export const USERS_PROTO = join(PROTO_ROOT, 'crm', 'users', 'v1', 'users.proto');
 export const AUDIT_PROTO = join(PROTO_ROOT, 'crm', 'audit', 'v1', 'audit.proto');
+export const BRANDS_PROTO = join(PROTO_ROOT, 'crm', 'brands', 'v1', 'brands.proto');
 
 /**
  * proto-loader options shared by every server and client. `keepCase: false` makes the

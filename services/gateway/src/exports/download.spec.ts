@@ -19,7 +19,7 @@ import { ExportsController } from './exports.controller';
  * much as the outcome: feature 016's Track-B defect was two tiers both correct and an empty
  * `x-actor-permissions` between them, which produced a 403 on a file the caller owned.
  */
-const CLAIMS = { accountId: 'acc-1', userId: 'user-1', roles: ['teamlead'], brands: [] };
+const CLAIMS = { accountId: 'acc-1', userId: 'user-1', roles: ['teamlead'] };
 const SCOPE_KEY = 'crm.exports.conversations';
 
 const CSV = Buffer.from('id,status\r\nconv-1,open\r\n', 'utf8');

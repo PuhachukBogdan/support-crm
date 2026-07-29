@@ -4,7 +4,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, mayAccessBrand } from '../security/actor-context';
+import { readActorContext } from '../security/actor-context';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { LabelsRepository, type LabelRow } from './labels.repository';
 
@@ -47,7 +47,7 @@ export class LabelsController {
       });
     }
     const existing = await this.conversations.getById(ctx.accountId, id);
-    if (!existing || !mayAccessBrand(ctx, existing.brand_id)) {
+    if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
     return { ctx, id };

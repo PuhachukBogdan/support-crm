@@ -118,7 +118,6 @@ export class AutomationsRepository {
       name: string;
       definition: RuleDefinition;
       authorUserId: string;
-      authorBrands: string[];
       position: number;
       active: boolean;
     },
@@ -130,7 +129,6 @@ export class AutomationsRepository {
         active: input.active,
         definition: toStoredDefinition(input.definition) as never,
         author_user_id: input.authorUserId,
-        author_brands: input.authorBrands,
         position: input.position,
         revision: 1,
       },

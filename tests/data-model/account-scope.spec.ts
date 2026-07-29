@@ -13,7 +13,11 @@ describe('account-scope coverage (Principle I)', () => {
   const EXPECTED: Record<string, string[]> = {
     auth: ['User', 'Credential', 'Role'],
     users: ['Operator', 'Player'],
-    brands: ['Brand', 'BrandAccessRule'],
+    // `BrandAccessRule` LEFT this list with the table (feature 020, ADR 0038 §1): per-operator brand
+    // access is not a concept in this product — one support department serves every brand. The line
+    // is edited rather than silently shortened, because a pinned invariant losing a member should be
+    // as visible as gaining one.
+    brands: ['Brand'],
     chats: ['Conversation', 'Message', 'Label', 'Macro', 'Automation'],
   };
 

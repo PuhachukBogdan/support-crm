@@ -25,7 +25,7 @@ function makeCtrl(over: { assign?: jest.Mock; auto?: jest.Mock } = {}) {
 
 const req = () =>
   ({
-    claims: { accountId: 'acc-1', userId: 'u1', roles: ['support_agent'], brands: ['brand-a'] },
+    claims: { accountId: 'acc-1', userId: 'u1', roles: ['support_agent'] },
     effective: { permissionKeys: ['crm.inbox.view', 'crm.conversation.assign'] },
   }) as never;
 
@@ -37,7 +37,6 @@ describe('AssignmentController (gateway proxy)', () => {
     expect(arg).toMatchObject({ conversationId: 'c1', operatorId: 'op-a' });
     expect(md.get('x-actor-account-id')[0]).toBe('acc-1');
     expect(md.get('x-actor-permissions')[0]).toContain('crm.conversation.assign');
-    expect(md.get('x-actor-brands')[0]).toBe('brand-a');
   });
 
   it('trims the operator id and sends "" for a blank one (the service unassigns on empty)', async () => {

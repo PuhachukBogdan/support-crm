@@ -4,7 +4,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, mayAccessBrand } from '../security/actor-context';
+import { readActorContext } from '../security/actor-context';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
@@ -51,7 +51,7 @@ export class AutoAssignController {
 
     // Resource-check the target before anything else (no existence disclosure).
     const conversation = await this.conversations.getById(ctx.accountId, conversationId);
-    if (!conversation || !mayAccessBrand(ctx, conversation.brand_id)) {
+    if (!conversation) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
 

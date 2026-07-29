@@ -121,18 +121,18 @@ describe('AssignConversation (US1)', () => {
     expect(conversation.updateMany).not.toHaveBeenCalled();
   });
 
-  it('is NOT_FOUND for a conversation in a brand the caller may not serve (no disclosure)', async () => {
-    const { prisma, conversation } = fakePrisma({
-      findFirst: jest.fn().mockResolvedValue(detailRow({ brand_id: 'brand-z' })),
-    });
-    await expect(
-      build(prisma).assignConversation(
-        { conversationId: 'c1', operatorId: 'op-a' },
-        md('acc-1', ['brand-a']),
-      ),
-    ).rejects.toBeInstanceOf(RpcException);
-    expect(conversation.updateMany).not.toHaveBeenCalled();
-  });
+  /**
+   * ⚠️ A test asserting NOT_FOUND "for a conversation in a brand the caller may not serve" stood here
+   * and was REMOVED by feature 020's cleanup (ADR 0038 §1), along with the guard it covered.
+   *
+   * It passed for four phases while the production path could not reach that branch: `mayAccessBrand`
+   * compared against a caller brand set that nothing ever populated, so it could only return true.
+   * The test supplied the set by hand, and therefore proved the helper's arithmetic and nothing about
+   * the product.
+   *
+   * There is ONE support department. A brand never decides who may see what — it is part of a
+   * player's IDENTITY (feature 020) and a filter a caller may ask for.
+   */
 
   it('rejects a blank conversation id before touching the database', async () => {
     const { prisma, conversation, forAccount } = fakePrisma();

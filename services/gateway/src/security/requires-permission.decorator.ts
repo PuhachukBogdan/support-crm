@@ -14,15 +14,15 @@ export const REQUIRED_PERMISSION_KEY = 'rbac:required_permission';
 export const RequiresPermission = (permission: string) =>
   SetMetadata(REQUIRED_PERMISSION_KEY, permission);
 
-/** Metadata key naming a route param whose brand must be in the caller's brand scope (FR-004). */
-export const REQUIRES_BRAND_PARAM_KEY = 'rbac:requires_brand_param';
-
 /**
- * Declare that a route param identifies a brand the caller must have access to (brand/queue scope,
- * FR-004). Brand membership is read from the caller's claims; enforcement is in {@link PermissionGuard}.
+ * ⚠️ `REQUIRES_BRAND_PARAM_KEY` / `@RequiresBrandParam` were REMOVED by feature 020 (ADR 0038 §1).
+ *
+ * They declared that a route param named a brand the caller must have access to. Dead twice over:
+ * the decorator was **never applied to a single route**, and the guard branch reading it compared
+ * against `claims.brands` — a set nothing in the product ever populated. There is one support
+ * department; a brand never decides who may see what. Brand is part of a player's IDENTITY
+ * (feature 020) and a filter a caller may ask for, never a permission.
  */
-export const RequiresBrandParam = (param = 'brandId') =>
-  SetMetadata(REQUIRES_BRAND_PARAM_KEY, param);
 
 /**
  * Metadata key naming a route param whose UPLOAD PURPOSE determines the required permission
@@ -40,7 +40,8 @@ export const REQUIRES_PURPOSE_PARAM_KEY = 'rbac:requires_purpose_param';
  * NOTHING while the service tier still does: the two-tier guarantee (Principle II) would be quietly
  * halved, and nothing would visibly break.
  *
- * The precedent is `@RequiresBrandParam`, which already reads a route param inside the guard.
+ * The precedent was `@RequiresBrandParam`, removed by feature 020 — it read a route param inside
+ * the guard, and was never applied to a route.
  *
  * Resolution happens in {@link PermissionGuard}: an unknown purpose is refused, and a purpose whose
  * catalogue entry has `permission: null` means "authenticated is sufficient" — never "no check".

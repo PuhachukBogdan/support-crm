@@ -270,15 +270,18 @@ describe('ApplyMacro — all-or-nothing (FR-008 / SC-004)', () => {
     expect($transaction).not.toHaveBeenCalled();
   });
 
-  it('is NOT_FOUND when the conversation is in a brand the caller may not serve', async () => {
-    const { prisma, $transaction } = fakePrisma({
-      convFindFirst: jest.fn().mockResolvedValue(conversationRow({ brand_id: 'brand-z' })),
-    });
-    await expect(
-      build(prisma).applyMacro({ conversationId: 'c1', macroId: 'm1' }, md(ALL_PERMS)),
-    ).rejects.toBeInstanceOf(RpcException);
-    expect($transaction).not.toHaveBeenCalled();
-  });
+  /**
+   * ⚠️ A test asserting NOT_FOUND "for a conversation in a brand the caller may not serve" stood here
+   * and was REMOVED by feature 020's cleanup (ADR 0038 §1), along with the guard it covered.
+   *
+   * It passed for four phases while the production path could not reach that branch: `mayAccessBrand`
+   * compared against a caller brand set that nothing ever populated, so it could only return true.
+   * The test supplied the set by hand, and therefore proved the helper's arithmetic and nothing about
+   * the product.
+   *
+   * There is ONE support department. A brand never decides who may see what — it is part of a
+   * player's IDENTITY (feature 020) and a filter a caller may ask for.
+   */
 
   it('refuses when an ADD_LABEL action references a label outside the account (pre-validated)', async () => {
     const { prisma, $transaction } = fakePrisma({

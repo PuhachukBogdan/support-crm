@@ -1,7 +1,14 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { MicroserviceOptions } from '@nestjs/microservices';
-import { grpcServerOptions, HEALTH_PACKAGE, HEALTH_PROTO, logInfo } from '@crm/common';
+import {
+  grpcServerOptions,
+  HEALTH_PACKAGE,
+  HEALTH_PROTO,
+  BRANDS_PACKAGE,
+  BRANDS_PROTO,
+  logInfo,
+} from '@crm/common';
 import { AppModule } from './app.module';
 import { loadBrandsConfig } from './config';
 
@@ -12,7 +19,8 @@ async function bootstrap(): Promise<void> {
   const cfg = loadBrandsConfig();
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     AppModule,
-    grpcServerOptions(HEALTH_PACKAGE, HEALTH_PROTO, cfg.GRPC_URL),
+    // Feature 020: two packages on one port — health, and the brand registry it now serves.
+    grpcServerOptions([HEALTH_PACKAGE, BRANDS_PACKAGE], [HEALTH_PROTO, BRANDS_PROTO], cfg.GRPC_URL),
   );
   await app.listen();
   logInfo('brands', `brands gRPC server listening on ${cfg.GRPC_URL}`);

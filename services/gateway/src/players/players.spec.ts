@@ -22,7 +22,7 @@ import { parseListQuery, parsePageSize } from './wire';
  * fourth route added without a decorator **and** without being added to the list would have passed
  * silently — the same gap in a new place.
  */
-const CLAIMS = { accountId: 'acc-1', userId: 'user-1', roles: ['am'], brands: ['brand-a'] };
+const CLAIMS = { accountId: 'acc-1', userId: 'user-1', roles: ['am'] };
 
 const effective = (over: Record<string, unknown> = {}) => ({
   roleKey: 'am',

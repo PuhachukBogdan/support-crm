@@ -1,0 +1,11 @@
+-- Feature 020 cleanup (roadmap 5.2 / ADR 0038 §1) — the last remnant of brand SCOPE leaves chats.
+--
+-- `author_brands` captured "the author's brand scope at authoring time". There is no such thing: the
+-- operation has ONE support department serving every brand, so a brand never decides who may do what.
+-- The column was written on every automation create, was ALWAYS EMPTY because nothing in the product
+-- ever populated a caller's brand set, and was READ BY NOTHING — four phases of write-only data.
+--
+-- Removed rather than left in place: an always-empty column named `author_brands` tells the next
+-- reader that brand scope exists and is merely unused. It does not exist, and the belief that it does
+-- is what this whole cleanup is undoing.
+ALTER TABLE "Automation" DROP COLUMN IF EXISTS "author_brands";

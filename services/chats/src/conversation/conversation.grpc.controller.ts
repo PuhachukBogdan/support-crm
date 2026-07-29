@@ -5,7 +5,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, resolveBrandIn, mayAccessBrand } from '../security/actor-context';
+import { readActorContext, resolveBrandIn } from '../security/actor-context';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
 import { toSummaryWire, toDetailWire, wireToStatus, wireToSlaOutcome } from '../shared/wire';
 import { SlaRepository } from '../sla/sla.repository';
@@ -96,7 +96,7 @@ export class ConversationReadController {
     const row = await this.repo.getById(ctx.accountId, req.id);
     // Not in this account, or a brand the caller may not serve → identical NOT_FOUND (no existence
     // disclosure across tenants — spec Edge Cases).
-    if (!row || !mayAccessBrand(ctx, row.brand_id)) {
+    if (!row) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
     // Feature 014: the first-reply measurement rides on the detail so the UI needs no second call.

@@ -5,7 +5,7 @@ import type { Metadata } from '@grpc/grpc-js';
 import { hasPermission } from '@crm/common';
 import { ChatsAccessGuard, readActorPermissions } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, mayAccessBrand } from '../security/actor-context';
+import { readActorContext } from '../security/actor-context';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { LabelsRepository } from '../labels/labels.repository';
@@ -123,7 +123,7 @@ export class MacrosController {
 
     // 4. The target conversation must be in the account and a permitted brand.
     const conversation = await this.conversations.getById(ctx.accountId, conversationId);
-    if (!conversation || !mayAccessBrand(ctx, conversation.brand_id)) {
+    if (!conversation) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
 

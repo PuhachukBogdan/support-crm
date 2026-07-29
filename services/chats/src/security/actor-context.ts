@@ -12,7 +12,6 @@ export interface ActorContext {
   accountId: string;
   userId: string;
   /** Permitted brand ids; undefined = brand scope not populated yet → no brand restriction. */
-  brands?: string[];
   /**
    * Feature 015: the caller is previewing another role (owner view-as, `x-is-preview`). An audit entry
    * records the REAL user plus this marker — never the previewed role, which nobody performed anything as.
@@ -36,10 +35,8 @@ export function readActorContext(md: Metadata | undefined): ActorContext {
   if (!accountId) {
     throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
   }
-  const brandsRaw = readStr(md, 'x-actor-brands');
-  const brands = brandsRaw ? brandsRaw.split(',').filter(Boolean) : undefined;
   const underPreview = readStr(md, 'x-is-preview') === 'true';
-  return { accountId, userId, ...(brands ? { brands } : {}), ...(underPreview ? { underPreview } : {}) };
+  return { accountId, userId, ...(underPreview ? { underPreview } : {}) };
 }
 
 /**
@@ -59,21 +56,19 @@ export function readActorPermissions(md: Metadata | undefined): string[] {
 }
 
 /**
- * Resolve the brand-id filter for a collection read (R3):
- * - brands known + explicit request brandId → that brand iff permitted, else [] (empty result).
- * - brands known, no request brandId → all permitted brands.
- * - brands unknown (Phase-5 defer) → request brandId if given, else undefined (no restriction).
+ * Resolve the brand-id filter for a collection read.
+ *
+ * ⚠️ **This is a FILTER, not a scope, and the difference is the whole of ADR 0038 §1.** A filter
+ * narrows what the caller ASKED FOR; a scope narrows what they are ALLOWED to ask for. Only the first
+ * exists in this product: there is one support department, the same people handle every brand, and no
+ * caller is ever refused because of a brand.
+ *
+ * The caller-brand-set branch that used to live here was removed in feature 020's cleanup. It read
+ * `ctx.brands` — which nothing ever populated, through four phases — so it was an authorization
+ * decision that could not fire, sitting in a security path where the next reader would take it for a
+ * live control. `mayAccessBrand` went with it for the same reason: it could only ever return true.
  */
-export function resolveBrandIn(ctx: ActorContext, requestBrandId?: string): string[] | undefined {
+export function resolveBrandIn(_ctx: ActorContext, requestBrandId?: string): string[] | undefined {
   const reqBrand = requestBrandId || undefined;
-  if (ctx.brands) {
-    if (reqBrand) return ctx.brands.includes(reqBrand) ? [reqBrand] : [];
-    return ctx.brands;
-  }
   return reqBrand ? [reqBrand] : undefined;
-}
-
-/** True when the caller may access a specific brand (singleton resource-check, R3). */
-export function mayAccessBrand(ctx: ActorContext, brandId: string): boolean {
-  return !ctx.brands || ctx.brands.includes(brandId);
 }

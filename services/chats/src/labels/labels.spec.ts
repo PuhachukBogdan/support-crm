@@ -111,15 +111,18 @@ describe('Labels — scoping and access', () => {
     expect(conversationLabel.upsert).not.toHaveBeenCalled();
   });
 
-  it('is NOT_FOUND for a conversation in a brand the caller may not serve — and writes nothing', async () => {
-    const { prisma, conversationLabel } = fakePrisma({
-      convFindFirst: jest.fn().mockResolvedValue(conversationRow({ brand_id: 'brand-z' })),
-    });
-    await expect(
-      build(prisma).attachLabel({ conversationId: 'c1', labelId: 'l1' }, md('acc-1', ['brand-a'])),
-    ).rejects.toBeInstanceOf(RpcException);
-    expect(conversationLabel.upsert).not.toHaveBeenCalled();
-  });
+  /**
+   * ⚠️ A test asserting NOT_FOUND "for a conversation in a brand the caller may not serve" stood here
+   * and was REMOVED by feature 020's cleanup (ADR 0038 §1), along with the guard it covered.
+   *
+   * It passed for four phases while the production path could not reach that branch: `mayAccessBrand`
+   * compared against a caller brand set that nothing ever populated, so it could only return true.
+   * The test supplied the set by hand, and therefore proved the helper's arithmetic and nothing about
+   * the product.
+   *
+   * There is ONE support department. A brand never decides who may see what — it is part of a
+   * player's IDENTITY (feature 020) and a filter a caller may ask for.
+   */
 
   it('is NOT_FOUND for a conversation absent in this account', async () => {
     const { prisma } = fakePrisma({ convFindFirst: jest.fn().mockResolvedValue(null) });

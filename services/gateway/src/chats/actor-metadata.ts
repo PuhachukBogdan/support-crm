@@ -9,9 +9,13 @@ import type { RequestClaims } from '../auth/auth.guard';
  * the one the global `PermissionGuard` already resolved onto `req.effective`. Each owning service
  * re-checks `x-actor-permissions` independently (Principle II).
  *
- * Brand scope (R3): `x-actor-brands` is set ONLY when the caller's brand set is a non-empty array.
- * When brands are absent (Brands service, roadmap 5.2) the key is omitted and the service applies NO
- * brand filter — mirroring the guard, which also defers brand enforcement until `claims.brands` exists.
+ * ⚠️ `x-actor-brands` was REMOVED by feature 020's cleanup (ADR 0038 §1). It was set only when the
+ * caller's brand set was non-empty, and nothing ever populated that set — so through four phases the
+ * header was never sent and no service ever filtered on it. It was an authorization input that could
+ * not fire, in the one file every service trusts for actor context.
+ *
+ * There is one support department; a brand never decides who may see what. Brand remains part of a
+ * PLAYER'S IDENTITY (feature 020) and a FILTER a caller may ask for — never a permission.
  *
  * ── Feature 018 (roadmap 5.1) added two headers, and one of them is a REPAIR ─────────────────────
  *
@@ -48,9 +52,6 @@ export function buildActorMetadata(
   md.set('x-actor-user-id', claims.userId);
   md.set('x-actor-role', claims.roles?.[0] ?? '');
   md.set('x-actor-permissions', permissionKeys.join(','));
-  if (Array.isArray(claims.brands) && claims.brands.length > 0) {
-    md.set('x-actor-brands', claims.brands.join(','));
-  }
   // Only when there IS one. An absent key and the string 'false' must not be conflated by a reader, and
   // every reader in the product tests for the literal 'true'.
   if (resolved?.roleKey) md.set('x-actor-effective-role', resolved.roleKey);

@@ -22,11 +22,15 @@ model Brand {
   name       String
   slug       String
   active     Boolean  @default(true)
+  /// Feature 020 — the visual identity. A brand is IDENTIFICATION, not a permission (ADR 0038 §1):
+  /// an agent sees at a glance which brand a ticket came from, inside one interface. Values are data,
+  /// never hardcoded (Principle VI, white-label), and this is NOT the install's own theming — that is
+  /// the token layer (0028), a different thing that 0038 §4 separates.
+  icon       String   @default("")
+  accent     String   @default("")
   settings   Json?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
-
-  access_rules BrandAccessRule[]
 
   @@unique([account_id, slug])
   @@index([account_id])
@@ -34,17 +38,11 @@ model Brand {
 
 /// Which operators may read/answer which brand (ADR 0003 seam; ENFORCEMENT is a later feature).
 /// operator_id is a soft ref to users.Operator.id — no cross-service FK (resolved via gRPC).
-model BrandAccessRule {
-  id           String   @id @default(uuid())
-  account_id   String
-  brand_id     String
-  operator_id  String // soft ref to users.Operator.id
-  access_level String // e.g. read | answer
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  brand Brand @relation(fields: [brand_id], references: [id], onDelete: Cascade)
-
-  @@index([account_id, brand_id])
-  @@index([operator_id])
-}
+/// ⚠️ `BrandAccessRule` (which operator may read/answer which brand) was REMOVED by feature 020's
+/// cleanup (ADR 0038 §1). The operation has ONE support department: the same people handle every
+/// brand at the same time, so a per-operator brand permission is not a thing anyone wants.
+///
+/// It was also never used — nothing wrote a rule, nothing read one, and the RPC meant to check them
+/// was served by nothing. Removed rather than kept "in case": this table is exactly where a future
+/// engineer would add the restrictions the operation does not want, and its presence is an argument
+/// that they belong somewhere.

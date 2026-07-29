@@ -4,7 +4,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, mayAccessBrand } from '../security/actor-context';
+import { readActorContext } from '../security/actor-context';
 import { toDetailWire, wireToStatus, isValidStatusWire } from '../shared/wire';
 import { DomainEventPublisher } from '../events/events.publisher';
 import { ConversationRepository } from './conversation.repository';
@@ -42,7 +42,7 @@ export class ConversationWriteController {
   @RequiresChatsPermission('crm.conversation.reply')
   async createConversation(req: CreateConversationRequestWire, metadata: Metadata) {
     const ctx = readActorContext(metadata);
-    if (!req.brandId || !mayAccessBrand(ctx, req.brandId)) {
+    if (!req.brandId) {
       throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
     }
     const row = await this.repo.create(ctx.accountId, {
@@ -68,7 +68,7 @@ export class ConversationWriteController {
     }
     // Resource-check the target's brand before mutating (no existence disclosure otherwise).
     const existing = await this.repo.getById(ctx.accountId, req.conversationId);
-    if (!existing || !mayAccessBrand(ctx, existing.brand_id)) {
+    if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
     const newStatus = wireToStatus(req.status)!;

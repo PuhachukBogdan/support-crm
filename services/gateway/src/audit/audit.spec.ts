@@ -24,7 +24,7 @@ function build(over: { list?: jest.Mock } = {}) {
 
 const req = (perms = ['platform.audit.view']) =>
   ({
-    claims: { accountId: 'acc-1', userId: 'god', roles: ['super_admin'], brands: [] },
+    claims: { accountId: 'acc-1', userId: 'god', roles: ['super_admin'] },
     effective: { permissionKeys: perms },
   }) as never;
 

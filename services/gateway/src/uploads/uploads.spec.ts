@@ -17,7 +17,6 @@ import 'reflect-metadata';
 import {
   ALLOW_UNDER_PREVIEW_KEY,
   REQUIRED_PERMISSION_KEY,
-  REQUIRES_BRAND_PARAM_KEY,
   REQUIRES_PURPOSE_PARAM_KEY,
   RESOLVE_PERMISSIONS_KEY,
 } from '../security/requires-permission.decorator';
@@ -69,7 +68,6 @@ function purposeContext(
   jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key: unknown) => {
     if (key === REQUIRES_PURPOSE_PARAM_KEY) return 'purpose';
     if (key === REQUIRED_PERMISSION_KEY) return undefined;
-    if (key === REQUIRES_BRAND_PARAM_KEY) return undefined;
     if (key === ALLOW_UNDER_PREVIEW_KEY) return undefined;
     return undefined;
   });

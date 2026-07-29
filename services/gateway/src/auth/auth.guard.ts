@@ -17,8 +17,6 @@ export interface RequestClaims {
   userId: string;
   accountId: string;
   roles: string[];
-  /** Brand/queue scope (feature 011, FR-004). Absent = not yet populated (Brands service, Phase 5). */
-  brands?: string[];
 }
 
 /**
@@ -56,7 +54,6 @@ export class AuthGuard implements CanActivate {
         sub: string;
         account_id: string;
         roles?: string[];
-        brands?: string[];
       }>(token, {
         secret: this.cfg.JWT_SECRET,
       });
@@ -64,7 +61,6 @@ export class AuthGuard implements CanActivate {
         userId: p.sub,
         accountId: p.account_id,
         roles: p.roles ?? [],
-        ...(p.brands ? { brands: p.brands } : {}),
       };
       return true;
     } catch {

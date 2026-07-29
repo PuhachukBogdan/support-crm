@@ -169,9 +169,11 @@ model RoundRobinState {
 /// `author_user_id` is the authority the rule acts with: its author's CURRENT effective permissions,
 /// re-resolved on EVERY evaluation (FR-023 / research R5), so revoking a permission through Access
 /// Management also stops that person's rules — no separate disable step, no frozen privilege.
-/// `author_brands` captures the author's brand scope at authoring time; brands are not populated
-/// anywhere in the product yet (Brands service = Phase 5), at which point they join the same live
-/// re-resolution path as permissions.
+/// ⚠️ `author_brands` was REMOVED by feature 020's cleanup (ADR 0038 §1). It captured "the author's
+/// brand scope at authoring time" — a concept that no longer exists: one support department serves
+/// every brand, so no author has a brand scope. It was written on every create, always empty because
+/// nothing ever populated the caller's brand set, and **read by nothing**. A column that is always
+/// empty and never read is an invitation to believe brand scope exists.
 model Automation {
   id             String   @id @default(uuid())
   account_id     String
@@ -179,7 +181,6 @@ model Automation {
   active         Boolean  @default(true)
   definition     Json
   author_user_id String // soft ref to an auth user — never joined (Principle VIII)
-  author_brands  String[] @default([])
   position       Int      @default(0) // evaluation order; ties broken by created_at
   revision       Int      @default(1) // bumped on every definition change, named by each run record
   created_at     DateTime @default(now())

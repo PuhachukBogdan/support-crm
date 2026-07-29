@@ -19,7 +19,7 @@ function makeCtrl() {
 
 const req = () =>
   ({
-    claims: { accountId: 'acc-1', userId: 'op-1', roles: ['support_agent'], brands: ['brand-a'] },
+    claims: { accountId: 'acc-1', userId: 'op-1', roles: ['support_agent'] },
     effective: { permissionKeys: ['crm.inbox.view', 'crm.conversation.reply'] },
   }) as never;
 

@@ -44,7 +44,7 @@ function convStubs() {
 
 const req = (perms: string[] = ['crm.sla.manage']) =>
   ({
-    claims: { accountId: 'acc-1', userId: 'u1', roles: ['teamlead'], brands: ['brand-a'] },
+    claims: { accountId: 'acc-1', userId: 'u1', roles: ['teamlead'] },
     effective: { permissionKeys: perms },
   }) as never;
 

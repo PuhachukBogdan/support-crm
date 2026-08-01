@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { stripComments } from '@crm/common';
 
 /**
@@ -25,11 +25,12 @@ import { stripComments } from '@crm/common';
 /** Every file that is still allowed to say `personalizeGroup` must carry this marker. */
 const MARKER = /NOT the `?Group`? (?:ENTITY|entity)|not the `?Group`? entity|feature 024/i;
 
+const REPO_ROOT = resolve(__dirname, '../..');
 const ROOTS = ['services', 'libs/common/src', 'web/src'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'generated', '.next', 'gen']);
 
 function sources(root: string): string[] {
-  const abs = resolve(__dirname, '../..', root);
+  const abs = resolve(REPO_ROOT, root);
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
@@ -47,7 +48,26 @@ function sources(root: string): string[] {
 }
 
 const FILES = ROOTS.flatMap(sources);
-const rel = (p: string) => p.replace(resolve(__dirname, '../..') + '\\', '').replace(/\\/g, '/');
+
+/**
+ * Repo-relative and POSIX-spelled — on **every** platform.
+ *
+ * ⚠️ This was `p.replace(REPO_ROOT + '\\', '')`: a Windows separator hardcoded into a repository
+ * whose CI runs on `ubuntu-latest`. On a POSIX runner that replace matched nothing, so every path
+ * stayed ABSOLUTE and the pin below compared
+ * `/home/runner/work/crm-foundation/crm-foundation/services/gateway/…` against
+ * `services/gateway/…`. Green on the author's machine, red in CI, and the failure diff named two
+ * plausible-looking paths without hinting that the operating system was the variable.
+ *
+ * `relative()` is separator-correct by construction, which is the point: the fix is to stop doing
+ * path arithmetic with string surgery, not to write the other separator. `sep` → `/` is then the
+ * only spelling step left, and it is a no-op on Linux.
+ *
+ * The shape itself is now banned repo-wide by `tests/portability/no-hardcoded-path-separator.spec.ts`,
+ * because a mistake only one of our two operating systems can see is one we cannot be trusted to
+ * notice before pushing.
+ */
+const rel = (p: string) => relative(REPO_ROOT, p).split(sep).join('/');
 
 describe('the batch-selection path and the Group entity are told apart (feature 024)', () => {
   it('scanned a plausible number of files', () => {

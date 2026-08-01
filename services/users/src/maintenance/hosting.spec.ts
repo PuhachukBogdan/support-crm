@@ -83,7 +83,7 @@ describe('*** UsersMaintenanceService is hosted, not merely written ***', () => 
 describe('*** UsersReadService is served across two controllers, completely ***', () => {
   const proto = readFileSync(USERS_PROTO, 'utf8');
 
-  it('the contract declares exactly five methods on it', () => {
+  it('the contract declares exactly six methods on it', () => {
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
     expect(rpcs.sort()).toEqual([
@@ -93,6 +93,12 @@ describe('*** UsersReadService is served across two controllers, completely ***'
       // Feature 020 (roadmap 5.2): which brand-scoped records make up one human. Chats needs it to
       // answer a person's feed and cannot join across services, so identity crosses as an explicit
       // call. Editing this list is the visible act the guard exists to force.
+      // Feature 024 (roadmap 5.3): AUTH user ids → assignable operator profiles. The one translation
+      // that turns a group's membership into a routing candidate pool; membership keys on the auth
+      // identity, an assignee is an operator profile. Named `List…` deliberately — the sibling guard
+      // in tests/users-read/no-outbound.spec.ts requires every rpc here to be read-shaped, and it
+      // caught the first draft, which was called `ResolveOperators`.
+      'ListOperatorsByAuthUsers',
       'ListPersonMembers',
       'ListPlayersByBrand',
     ]);

@@ -257,6 +257,30 @@ export class PlayerReadController {
     if (!row) throw notFound();
     return toOperatorWire(row, actor);
   }
+
+  /**
+   * AUTH user ids → assignable operator profiles (feature 024, roadmap 5.3).
+   *
+   * Gated by `crm.conversation.assign`, not by the inbox key: the only reason to ask this question is
+   * to route work, and the answer — who is available to take a conversation — is an operational fact
+   * about staffing rather than something every inbox reader needs. It carries **no customer data at
+   * all**, so there is nothing to mask and nothing to audit as an access.
+   *
+   * The caller forwards its own credentials unchanged; calling as a system actor would launder the
+   * permission, which is the rule feature 022 established for `ListPersonMembers` one field over.
+   */
+  @GrpcMethod('UsersReadService', 'ListOperatorsByAuthUsers')
+  @RequiresPlayerPermission('crm.conversation.assign')
+  async listOperatorsByAuthUsers(req: { authUserIds?: string[] }, metadata: Metadata) {
+    const actor = readPlayerActor(metadata);
+    const resolved = await this.operators.resolveByAuthUserIds(
+      actor.accountId,
+      Array.isArray(req?.authUserIds) ? req.authUserIds.map((id) => String(id ?? '')) : [],
+    );
+    return {
+      operators: resolved.map((r) => ({ operatorId: r.operatorId, authUserId: r.authUserId })),
+    };
+  }
 }
 
 const notFound = () => new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });

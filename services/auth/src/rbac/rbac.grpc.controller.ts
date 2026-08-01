@@ -41,7 +41,7 @@ interface PersonalizeRequest extends CallerCtx {
   permissionKey: string;
   grant: boolean;
 }
-interface PersonalizeGroupRequest extends CallerCtx {
+interface PersonalizeSelectionRequest extends CallerCtx {
   userIds: string[];
   permissionKey: string;
   grant: boolean;
@@ -70,6 +70,21 @@ const SUPER_ADMIN_UI_FORBIDDEN = 'RBAC_STATUS_SUPER_ADMIN_UI_FORBIDDEN';
 const NOT_FOUND = 'RBAC_STATUS_NOT_FOUND';
 
 const isSuperAdmin = (roles: string[] | undefined): boolean => !!roles?.includes('super_admin');
+
+/**
+ * `user | selection | role`, with `group` accepted as a **legacy synonym for `selection`**.
+ *
+ * A scope is a string VALUE, not a name, so widening it is additive and costs nothing. It is worth
+ * doing because after feature 024 the product has a real `Group`, and a caller sending
+ * `scope: "group"` while thinking of a group id is a plausible mistake that the strings alone would
+ * never warn them about. Anything unrecognised falls back to `user`, which is the narrowest scope —
+ * a typo must not silently widen a reset.
+ */
+export function normaliseResetScope(raw: string | undefined): 'user' | 'selection' | 'role' {
+  if (raw === 'role') return 'role';
+  if (raw === 'selection' || raw === 'group') return 'selection';
+  return 'user';
+}
 const result = (status: string, affectedUserIds: string[] = [], message = '') => ({
   status,
   message,
@@ -157,9 +172,9 @@ export class RbacGrpcController {
   }
 
   @GrpcMethod('AuthService', 'PersonalizeGroup')
-  async personalizeGroupRpc(req: PersonalizeGroupRequest) {
+  async personalizeSelectionRpc(req: PersonalizeSelectionRequest) {
     if (!isSuperAdmin(req.callerRoles)) return result(FORBIDDEN);
-    const r = await this.overrides.personalizeGroup(
+    const r = await this.overrides.personalizeSelection(
       req.callerAccountId,
       { userId: req.callerUserId, underPreview: req.callerUnderPreview === true },
       req.userIds ?? [],
@@ -176,7 +191,7 @@ export class RbacGrpcController {
       req.callerAccountId,
       { userId: req.callerUserId, underPreview: req.callerUnderPreview === true },
       {
-      scope: (req.scope as 'user' | 'group' | 'role') || 'user',
+      scope: normaliseResetScope(req.scope),
       userId: req.userId,
       userIds: req.userIds ?? [],
       roleKey: req.roleKey,

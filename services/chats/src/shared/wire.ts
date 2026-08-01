@@ -105,6 +105,11 @@ export interface ConversationDetailRow extends ConversationSummaryRow {
   classified_by: string | null;
   /** `auto` | `manual`; null while the derivation window is still open (feature 023). */
   subject_source: string | null;
+  /**
+   * Feature 024 (roadmap 5.3): which DESK the work was routed to. Soft ref to `auth.Group.id`, never
+   * joined. Null for everything routed the old way, and for everything that predates the column.
+   */
+  routed_group_id: string | null;
 }
 
 export function toSummaryWire(r: ConversationSummaryRow) {
@@ -206,5 +211,6 @@ export function toDetailWire(r: ConversationDetailRow) {
     updatedAt: r.updated_at.toISOString(),
     subject: r.subject ?? '',
     subjectSource: r.subject_source ?? '',
+    routedGroupId: r.routed_group_id ?? '',
   };
 }

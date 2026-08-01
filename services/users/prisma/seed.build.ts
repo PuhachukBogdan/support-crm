@@ -10,6 +10,8 @@ import {
   SEED_PLAYER_LINKED_B,
   SEED_PERSON_ID,
   SEED_PERSON_LINKED_ON,
+  SEED_ROUTING_OPERATOR_IDS,
+  SEED_ROUTING_USER_IDS,
 } from '@crm/common';
 
 /**
@@ -39,6 +41,17 @@ export function buildSeed() {
         display_name: 'Seed Operator',
         active: true,
       },
+      // Feature 024 (roadmap 5.3): a profile for each seeded agent. Without these, the seeded groups
+      // resolve to auth identities that cannot hold work, every routing pool comes back empty, and a
+      // live run would report the product as broken when it is the fixture that is incomplete —
+      // exactly the failure feature 021's Track B hit one field over.
+      ...SEED_ROUTING_OPERATOR_IDS.map((id, i) => ({
+        id,
+        account_id: SEED_ACCOUNT_ID,
+        auth_user_id: SEED_ROUTING_USER_IDS[i]!,
+        display_name: `Seed Agent ${i + 1}`,
+        active: true,
+      })),
     ],
     players: [
       {

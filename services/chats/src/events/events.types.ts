@@ -46,6 +46,14 @@ export interface ConversationFacts {
   hasAssignee: boolean;
   labelIds: string[];
   messageText?: string;
+  /**
+   * Feature 024 (roadmap 5.3): which DESK the conversation was routed to, or null.
+   *
+   * It is NOT a condition field — no rule author writes `routedGroupId == …`. It is the fact the
+   * engine matches a rule's own group SCOPE against, which is a different thing: a scope narrows
+   * which work a rule sees at all, while a condition is something the author reasons about.
+   */
+  routedGroupId: string | null;
 }
 
 export interface DomainEvent {

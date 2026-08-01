@@ -51,4 +51,34 @@ export class OperatorRepository {
       select: ROW_SELECT,
     })) as OperatorRow | null;
   }
+
+  /**
+   * Translate AUTH user ids into ASSIGNABLE operator profiles (feature 024, roadmap 5.3).
+   *
+   * Group membership is keyed on the auth identity — that is the subject the permission resolver
+   * keys on, and anything else would need translating on the hot permission path. A conversation's
+   * assignee, however, is an operator profile. This is the one place the two meet, and it is an
+   * explicit call rather than a join because they live in different databases (Principle VIII).
+   *
+   * ⚠️ **ACTIVE profiles only, and a member with no profile is simply ABSENT.** Fail-closed: an
+   * identity that cannot be resolved to someone who can hold work is not a routing candidate. The
+   * caller compares the count it asked for with the count it got back, which is what turns "the pool
+   * is empty" from a mystery into a fact with a reason.
+   *
+   * Unlike `getById` this filters on `active`, and the contrast is deliberate: that read answers
+   * "who wrote this?" about the past, where an inactive operator's name must still render; this one
+   * answers "who can take this work?" about the present, where it must not.
+   */
+  async resolveByAuthUserIds(
+    accountId: string,
+    authUserIds: readonly string[],
+  ): Promise<{ operatorId: string; authUserId: string }[]> {
+    const ids = [...new Set(authUserIds.filter((id) => id))];
+    if (ids.length === 0) return [];
+    const rows = (await this.prisma.forAccount(accountId).operator.findMany({
+      where: { auth_user_id: { in: ids }, active: true },
+      select: { id: true, auth_user_id: true },
+    })) as { id: string; auth_user_id: string }[];
+    return rows.map((r) => ({ operatorId: r.id, authUserId: r.auth_user_id }));
+  }
 }

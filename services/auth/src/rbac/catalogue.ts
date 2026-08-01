@@ -50,6 +50,13 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   { category: 'platform', key: 'platform.settings.manage', label: 'Manage settings' },
   { category: 'platform', key: 'platform.audit.view', label: 'View audit log' },
   { category: 'platform', key: 'platform.role.manage', label: 'Manage roles & permissions' },
+  // Feature 024 (roadmap 5.3, ADR 0039). Deliberately NOT a reuse of `platform.role.manage`:
+  // that key is a super-admin exclusive (FR-018), while reorganising a desk is a routine
+  // operational task. Reusing it would either hand out the crown jewels or make groups unusable.
+  // One key per scope, as feature 017 established for exports — so a later group capability cannot
+  // inherit today's grant. Listed in NO operational role template: `admin`/`super_admin` receive it
+  // through the computed ALL_KEYS, every agent role does not (the R-2 corollary).
+  { category: 'platform', key: 'platform.group.manage', label: 'Manage groups & their members' },
   // "view-as-role" preview (US5). Super-admin default only; the owner ("God") revokes it from any
   // other super-admin via the override mechanism to become the sole holder (design decision — 0034).
   { category: 'platform', key: 'platform.view_as', label: 'Preview the app as any role (read-only)' },

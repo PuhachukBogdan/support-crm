@@ -19,6 +19,8 @@ const facts: ConversationFacts = {
   channel: 'web',
   hasAssignee: false,
   labelIds: ['l1', 'l2'],
+  // Feature 024: unscoped work — no desk took it. Required, so the compiler names every fixture.
+  routedGroupId: null,
   messageText: 'I need a REFUND for my deposit',
 };
 

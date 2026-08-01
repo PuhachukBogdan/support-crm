@@ -289,6 +289,11 @@ describe('*** T026: the SERVICE tier decides independently of the gateway *** (P
     // A STAFF read is gated by the inbox permission, not the contact one: reusing the contact key would
     // make one key mean two different things (research R8).
     expect(reflect.getMetadata('rbac:player_required_permission', proto.getOperator!)).toBe('crm.inbox.view');
+    // And the routing translation is gated by the ASSIGN key — a third distinct meaning, kept
+    // distinct for the same reason: one key covering three questions answers none of them precisely.
+    expect(
+      reflect.getMetadata('rbac:player_required_permission', proto.listOperatorsByAuthUsers!),
+    ).toBe('crm.conversation.assign');
   });
 
   it('every handler on this controller is permission-gated — derived, not hand-listed', () => {
@@ -300,6 +305,10 @@ describe('*** T026: the SERVICE tier decides independently of the gateway *** (P
     expect(handlers.sort()).toEqual([
       'getOperator',
       'getPlayer',
+      // Feature 024 (roadmap 5.3): auth user ids → assignable operator profiles, the group routing
+      // pool's translation step. Gated by `crm.conversation.assign` rather than the inbox key: the
+      // only reason to ask is to route work, and the answer carries no customer data at all.
+      'listOperatorsByAuthUsers',
       'listPersonMembers', // feature 020
       'listPlayersByBrand',
     ]);

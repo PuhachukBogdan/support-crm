@@ -23,4 +23,8 @@ export const SCOPED_MODELS = [
   // Feature 015 (roadmap 4.8): the general audit trail. Identical model in all three services —
   // the table cannot be shared (Principle VIII) and the entry lives in its action's transaction.
   'AuditEntry',
+  // Feature 024 (roadmap 5.3): groups. Only `Group` declares account_id and is enrolled;
+  // `GroupMember` and `GroupPermission` are join tables scoped through their in-schema parents
+  // (Group / User / Permission) — the same treatment as UserRole and RolePermission.
+  'Group',
 ] as const;

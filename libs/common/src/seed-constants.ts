@@ -39,6 +39,32 @@ export const SEED_PLACEHOLDER_SECRET = 'SEED_PLACEHOLDER_NOT_A_REAL_HASH';
 // users_db
 export const SEED_OPERATOR_ID = 'seed-operator-0000-0000-000000000001';
 
+/**
+ * Feature 024 (roadmap 5.3): two groups and three extra staff, so the group paths have something
+ * real to exercise — a routing pool needs more than one person to rotate over, and the "restricts
+ * nothing" comparison needs a member whose grants could have changed and did not.
+ *
+ * ⚠️ **The names are deliberate placeholders and nothing may depend on them.** The operator was
+ * explicit that the structure and the logic carry over from Zendesk but the NAMES do not (ADR 0039
+ * §9), and `tests/contracts/group-name-never-branched-on.spec.ts` enforces it. These exist only so
+ * the seeded database is usable.
+ *
+ * They carry NO permission grants. That is the shipped configuration: the capability to restrict
+ * exists, and at go-live nothing restricts (ADR 0039 §7).
+ */
+export const SEED_GROUP_A_ID = 'seed-group-0000-0000-000000000001';
+export const SEED_GROUP_B_ID = 'seed-group-0000-0000-000000000002';
+export const SEED_ROUTING_USER_IDS = [
+  'seed-user-0000-0000-000000000002',
+  'seed-user-0000-0000-000000000003',
+  'seed-user-0000-0000-000000000004',
+] as const;
+export const SEED_ROUTING_OPERATOR_IDS = [
+  'seed-operator-0000-0000-000000000002',
+  'seed-operator-0000-0000-000000000003',
+  'seed-operator-0000-0000-000000000004',
+] as const;
+
 // brands_db
 export const SEED_BRAND_ACCESS_RULE_ID = 'seed-bar-0000-0000-000000000001';
 

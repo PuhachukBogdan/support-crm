@@ -60,6 +60,50 @@ export const AUDIT_ACTIONS = {
     label: 'Permissions reset to role defaults',
   },
 
+  // ── privilege, continued: GROUPS (feature 024, roadmap 5.3 / ADR 0039) ──
+  //
+  // `privilege` and not a new class, deliberately. Adding someone to a group GRANTS ACCESS — that is
+  // the entire premise of ADR 0039, and it is the same reason 5.7's self-assignment carried an audit
+  // condition. A separate class would split one reviewable question ("who gained rights, and how?")
+  // across two filters, and the reader years later would have to know both exist.
+  //
+  // Deleting a group is filed here rather than under `deletion` for the same reason: what matters
+  // about it is that every member LOSES the group's grants, not that a row went away.
+  // ⚠️ The membership and grant actions are `group_member.*` / `group_permission.*`, NOT
+  // `group.member.add`. The catalogue's naming convention is **noun.verb** — exactly two segments —
+  // and it is asserted by `catalogue.spec.ts`. The first draft here used three and the guard caught
+  // it, which is the convention doing its job: `role.assign` and `permission.grant` are the same
+  // shape, so a reader filtering the trail never has to know how deep an action's name goes.
+  'group.create': { class: 'privilege', writer: 'auth', status: 'live', label: 'Group created' },
+  'group.rename': { class: 'privilege', writer: 'auth', status: 'live', label: 'Group renamed' },
+  'group.delete': { class: 'privilege', writer: 'auth', status: 'live', label: 'Group deleted' },
+  'group_member.add': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'Staff member added to a group',
+  },
+  'group_member.remove': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'Staff member removed from a group',
+  },
+  'group_permission.grant': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'Permission granted to a group',
+  },
+  // There is no "deny" counterpart and there never will be: a group grants and never denies
+  // (ADR 0039 §3). Revoking returns the group to silence about a key; it does not refuse it.
+  'group_permission.revoke': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'Permission revoked from a group',
+  },
+
   // ── deletion ──
   'automation.delete': {
     class: 'deletion',

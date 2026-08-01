@@ -3,6 +3,7 @@ import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
+import type { GroupPoolService } from './group-pool';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import {
   AutoAssignController,
@@ -80,10 +81,25 @@ function md(accountId = 'acc-1'): Metadata {
   return m;
 }
 
-const build = (prisma: PrismaService) =>
+/**
+ * A pool service that THROWS if it is ever consulted.
+ *
+ * Feature 024 added a second way to name a pool (`group_id`), and every case in this file uses the
+ * caller-supplied one. A stub returning `[]` would let a regression — the handler quietly asking for
+ * a group pool when the caller supplied candidates — pass as "no candidates". Throwing makes the two
+ * paths provably exclusive.
+ */
+const noPool = {
+  candidatesFor: async () => {
+    throw new Error('the group pool must not be consulted on the caller-supplied path');
+  },
+} as unknown as GroupPoolService;
+
+const build = (prisma: PrismaService, pool: GroupPoolService = noPool) =>
   new AutoAssignController(
     new RoundRobinStateRepository(prisma, new TransitionRecorder()),
     new ConversationRepository(prisma, new TransitionRecorder()),
+    pool,
   );
 
 const cand = (operatorId: string, capacity = 5, currentLoad = 0) => ({
@@ -258,8 +274,23 @@ describe('AutoAssignConversation — scope & access', () => {
     expect(forAccount.mock.calls.every((c) => c[0] === 'acc-42')).toBe(true);
   });
 
-  it('makes no cross-service call for candidates (they are caller-supplied — R3)', () => {
-    // Two dependencies only: rotation state + conversations. A Users client would change arity.
-    expect(AutoAssignController.length).toBe(2);
+  /**
+   * ⚠️ **This assertion was `toBe(2)` and feature 024 changed it — deliberately, and this note is why
+   * the change is not a weakening.**
+   *
+   * Feature 013 pinned the arity at two (rotation state + conversations) to make "the candidate set is
+   * caller-supplied; this handler makes no cross-service call" structurally true: adding a Users
+   * client would change the number. That was the right guard for a handler whose honest answer to a
+   * missing pool was `GROUP_ROUTING_NOT_AVAILABLE` — a placeholder waiting for roadmap 5.3.
+   *
+   * 5.3 has now arrived, and the third dependency IS the thing the placeholder was waiting for. What
+   * the guard protected — that the caller-supplied path stays local — is preserved instead by
+   * `noPool` above, which THROWS if the pool is consulted on that path. So the property is still
+   * asserted; it is asserted by behaviour now rather than by counting.
+   */
+  it('takes exactly three dependencies — and the group pool is never consulted on this path', () => {
+    expect(AutoAssignController.length).toBe(3);
+    // The behavioural half: every case in this file runs through `noPool`, which throws on use, so a
+    // handler that started resolving a group pool without being asked would fail the whole suite.
   });
 });

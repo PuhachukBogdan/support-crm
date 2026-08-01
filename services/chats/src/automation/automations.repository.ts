@@ -20,6 +20,11 @@ export interface AutomationRow {
   position: number;
   revision: number;
   author_user_id: string;
+  /**
+   * Feature 024 (roadmap 5.3): the rule applies only to work routed to this group. `null` = unscoped,
+   * which is every rule that existed before this feature. A soft ref to `auth.Group.id`, never joined.
+   */
+  scope_group_id: string | null;
   definition: unknown;
   created_at: Date;
   updated_at: Date;
@@ -55,6 +60,9 @@ const ROW_SELECT = {
   position: true,
   revision: true,
   author_user_id: true,
+  // Feature 024 (roadmap 5.3): the rule's group scope. Selected on the engine's hot read so the
+  // filter costs nothing extra.
+  scope_group_id: true,
   definition: true,
   created_at: true,
   updated_at: true,
@@ -131,6 +139,8 @@ export class AutomationsRepository {
       authorUserId: string;
       position: number;
       active: boolean;
+      /** Feature 024: bind the rule to a desk. Absent/empty = unscoped, which is the default. */
+      scopeGroupId?: string | null;
     },
   ): Promise<AutomationRow> {
     return (await this.prisma.forAccount(accountId).automation.create({
@@ -142,6 +152,7 @@ export class AutomationsRepository {
         author_user_id: input.authorUserId,
         position: input.position,
         revision: 1,
+        scope_group_id: input.scopeGroupId || null,
       },
       select: ROW_SELECT,
     })) as AutomationRow;
@@ -160,12 +171,19 @@ export class AutomationsRepository {
       definition?: RuleDefinition;
       position?: number;
       active?: boolean;
+      /**
+       * Feature 024. `null` or `''` UNSCOPES the rule — an explicit act, distinct from `undefined`,
+       * which leaves the binding alone. A patch that could not express "remove the scope" would make
+       * a desk binding permanent, and a rule nobody can widen again is a rule someone deletes.
+       */
+      scopeGroupId?: string | null;
     },
   ): Promise<AutomationRow | null> {
     const data: Record<string, unknown> = {};
     if (patch.name !== undefined) data.name = patch.name;
     if (patch.position !== undefined) data.position = patch.position;
     if (patch.active !== undefined) data.active = patch.active;
+    if (patch.scopeGroupId !== undefined) data.scope_group_id = patch.scopeGroupId || null;
     if (patch.definition !== undefined) {
       data.definition = toStoredDefinition(patch.definition);
       data.revision = { increment: 1 };

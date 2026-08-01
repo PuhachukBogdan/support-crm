@@ -41,6 +41,10 @@ interface RbacGrpc {
   listRoleDefaults(d: { accountId: string; roleKey: string }): Observable<RoleDefaultsWire>;
   setRoleDefault(d: CallerCtx & { roleKey: string; permissionKey: string; grant: boolean }): Observable<MutationWire>;
   personalizeUser(d: CallerCtx & { userId: string; permissionKey: string; grant: boolean }): Observable<MutationWire>;
+  // ⚠️ `personalizeGroup` is the WIRE name (rpc PersonalizeGroup) and means "a hand-picked BATCH OF
+  // USERS" — it is NOT the Group ENTITY of feature 024, which has its own edge in `../groups/`. The rpc
+  // cannot be renamed without tripping `buf breaking`, so the collision is declared instead. The
+  // handler below is `personalizeSelection`.
   personalizeGroup(d: CallerCtx & { userIds: string[]; permissionKey: string; grant: boolean }): Observable<MutationWire>;
   resetToDefault(d: CallerCtx & { scope: string; userId: string; userIds: string[]; roleKey: string }): Observable<MutationWire>;
   assignRole(d: CallerCtx & { userId: string; roleKey: string; op: string }): Observable<MutationWire>;
@@ -144,7 +148,7 @@ export class AccessManagementController implements OnModuleInit {
   }
 
   @Put('groups/permissions')
-  async personalizeGroup(
+  async personalizeSelection(
     @Body() body: { userIds: string[]; permissionKey: string; grant: boolean },
     @Req() req: Request & { claims?: RequestClaims },
   ) {

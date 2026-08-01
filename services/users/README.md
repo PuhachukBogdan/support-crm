@@ -302,3 +302,18 @@ requirement meant `Conversation`, and the name being taken made everyone assume 
   `req.effective`, `x-is-preview` is never forwarded, and this service's preview refusal becomes
   unreachable — with every test still green, because the gateway's own write-block already covers the
   case. Pinned by `services/gateway/src/preferences/ui-preferences.spec.ts`.
+
+---
+
+## `ListOperatorsByAuthUsers` (feature 024, roadmap 5.3)
+
+AUTH user ids → **active** operator profiles. One rpc, added so a group's membership can become a routing
+candidate pool: membership is keyed on the auth identity (the subject the permission resolver keys on),
+while a conversation's assignee is an operator profile, and the two live in different databases.
+
+- Gated by **`crm.conversation.assign`**, not the inbox key: the only reason to ask is to route work. The
+  caller's own metadata is forwarded unchanged — calling as a system actor would launder the permission.
+- **Active profiles only.** A member with no profile, or an inactive one, is simply absent and is therefore
+  not a routing candidate (fail-closed). The gap between what was asked for and what came back is what makes
+  a thin pool explainable.
+- Carries no customer data at all, so nothing to mask and nothing to audit as an access.

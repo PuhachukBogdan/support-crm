@@ -58,6 +58,22 @@ export function loadChatsConfig(env: NodeJS.ProcessEnv = process.env) {
        */
       SUBJECT_WINDOW_TIMEOUT_MINUTES: z.coerce.number().int().positive(),
 
+      /**
+       * ── Feature 024 (roadmap 5.3) — how many open conversations one operator may hold before
+       * auto-assignment skips them, when the candidate pool is built from a GROUP.
+       *
+       * 🅿 **PROVISIONAL.** There is no authoritative source for capacity yet: presence (5.9) does not
+       * exist — the WebSocket still serves a single `ping` handler — and ADR 0042's per-channel
+       * capacity budgets are roadmap 4.19–4.21. **Revised by:** 4.19–4.21 (per channel, per role and
+       * brand) and 5.9 (availability). The mark travels with the value into `compose.yaml`,
+       * `.env.example` and the seed; a provisional decision is in force but must never be presented
+       * as settled.
+       *
+       * It only ever applies to the group path. A caller supplying its own candidate list supplies
+       * its own capacities, exactly as before — this value cannot change that behaviour.
+       */
+      ROUTING_DEFAULT_CAPACITY: z.coerce.number().int().positive(),
+
       // ⚠️ SUBJECT_MAX_LENGTH is deliberately NOT here — see the note at the foot of this file.
     },
     env,

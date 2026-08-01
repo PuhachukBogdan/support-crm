@@ -57,6 +57,9 @@ const DETAIL_SELECT = {
   // …and the SOURCE rides the detail only: the list does not need to know how a title was set, and
   // this is the widest-fanout query in the product.
   subject_source: true,
+  // Feature 024 (roadmap 5.3): WHICH DESK took the work. Detail-only for the same reason — it is an
+  // automation-scope input and a card fact, not a column the inbox list renders.
+  routed_group_id: true,
 } as const;
 
 export interface ListFilters {

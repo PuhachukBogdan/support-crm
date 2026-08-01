@@ -73,6 +73,21 @@ model Conversation {
   subject              String?
   subject_source       String? // auto | manual; null = window still open
 
+  // ── Feature 024 (roadmap 5.3, ADR 0039 §5.3): WHICH DESK this conversation was routed to ───────
+  //
+  // Soft ref to `auth.Group.id` — never joined (Principle VIII). Written by auto-assignment when the
+  // caller names a group; NULL for everything routed the old way, so the migration needs no backfill
+  // and the caller-supplied candidate path is unchanged.
+  //
+  // It is the joinable FACT both group bindings need. An automation scoped to a group matches on it,
+  // which is also what makes a DANGLING SCOPE fail closed with no lookup: chats cannot see auth's
+  // tables, and a deleted group is never again the routed group of anything — so a scoped rule
+  // silently becoming an everything rule is unreachable rather than merely avoided.
+  //
+  // Indexed: "show me this desk's work" is a foreseeable list read, and this is a high-cardinality
+  // column on the largest table in the system (Principle VII).
+  routed_group_id      String?
+
   messages Message[]
   labels   ConversationLabel[]
 
@@ -84,6 +99,8 @@ model Conversation {
   // has no caller and therefore no account (the `sla-sweep.repository.ts` reasoning applies verbatim),
   // so leading with `account_id` would make the index unusable for the one query it exists for.
   @@index([subject_source, created_at])
+  // Feature 024: the by-desk list read, and the automation engine's scope filter.
+  @@index([account_id, routed_group_id])
 }
 
 /// An entry within a conversation. `private` flags an internal note; realtime-scoping so it
@@ -222,6 +239,12 @@ model Automation {
   active         Boolean  @default(true)
   definition     Json
   author_user_id String // soft ref to an auth user — never joined (Principle VIII)
+  /// Feature 024 (roadmap 5.3): the rule applies only to work routed to this group. Soft ref to
+  /// `auth.Group.id`, never joined. NULL = unscoped, which is every rule that exists today.
+  /// A rule whose group has been deleted matches NOTHING — see `Conversation.routed_group_id`.
+  /// No index: the engine's hot lookup is already `[account_id, active]` and the scope is a
+  /// post-filter over a small set. Stated so the omission reads as a decision (Principle VII).
+  scope_group_id String?
   position       Int      @default(0) // evaluation order; ties broken by created_at
   revision       Int      @default(1) // bumped on every definition change, named by each run record
   created_at     DateTime @default(now())

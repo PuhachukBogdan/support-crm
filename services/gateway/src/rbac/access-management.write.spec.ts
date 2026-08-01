@@ -53,10 +53,12 @@ describe('AccessManagementController (writes)', () => {
 
   it('a cross-role group → 409', async () => {
     const { c } = make({
+      // ⚠️ The wire name, mirroring the rpc. "Group" here = a BATCH OF SELECTED USERS, NOT the
+      // Group ENTITY (feature 024). See the note in access-management.controller.ts.
       personalizeGroup: () => of({ status: 'RBAC_STATUS_CROSS_ROLE', message: '', affectedUserIds: [] }),
     });
     await expect(
-      c.personalizeGroup(
+      c.personalizeSelection(
         { userIds: ['a', 'b'], permissionKey: 'reports.export', grant: true },
         req(['super_admin']),
       ),

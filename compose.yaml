@@ -191,6 +191,12 @@ services:
       # The title window's third arm. Lower it on a test box so the sweep is observable in a run that
       # does not last fifteen minutes.
       SUBJECT_WINDOW_TIMEOUT_MINUTES: ${SUBJECT_WINDOW_TIMEOUT_MINUTES:-10}
+      # ── Feature 024 (roadmap 5.3) ──
+      # 🅿 PROVISIONAL — how many open conversations one operator may hold before auto-assignment
+      # skips them, when the pool comes from a GROUP. Revised by roadmap 4.19–4.21 (per-channel
+      # capacity budgets, ADR 0042) and 5.9 (presence, which does not exist yet). A caller supplying
+      # its own candidate list supplies its own capacities and is unaffected.
+      ROUTING_DEFAULT_CAPACITY: ${ROUTING_DEFAULT_CAPACITY:-6}
 
   brands:
     <<: *service-base

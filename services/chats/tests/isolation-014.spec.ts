@@ -294,6 +294,8 @@ describe('the ENGINE’s caller-less writes stay inside the account (the new cas
         channel: 'web',
         hasAssignee: false,
         labelIds: [],
+        // Feature 024: unscoped work — no desk took it. Required, so the compiler names every fixture.
+        routedGroupId: null,
       },
     });
 

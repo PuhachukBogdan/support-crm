@@ -24,6 +24,7 @@ import { MacrosController } from './macros/macros.grpc.controller';
 import { CannedRepository } from './canned/canned.repository';
 import { CannedController } from './canned/canned.grpc.controller';
 import { RoundRobinStateRepository } from './assignment/round-robin-state.repository';
+import { GroupPoolService } from './assignment/group-pool';
 import { AutoAssignController } from './assignment/auto-assign.grpc.controller';
 // Feature 014 (roadmap 4.6/4.7): automations + first-reply SLA.
 import { ChatsAuthModule } from './auth/auth.client';
@@ -106,6 +107,10 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // Feature 013.
     AssignmentRepository,
     RoundRobinStateRepository,
+    // Feature 024 (roadmap 5.3): the group candidate pool. It composes the two clients chats
+    // already has — auth for membership, users for the operator profiles — and counts current load
+    // from this service's own conversations, which is the one input nobody else can compute.
+    GroupPoolService,
     LabelsRepository,
     MacrosRepository,
     CannedRepository,

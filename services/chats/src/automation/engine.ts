@@ -78,6 +78,21 @@ export class AutomationEngine {
       return false;
     }
 
+    // 1a. The GROUP SCOPE (feature 024, roadmap 5.3 — ADR 0039 §5.2). A rule bound to a desk sees
+    //     only that desk's work. Checked BEFORE the conditions because it is not a condition: it
+    //     narrows what the rule is about, rather than being something its author reasons over.
+    //
+    // ⚠️ **A dangling scope matches NOTHING, and it does so by construction rather than by a check.**
+    // Chats cannot see auth's tables, so there is no "does this group still exist?" lookup here — and
+    // none is needed: a deleted group is never again the routed group of anything, so the comparison
+    // simply stops matching. The dangerous alternative — treating an unresolvable scope as "no
+    // filter" — is unreachable, which matters because a scoped rule silently becoming an
+    // everything rule is invisible until it has already acted.
+    if (rule.scope_group_id && event.facts.routedGroupId !== rule.scope_group_id) {
+      await this.record(rule, event, 'not_matched', 'outside the rule’s group scope');
+      return false;
+    }
+
     // 2. Conditions (pure). A non-match is recorded so "why did nothing happen?" is answerable.
     if (!matches(def.conditions, event.facts)) {
       await this.record(rule, event, 'not_matched');

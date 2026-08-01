@@ -12,10 +12,14 @@ function make(seed: Parameters<typeof makeFakePrisma>[0]) {
 }
 
 /**
- * US3 (feature 011, T028 / SC-005 / FR-011). A group edit applies to a same-role selection; a
+ * US3 (feature 011, T028 / SC-005 / FR-011). A batch edit applies to a same-role SELECTION; a
  * selection spanning more than one role is refused (`cross_role`) server-side.
+ *
+ * ⚠️ Renamed from `override.group.spec.ts` by feature 024. Nothing here is about the `Group` ENTITY —
+ * "group" only ever meant "several users picked in the admin panel", and keeping the old name would
+ * have left the next reader believing group grants were already tested somewhere.
  */
-describe('OverrideService.personalizeGroup (single-role constraint)', () => {
+describe('OverrideService.personalizeSelection (single-role constraint)', () => {
   it('applies to a same-role group', async () => {
     const { overrides } = make({
       users: [{ id: 'a' }, { id: 'b' }],
@@ -27,7 +31,7 @@ describe('OverrideService.personalizeGroup (single-role constraint)', () => {
       ],
     });
 
-    const res = await overrides.personalizeGroup('acct-1', { userId: 'god' }, ['a', 'b'], 'reports.export', true);
+    const res = await overrides.personalizeSelection('acct-1', { userId: 'god' }, ['a', 'b'], 'reports.export', true);
 
     expect(res.status).toBe('ok');
     if (res.status === 'ok') expect(res.affectedUserIds.sort()).toEqual(['a', 'b']);
@@ -43,7 +47,7 @@ describe('OverrideService.personalizeGroup (single-role constraint)', () => {
       ],
     });
 
-    const res = await overrides.personalizeGroup('acct-1', { userId: 'god' }, ['a', 'c'], 'reports.export', true);
+    const res = await overrides.personalizeSelection('acct-1', { userId: 'god' }, ['a', 'c'], 'reports.export', true);
 
     expect(res.status).toBe('cross_role');
   });

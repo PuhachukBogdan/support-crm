@@ -43,12 +43,17 @@ interface ResolveResponseWire {
   permissionKeys?: string[];
 }
 
+interface ListGroupMembersWire {
+  userIds?: string[];
+}
+
 interface AuthGrpc {
   resolveEffectivePermissions(data: {
     accountId: string;
     userId: string;
     previewRole: string;
   }): Observable<ResolveResponseWire>;
+  listGroupMembers(data: { accountId: string; groupId: string }): Observable<ListGroupMembersWire>;
 }
 
 export interface AuthorResolution {
@@ -92,6 +97,35 @@ export class AuthorAuthorityClient implements OnModuleInit {
     // engine turns it into a refusal per action. What must never happen is treating an *unreadable*
     // or *failed* resolution as an empty set — hence the checks above rather than a `?? []`.
     return { roleKey: res.roleKey ?? '', permissionKeys: keys };
+  }
+
+  /**
+   * The AUTH user ids belonging to a group — the candidate pool auto-assignment has been waiting for
+   * since feature 013 answered `GROUP_ROUTING_NOT_AVAILABLE` (roadmap 5.3, ADR 0039 §5.3).
+   *
+   * ⚠️ **An empty list and a failed call must never look alike.** An empty group is a FACT the caller
+   * acts on — it answers "group routing not available" and assigns nobody. An unreachable auth is an
+   * absence of information, and treating it as "this desk has nobody" would silently stop routing for
+   * a whole team while every request still returned 200. So this raises, exactly as `resolve` above
+   * does, and for the same reason `person-members.client.ts` raises rather than narrowing.
+   *
+   * @throws AuthorityUnavailableError when the membership cannot be established (fail-closed).
+   */
+  async listGroupMembers(accountId: string, groupId: string): Promise<string[]> {
+    if (!accountId || !groupId) throw new AuthorityUnavailableError('missing group identity');
+    let res: ListGroupMembersWire;
+    try {
+      res = await firstValueFrom(this.auth.listGroupMembers({ accountId, groupId }));
+    } catch (err) {
+      // Reason class only — never the account/group id (Principle IV / SEC-26).
+      throw new AuthorityUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+    }
+    const ids = res?.userIds;
+    // proto3 omits an empty repeated field, so `undefined` here is the normal shape of "no members".
+    // An unreadable response is a different thing and is caught by the array check.
+    if (ids === undefined || ids === null) return [];
+    if (!Array.isArray(ids)) throw new AuthorityUnavailableError('unreadable response');
+    return ids.filter((id) => typeof id === 'string' && id !== '');
   }
 }
 

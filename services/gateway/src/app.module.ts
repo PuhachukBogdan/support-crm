@@ -16,6 +16,9 @@ import { PlayersEdgeModule } from './players/players.module';
 // edge in this list gated by NO permission, deliberately: a preference may never decide what someone
 // is allowed to see (ADR 0035's hard boundary). NOT `Player.preferences_json`.
 import { UiPreferencesEdgeModule } from './preferences/ui-preferences.module';
+// Feature 024 (roadmap 5.3): the groups edge — a thin proxy plus the cache invalidation that
+// makes a revoked group grant take effect on the very next request.
+import { GroupsEdgeModule } from './groups/groups.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -41,6 +44,7 @@ import { UiPreferencesEdgeModule } from './preferences/ui-preferences.module';
     ExportsEdgeModule,
     PlayersEdgeModule,
     UiPreferencesEdgeModule,
+    GroupsEdgeModule,
   ],
 })
 export class AppModule {}

@@ -11,7 +11,8 @@ export type OverrideOutcome =
   | { status: 'not_found' };
 
 export interface ResetTarget {
-  scope: 'user' | 'group' | 'role';
+  /** `group` is a LEGACY synonym for `selection` — see the banner on `personalizeSelection`. */
+  scope: 'user' | 'selection' | 'role';
   userId?: string;
   userIds?: string[];
   roleKey?: string;
@@ -84,7 +85,23 @@ export class OverrideService {
     return { status: 'ok', affectedUserIds: [userId] };
   }
 
-  async personalizeGroup(
+  /**
+   * Apply one permission edit to a **hand-picked BATCH OF USERS** at once, constrained to a single
+   * role (FR-011).
+   *
+   * ⚠️ **Renamed from `personalizeGroup` by feature 024, and the rename is the point.** "Group" here
+   * never meant an entity — it meant "several users selected in the admin panel". Feature 024 then
+   * introduced a real `Group`, and this project has already paid once for exactly this shape:
+   * `Player.preferences_json` (a customer's VIP portfolio) collided with operator UI preferences in
+   * feature 021, and the lesson recorded was that **"the name is taken" is what makes the next person
+   * assume the thing is already built.**
+   *
+   * The WIRE name stays `PersonalizeGroup`, because renaming an rpc trips `buf breaking` — the same
+   * wall `CheckBrandAccess` hit in feature 020. So the collision is declared in the proto rather than
+   * removed, and everything that CAN be renamed has been. The real entity lives in
+   * `services/auth/src/group/` and is **not** this.
+   */
+  async personalizeSelection(
     accountId: string,
     actor: Actor,
     userIds: string[],
@@ -122,7 +139,7 @@ export class OverrideService {
         actorUserId: actor.userId,
         underPreview: actor.underPreview,
         targetRef: userIds[0] ?? '',
-        detail: { scope: 'group', permissionKey, grant, affectedCount: userIds.length },
+        detail: { scope: 'selection', permissionKey, grant, affectedCount: userIds.length },
       }),
     );
     await db.$transaction(statements as never);

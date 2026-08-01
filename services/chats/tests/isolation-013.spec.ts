@@ -6,6 +6,7 @@ import { AssignmentRepository } from '../src/assignment/assignment.repository';
 import { AssignmentWriteController } from '../src/assignment/assignment.grpc.controller';
 import { RoundRobinStateRepository } from '../src/assignment/round-robin-state.repository';
 import { AutoAssignController } from '../src/assignment/auto-assign.grpc.controller';
+import type { GroupPoolService } from '../src/assignment/group-pool';
 import { LabelsRepository } from '../src/labels/labels.repository';
 import { LabelsController } from '../src/labels/labels.grpc.controller';
 import { MacrosRepository } from '../src/macros/macros.repository';
@@ -184,7 +185,17 @@ const assignment = () =>
     conversationRepo(),
   );
 const autoAssign = () =>
-  new AutoAssignController(new RoundRobinStateRepository(prisma, new TransitionRecorder()), conversationRepo());
+  new AutoAssignController(
+    new RoundRobinStateRepository(prisma, new TransitionRecorder()),
+    conversationRepo(),
+    // Feature 024: this sweep never names a group, so the pool must never be consulted. A throwing
+    // stub proves that rather than assuming it.
+    {
+      candidatesFor: async () => {
+        throw new Error('group pool must not be consulted here');
+      },
+    } as unknown as GroupPoolService,
+  );
 const labelsCtrl = () => new LabelsController(new LabelsRepository(prisma), conversationRepo());
 const macrosCtrl = () =>
   new MacrosController(

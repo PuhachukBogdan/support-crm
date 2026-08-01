@@ -84,9 +84,35 @@ service AuthService {
   // --- US3: management (super-admin only; each writes PrivilegeAudit) ---
   rpc SetRoleDefault(SetRoleDefaultRequest) returns (RbacMutationResult);
   rpc PersonalizeUser(PersonalizeRequest) returns (RbacMutationResult);
+  // ⚠️ NAME COLLISION — "Group" HERE MEANS "A BATCH OF SELECTED USERS EDITED AT ONCE" (feature 011,
+  // US3). It has nothing to do with the `Group` ENTITY introduced by feature 024 below. The word was
+  // taken before the entity existed; the wire name is kept because renaming an rpc trips
+  // `buf breaking` (the wall `CheckBrandAccess` hit in feature 020), so the collision is DECLARED
+  // rather than removed. In TypeScript this one is `OverrideService.personalizeSelection`.
   rpc PersonalizeGroup(PersonalizeGroupRequest) returns (RbacMutationResult);
   rpc ResetToDefault(ResetRequest) returns (RbacMutationResult);
   rpc AssignRole(AssignRoleRequest) returns (RbacMutationResult);
+
+  // ── Feature 024: GROUPS (roadmap 5.3, ADR 0039) — ADDITIVE ──────────────────────────────────────
+  //
+  // A group is an operator-named unit of staff that may carry permission grants. It CONTRIBUTES into
+  // the one policy layer through ResolveEffectivePermissions above (ADR 0039 §2) — it gets no check,
+  // no guard and no second place where "may they?" is answered. It GRANTS and never DENIES (§3), and
+  // every consequence of membership is enforced server-side (§4).
+  //
+  // Every mutation below is gated by `platform.group.manage` at BOTH tiers and writes exactly one
+  // audit entry. `affected_user_ids` drives the gateway's cache invalidation, exactly as
+  // RbacMutationResult already does for the RBAC mutations.
+  rpc CreateGroup(CreateGroupRequest) returns (GroupMutationResult);
+  rpc RenameGroup(RenameGroupRequest) returns (GroupMutationResult);
+  rpc DeleteGroup(DeleteGroupRequest) returns (GroupMutationResult);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+  rpc AddGroupMember(GroupMemberRequest) returns (GroupMutationResult);
+  rpc RemoveGroupMember(GroupMemberRequest) returns (GroupMutationResult);
+  // The routing seam: feature 013's `GROUP_ROUTING_NOT_AVAILABLE` finally has a source. Returns AUTH
+  // user ids; chats maps them to assignable operator profiles through users (spec 024 research R3).
+  rpc ListGroupMembers(ListGroupMembersRequest) returns (ListGroupMembersResponse);
+  rpc SetGroupPermission(SetGroupPermissionRequest) returns (GroupMutationResult);
 
   // ── Feature 015 (audit trail, roadmap 4.8) — additive. One RPC per source; the gateway fans out
   // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
@@ -280,7 +306,8 @@ enum RbacStatus {
   RBAC_STATUS_UNSPECIFIED = 0;
   RBAC_STATUS_OK = 1; // applied.
   RBAC_STATUS_FORBIDDEN = 2; // caller is not super-admin (FR-018).
-  RBAC_STATUS_CROSS_ROLE = 3; // group selection spans >1 role (FR-011).
+  // ⚠️ "group" here = a SELECTION of users edited at once, NOT the `Group` entity (feature 024).
+  RBAC_STATUS_CROSS_ROLE = 3; // the selection spans >1 role (FR-011).
   RBAC_STATUS_SUPER_ADMIN_UI_FORBIDDEN = 4; // attempt to assign super_admin via UI (0033).
   RBAC_STATUS_NOT_FOUND = 5; // role/user/permission not found (account-scoped).
 }
@@ -310,6 +337,8 @@ message PersonalizeRequest {
   bool grant = 6;
 }
 
+// ⚠️ A BATCH OF SELECTED USERS — NOT the `Group` entity (feature 024). See the note on the
+// PersonalizeGroup rpc. `user_ids` is a hand-picked selection, not a membership.
 message PersonalizeGroupRequest {
   string caller_account_id = 1;
   string caller_user_id = 2;
@@ -323,9 +352,13 @@ message ResetRequest {
   string caller_account_id = 1;
   string caller_user_id = 2;
   repeated string caller_roles = 3;
-  string scope = 4; // user | group | role
+  // ⚠️ `user | selection | role`. `selection` is the preferred spelling since feature 024;
+  // `group` is kept as a LEGACY SYNONYM for it and still works. A scope value is data, not a name,
+  // so widening it is additive — and after feature 024 a caller sending `"group"` while thinking of
+  // a group id is a plausible mistake that the strings alone would not warn them about.
+  string scope = 4;
   string user_id = 5; // scope=user
-  repeated string user_ids = 6; // scope=group
+  repeated string user_ids = 6; // scope=selection (a hand-picked batch — NOT a group's membership)
   string role_key = 7; // scope=role
 }
 
@@ -336,4 +369,110 @@ message AssignRoleRequest {
   string user_id = 4;
   string role_key = 5; // never "super_admin" (whitelist only — 0033).
   string op = 6; // assign | revoke
+}
+
+// ── Feature 024: GROUPS (roadmap 5.3, ADR 0039) ───────────────────────────────────────────────────
+
+// A SEPARATE result message from RbacMutationResult, deliberately: RbacStatus carries CROSS_ROLE,
+// which belongs to the batch-selection path and is meaningless for a group. Sharing the enum would
+// mean every group handler could return a status that cannot happen, and every reader would have to
+// know which half applies.
+// NB (proto3 trap): enum values share the PACKAGE scope → every value is prefixed.
+enum GroupStatus {
+  GROUP_STATUS_UNSPECIFIED = 0;
+  GROUP_STATUS_OK = 1;
+  GROUP_STATUS_FORBIDDEN = 2; // caller lacks `platform.group.manage`.
+  // Also the answer for "exists, but in another account" — no enumeration (Principle I).
+  GROUP_STATUS_NOT_FOUND = 3;
+  GROUP_STATUS_NAME_TAKEN = 4; // a named refusal, never a database error reaching the caller.
+  GROUP_STATUS_INVALID_NAME = 5; // empty after trimming, or over the length bound.
+  GROUP_STATUS_UNKNOWN_PERMISSION = 6; // key not in the system catalogue — the catalogue stays closed.
+  // ⚠️ The caller MAY manage groups but does not hold the key they are trying to confer. Distinct
+  // from FORBIDDEN on purpose: "you cannot do this at all" and "you cannot give away what you do not
+  // have" are different facts, and an administration screen that conflates them sends its user
+  // looking for the wrong permission. Nobody can grant themselves a capability through a group —
+  // otherwise `platform.group.manage` would be a route to the super-admin exclusives.
+  GROUP_STATUS_ESCALATION = 7;
+}
+
+message GroupMutationResult {
+  GroupStatus status = 1;
+  string message = 2;
+  // Whose effective-permission cache the gateway must invalidate. For a permission change or a
+  // delete this is EVERY CURRENT MEMBER, read inside the mutation's own transaction — a stale grant
+  // after a revocation is a live authorization defect, not a freshness nuisance.
+  repeated string affected_user_ids = 3;
+  string group_id = 4; // set on create; echoed otherwise.
+}
+
+message Group {
+  string id = 1;
+  string name = 2;
+  bool active = 3;
+  int32 member_count = 4; // a list-page convenience; never a source of truth.
+  repeated string permission_keys = 5; // this group's grants — catalogue keys only, positive only.
+}
+
+// Caller identity is populated by the gateway from the VALIDATED access JWT (Principle II) — the
+// same shape the RBAC management requests already use.
+message CreateGroupRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string name = 4;
+}
+
+message RenameGroupRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
+  string name = 5;
+}
+
+message DeleteGroupRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
+}
+
+message ListGroupsRequest {
+  string account_id = 1;
+}
+
+message ListGroupsResponse {
+  repeated Group groups = 1;
+}
+
+message GroupMemberRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
+  string user_id = 5;
+}
+
+message ListGroupMembersRequest {
+  string account_id = 1;
+  string group_id = 2;
+}
+
+message ListGroupMembersResponse {
+  // AUTH user ids. An empty list is a VALID and MEANINGFUL answer ("this group has nobody"), which
+  // the caller must be able to tell apart from a failed call — hence the client fails closed with a
+  // named error rather than returning an empty list, exactly as the authority client already does.
+  repeated string user_ids = 1;
+}
+
+message SetGroupPermissionRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
+  string permission_key = 5;
+  // true = add the grant; false = remove it. There is NO deny: removing a grant returns the group to
+  // SILENCE about that key, it never refuses it (ADR 0039 §3), so a member holding the key from
+  // their role or from another group keeps it.
+  bool grant = 6;
 }

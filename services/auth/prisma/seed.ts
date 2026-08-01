@@ -32,6 +32,25 @@ async function run(): Promise<void> {
         create: ur,
         update: {},
       });
+    // Feature 024 (roadmap 5.3): groups after users, so the membership FKs resolve. Idempotent by
+    // stable id / composite key, like everything above.
+    for (const g of seed.groups) await db.group.upsert({ where: { id: g.id }, create: g, update: g });
+    for (const m of seed.groupMembers)
+      await db.groupMember.upsert({
+        where: { group_id_user_id: { group_id: m.group_id, user_id: m.user_id } },
+        create: m,
+        update: {},
+      });
+    // Empty by design — the shipped configuration restricts nothing (ADR 0039 §7). The loop stays so
+    // that granting something later is a data change here rather than a code change.
+    for (const gp of seed.groupPermissions)
+      await db.groupPermission.upsert({
+        where: {
+          group_id_permission_id: { group_id: gp.group_id, permission_id: gp.permission_id },
+        },
+        create: gp,
+        update: {},
+      });
     console.log('auth seed: ok');
   } finally {
     await base.$disconnect();

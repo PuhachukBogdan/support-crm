@@ -121,8 +121,26 @@ describe('list — ordering, paging, and pushed-down filters', () => {
     const { prisma, findMany } = fake();
     await new AuditRepository(prisma).list('acc-1', { actionClass: 'privilege' }, 50);
     const where = findMany.mock.calls[0]![0].where as { action: { in: string[] } };
+    // Spelled out rather than derived from `actionsOfClass`, deliberately: this assertion exists so
+    // that widening a class is a VISIBLE edit. Deriving it would make the test agree with whatever
+    // the catalogue happens to say, which is what it is meant to check.
     expect(where.action.in.sort()).toEqual(
-      ['permission.grant', 'permission.reset', 'permission.revoke', 'role.assign', 'role.revoke'].sort(),
+      [
+        'permission.grant',
+        'permission.reset',
+        'permission.revoke',
+        'role.assign',
+        'role.revoke',
+        // Feature 024 (roadmap 5.3): a group change IS a privilege change — adding someone to a group
+        // grants access — so "show me every permission change" must return these too.
+        'group.create',
+        'group.rename',
+        'group.delete',
+        'group_member.add',
+        'group_member.remove',
+        'group_permission.grant',
+        'group_permission.revoke',
+      ].sort(),
     );
   });
 

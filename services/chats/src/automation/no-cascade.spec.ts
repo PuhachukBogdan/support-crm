@@ -52,6 +52,8 @@ const statusEvent = (): DomainEvent => ({
     channel: 'web',
     hasAssignee: false,
     labelIds: [],
+    // Feature 024: unscoped work — no desk took it. Required, so the compiler names every fixture.
+    routedGroupId: null,
   },
 });
 

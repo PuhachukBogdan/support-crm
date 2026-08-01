@@ -52,6 +52,16 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // later, as a customer card that quietly contains someone else.
     'player.link',
     'player.unlink',
+    // Feature 024 (roadmap 5.3, ADR 0039): groups. All seven are `privilege`, because adding someone
+    // to a group GRANTS ACCESS — that is the premise of the whole decision, and filing them anywhere
+    // else would split "who gained rights, and how?" across two filters.
+    'group.create',
+    'group.rename',
+    'group.delete',
+    'group_member.add',
+    'group_member.remove',
+    'group_permission.grant',
+    'group_permission.revoke',
   ];
 
   it('every action resolves to a class and a writer', () => {
@@ -168,6 +178,15 @@ describe('actionsOfClass', () => {
         'permission.grant',
         'permission.revoke',
         'permission.reset',
+        // Feature 024. Deleting a group is here rather than under `deletion` on purpose: what matters
+        // about it is that every member LOSES the group's grants, not that a row went away.
+        'group.create',
+        'group.rename',
+        'group.delete',
+        'group_member.add',
+        'group_member.remove',
+        'group_permission.grant',
+        'group_permission.revoke',
       ].sort(),
     );
   });

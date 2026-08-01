@@ -411,3 +411,38 @@ title** — a title is the customer's or an agent's own words, and an append-onl
 them. This was first drafted as an *audit* action, and the difficulty of finding an honest class for it
 among privilege / deletion / access / export / assignment / retention **was the answer**: ADR 0019 records
 sensitive actions, and a title edit exposes nothing, deletes nothing and changes no privilege.
+
+---
+
+## The two group bindings (feature 024, roadmap 5.3 — [ADR 0039](../../cowork/decisions/0039-groups-are-an-access-input.md))
+
+The group ENTITY lives in `auth` (see that service's README for why). Chats owns two of its bindings and
+holds the group id as an **opaque soft ref**, never joined.
+
+**Routing — `AutoAssignConversation` may name a group.** This is the source feature 013 left a placeholder
+for: its handler answered `GROUP_ROUTING_NOT_AVAILABLE` and said "until the Users service can resolve teams
+and capacity (roadmap 5.3)". `assignment/group-pool.ts` now assembles the pool from three places —
+membership from **auth**, active operator profiles from **users**, current load counted **here**, because
+chats owns the conversations and it is the one input nobody else can compute. Capacity comes from
+`ROUTING_DEFAULT_CAPACITY`, 🅿 **PROVISIONAL** and revised by roadmap 4.19–4.21 (per-channel budgets) and
+5.9 (presence).
+
+- `group_id` **wins** over a caller-supplied `candidates` list; they are never merged. Two sources for one
+  routing answer is how a routing decision becomes unexplainable.
+- The caller-supplied path is **unchanged**, and so are both honest non-answers.
+- ⚠️ **An empty pool and a failed lookup are different things.** Both clients raise rather than returning an
+  empty list, so an unreachable auth or users can never be reported as "this desk has nobody" — which would
+  stop routing for a whole team while every request still answered 200.
+- The chosen desk is recorded on `Conversation.routed_group_id`, in the **same write** as the assignee.
+
+**Automations — a rule may be scoped to a group** (`Automation.scope_group_id`). It is checked before the
+conditions, because a scope narrows what a rule is *about* rather than being something its author reasons
+over. ⚠️ **A rule whose group no longer exists matches NOTHING**, and does so by construction: there is no
+"does this group still exist?" lookup, because a deleted group is never again the routed group of anything.
+The dangerous alternative — a scoped rule silently becoming an everything rule — is unreachable, not merely
+avoided.
+
+⚠️ **`Conversation.assignee_operator_id` is a `users.Operator.id` while group membership is an auth user
+id**, so the pool performs an explicit translation. Nothing validates that column today and every other
+actor reference in this service is an auth user id — recorded as a candidate repair point on roadmap 5.3
+rather than reinterpreted here.

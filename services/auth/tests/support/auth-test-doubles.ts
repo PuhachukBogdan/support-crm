@@ -141,6 +141,11 @@ export interface FakeSeed {
     snapshot_role_id?: string | null;
   }[];
   userPermissionEntries?: { user_id: string; permKey: string; granted?: boolean }[];
+  // Feature 024 (groups). A group's fake id is `group-<name>` so fixtures stay readable; membership
+  // and grants are seeded by those readable handles rather than by uuid.
+  groups?: { name: string; id?: string; account_id?: string; active?: boolean }[];
+  groupMembers?: { groupName: string; user_id: string }[];
+  groupPermissions?: { groupName: string; permKey: string }[];
 }
 
 /** A minimal, stateful stand-in for the auth PrismaService (only the methods the services use). */
@@ -205,6 +210,22 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
     seed.userPermissionEntries ?? []
   ).map((e) => ({ user_id: e.user_id, permission_id: `perm-${e.permKey}`, granted: e.granted ?? true }));
   const auditEntries: FakeAuditEntry[] = [];
+  // Feature 024 (groups). Fake id convention: `group-<name>`.
+  const groups: { id: string; account_id: string; name: string; active: boolean }[] = (
+    seed.groups ?? []
+  ).map((g) => ({
+    id: g.id ?? `group-${g.name}`,
+    account_id: g.account_id ?? 'acct-1',
+    name: g.name,
+    active: g.active ?? true,
+  }));
+  const groupMembers: { group_id: string; user_id: string }[] = (seed.groupMembers ?? []).map(
+    (m) => ({ group_id: `group-${m.groupName}`, user_id: m.user_id }),
+  );
+  const groupPermissions: { group_id: string; permission_id: string }[] = (
+    seed.groupPermissions ?? []
+  ).map((g) => ({ group_id: `group-${g.groupName}`, permission_id: `perm-${g.permKey}` }));
+  let gc = groups.length;
 
   // Roles addressable by key (fake id convention: `role-<key>`) — union of every place a role key
   // appears, so services can resolve/assign roles hermetically. role.findFirst returns null for keys
@@ -568,6 +589,129 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
         return { count: before - userPermissionEntries.length };
       },
     },
+    // --- Feature 024 (groups) ---
+    //
+    // ⚠️ These three behave like TABLES, not like recordings: `upsert` really is idempotent on the
+    // composite key, `delete` really cascades, and `findMany` reads back what was written. Feature
+    // 023 paid for the alternative — a fake that answers whatever it was told cannot fail on an
+    // ordering or an idempotence defect, and the one real bug in that feature hid exactly there.
+    group: {
+      findFirst: async ({ where }: { where: { id?: string; name?: string } }) =>
+        groups.find((g) =>
+          where.id !== undefined ? g.id === where.id : g.name === where.name,
+        ) ?? null,
+      findMany: async () => [...groups].sort((a, b) => a.name.localeCompare(b.name)),
+      create: async ({ data }: { data: { account_id: string; name: string } }) => {
+        if (groups.some((g) => g.name === data.name)) {
+          // Mirror the real unique violation so the service's catch path is exercised, not skipped.
+          throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+        }
+        const row = {
+          id: `group-g${++gc}`,
+          account_id: data.account_id,
+          name: data.name,
+          active: true,
+        };
+        groups.push(row);
+        return row;
+      },
+      update: async ({ where, data }: { where: { id: string }; data: { name?: string } }) => {
+        const g = groups.find((x) => x.id === where.id)!;
+        Object.assign(g, data);
+        return g;
+      },
+      delete: async ({ where }: { where: { id: string } }) => {
+        const i = groups.findIndex((g) => g.id === where.id);
+        const [row] = groups.splice(i, 1);
+        // The cascade is a property of the schema, so the fake performs it — otherwise a spec could
+        // "prove" that deleting a group leaves its memberships behind, which the database will not.
+        for (let j = groupMembers.length - 1; j >= 0; j--) {
+          if (groupMembers[j]!.group_id === where.id) groupMembers.splice(j, 1);
+        }
+        for (let j = groupPermissions.length - 1; j >= 0; j--) {
+          if (groupPermissions[j]!.group_id === where.id) groupPermissions.splice(j, 1);
+        }
+        return row;
+      },
+    },
+    groupMember: {
+      findMany: async ({
+        where,
+      }: { where?: { group_id?: string; user_id?: string } } = {}) =>
+        groupMembers.filter(
+          (m) =>
+            (where?.group_id === undefined || m.group_id === where.group_id) &&
+            (where?.user_id === undefined || m.user_id === where.user_id),
+        ),
+      upsert: async ({
+        where,
+        create,
+      }: {
+        where: { group_id_user_id: { group_id: string; user_id: string } };
+        create: { group_id: string; user_id: string };
+      }) => {
+        const k = where.group_id_user_id;
+        if (!groupMembers.some((m) => m.group_id === k.group_id && m.user_id === k.user_id)) {
+          groupMembers.push({ group_id: create.group_id, user_id: create.user_id });
+        }
+        return k;
+      },
+      deleteMany: async ({ where }: { where: { group_id?: string; user_id?: string } }) => {
+        const before = groupMembers.length;
+        for (let i = groupMembers.length - 1; i >= 0; i--) {
+          const m = groupMembers[i]!;
+          if (
+            (where.group_id === undefined || m.group_id === where.group_id) &&
+            (where.user_id === undefined || m.user_id === where.user_id)
+          )
+            groupMembers.splice(i, 1);
+        }
+        return { count: before - groupMembers.length };
+      },
+    },
+    groupPermission: {
+      // `group_id` accepts a value OR an `{ in: [...] }` list — the resolver reads every group a user
+      // belongs to in one query. A fake that silently ignored the `in` form would return nothing and
+      // make the union look correct while proving nothing.
+      findMany: async ({ where }: { where?: { group_id?: string | { in: string[] } } } = {}) => {
+        const g = where?.group_id;
+        if (g === undefined) return groupPermissions;
+        if (typeof g === 'object') return groupPermissions.filter((x) => g.in.includes(x.group_id));
+        return groupPermissions.filter((x) => x.group_id === g);
+      },
+      upsert: async ({
+        where,
+        create,
+      }: {
+        where: { group_id_permission_id: { group_id: string; permission_id: string } };
+        create: { group_id: string; permission_id: string };
+      }) => {
+        const k = where.group_id_permission_id;
+        if (
+          !groupPermissions.some(
+            (g) => g.group_id === k.group_id && g.permission_id === k.permission_id,
+          )
+        ) {
+          groupPermissions.push({
+            group_id: create.group_id,
+            permission_id: create.permission_id,
+          });
+        }
+        return k;
+      },
+      deleteMany: async ({ where }: { where: { group_id?: string; permission_id?: string } }) => {
+        const before = groupPermissions.length;
+        for (let i = groupPermissions.length - 1; i >= 0; i--) {
+          const g = groupPermissions[i]!;
+          if (
+            (where.group_id === undefined || g.group_id === where.group_id) &&
+            (where.permission_id === undefined || g.permission_id === where.permission_id)
+          )
+            groupPermissions.splice(i, 1);
+        }
+        return { count: before - groupPermissions.length };
+      },
+    },
     // Feature 015: the unified audit trail replaced PrivilegeAudit.
     auditEntry: {
       create: async ({ data }: { data: Omit<FakeAuditEntry, 'id' | 'created_at'> }) => {
@@ -607,6 +751,9 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
       userPermissionSets,
       userPermissionEntries,
       auditEntries,
+      groups,
+      groupMembers,
+      groupPermissions,
     },
   };
   return prisma;

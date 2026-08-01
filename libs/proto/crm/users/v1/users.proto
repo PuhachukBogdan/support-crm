@@ -32,6 +32,15 @@ service UsersReadService {
   // dials this service for uploads. Chats never derives a person itself; it asks.
   rpc ListPersonMembers(ListPersonMembersRequest) returns (PersonMemberList);
 
+  // ── Feature 024 (roadmap 5.3) — additive. AUTH user ids → assignable operator profiles.
+  //
+  // Group membership is keyed on the AUTH identity (the subject the permission resolver keys on),
+  // while a conversation's assignee is an operator PROFILE. Turning a group into a routing candidate
+  // pool therefore needs one explicit translation, and it is explicit rather than assumed: see
+  // specs/024-groups-and-grants/research.md R3, which also records why
+  // `Conversation.assignee_operator_id` is NOT reinterpreted to close the gap.
+  rpc ListOperatorsByAuthUsers(ListOperatorsByAuthUsersRequest) returns (ListOperatorsByAuthUsersResponse);
+
   // ── Feature 015 (audit trail, roadmap 4.8) — additive. One RPC per source; the gateway fans out
   // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
   // exists anywhere — append-only means there is no mutation path to expose.
@@ -152,6 +161,25 @@ message Operator {
   string account_id = 2;
   string display_name = 3;
   bool active = 4;
+}
+
+// ── Feature 024 (roadmap 5.3): the auth-identity → operator-profile translation ──────────────────
+
+message ListOperatorsByAuthUsersRequest {
+  string account_id = 1;
+  repeated string auth_user_ids = 2;
+}
+
+message ResolvedOperator {
+  string operator_id = 1;
+  string auth_user_id = 2;
+}
+
+message ListOperatorsByAuthUsersResponse {
+  // ACTIVE profiles only. A member with no profile, or with an inactive one, is simply ABSENT — and
+  // is therefore not a routing candidate (fail-closed). The difference between the number asked for
+  // and the number returned is what makes an empty pool explainable instead of mysterious.
+  repeated ResolvedOperator operators = 1;
 }
 
 message PlayerPage {

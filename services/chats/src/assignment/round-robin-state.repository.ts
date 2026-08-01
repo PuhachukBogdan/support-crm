@@ -83,12 +83,18 @@ export class RoundRobinStateRepository {
    *
    * Returns `{ operatorId: null }` when nobody has capacity; in that case **nothing is written**:
    * the conversation keeps its current assignee and the cursor does not move.
+   *
+   * @param routedGroupId feature 024 — the GROUP the pool came from, recorded on the conversation in
+   *        the same write as the assignee. `undefined` for the caller-supplied candidate path, which
+   *        leaves the column untouched rather than writing a null over an earlier value: a later
+   *        manual re-route must not erase which desk originally took the work.
    */
   async selectAndAssign(
     accountId: string,
     conversationId: string,
     groupKey: string,
     candidates: readonly RoundRobinCandidate[],
+    routedGroupId?: string,
   ): Promise<AutoAssignOutcome> {
     const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
 
@@ -109,7 +115,13 @@ export class RoundRobinStateRepository {
 
       await tx.conversation.updateMany({
         where: { id: conversationId },
-        data: { assignee_operator_id: operatorId },
+        data: {
+          assignee_operator_id: operatorId,
+          // Feature 024: which desk took it. Written in the SAME statement as the assignee, so the
+          // two can never disagree — a conversation assigned by a group's rotation but not marked as
+          // that group's work would make the automation scope and the by-desk list quietly wrong.
+          ...(routedGroupId ? { routed_group_id: routedGroupId } : {}),
+        },
       });
 
       // Feature 023 — the FIFTH writer of this column, and the one no manual inventory found: the

@@ -26,6 +26,15 @@ export class AuditDetailError extends Error {}
 
 /** The keys each action class may carry. Anything else is refused. */
 export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
+  // ⚠️ Feature 024 (groups) added seven `privilege` actions and NEEDED NO KEY HERE, which is worth
+  // stating: a group action records `scope: 'group'`, `permissionKey` + `grant` for a binding change,
+  // and `affectedCount` for how many members it moved. The group is identified by `target_ref`.
+  //
+  // In particular there is deliberately no `name` key for a rename. `name` is legal for `deletion`
+  // because a deleted rule leaves nothing else to identify it by; a group still exists after being
+  // renamed, so its name is readable from the row and copying it here would be the trail storing
+  // state instead of referencing it (015: "target_ref identifies, never copies"). The cost is real
+  // and accepted — after a group is deleted the trail names it only by id.
   privilege: ['scope', 'permissionKey', 'roleKey', 'grant', 'affectedCount'],
   // `name` is the rule's own operator-authored name — not customer data.
   deletion: ['name', 'revision'],

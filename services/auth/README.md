@@ -110,3 +110,49 @@ audit now refuses the change (it previously left it standing, unrecorded), and t
 atomic (it was a sequence of independent writes, so a failure halfway left a user snapshotted-but-not-granted).
 `ensureStandalone` was split into `planStandalone` for the same reason — it read and wrote in one go, which
 cannot sit inside a batch.
+
+---
+
+## Groups (feature 024, roadmap 5.3 — [ADR 0039](../../cowork/decisions/0039-groups-are-an-access-input.md))
+
+An operator-named unit of staff. `Group` / `GroupMember` / `GroupPermission` in
+[`prisma/schema.prisma`](./prisma/schema.prisma); the gRPC surface is in
+[`libs/proto/crm/auth/v1/auth.proto`](../../libs/proto/crm/auth/v1/auth.proto).
+
+**⚠️ Why an org-chart entity lives in the identity service.** Both enforcement tiers consume ONE resolved
+permission set: the gateway calls `ResolveEffectivePermissions` and forwards the answer as
+`x-actor-permissions`, and every service guard reads only that. So there is exactly one function where
+"may they?" is answered — `RbacResolverService.resolve`, over `auth_db`. Putting the group anywhere else
+would need a gRPC hop **inside the hot permission path**, or a second place that decides access. ADR 0039 §2
+forbids the second: two mechanisms that both decide access will diverge, and the divergence is invisible
+until someone sees something they should not.
+
+**A group grants and never denies.** `GroupPermission` has **no `granted` column** — unlike its neighbour
+`UserPermissionEntry`, which needs one because it is a materialised snapshot that must be able to say
+"explicitly not". A row's existence is the grant; revoking deletes it. A denial is unrepresentable rather
+than merely unused (`tests/data-model/group-grant-is-positive-only.spec.ts`).
+
+**Where the term enters the resolver.** `effective = ( standalone snapshot OR role defaults ) ∪ ⋃ group
+grants`, unioned into **both** real exits and deliberately **absent from the view-as preview** — the preview
+answers "what can this ROLE do?", and folding in the caller's own memberships would make it report more
+access than the role has. The standalone snapshot stays frozen while the group term is live; that asymmetry
+is intentional and is written up beside the method.
+
+**No-escalation.** A caller may confer only a key they already hold. Without it, `platform.group.manage`
+(which `admin` has) would be a route to `platform.role.manage` (which `admin` deliberately does not):
+create a group → grant it the key → join the group. `group-grant-parity.spec.ts` pins it.
+
+**Permission:** `platform.group.manage` — a new key, in no operational role template. Not
+`platform.role.manage`, which is a super-admin exclusive; reorganising a desk is routine.
+
+**Audited:** seven `privilege`-class actions (`group.create` / `group.rename` / `group.delete` /
+`group_member.add` / `group_member.remove` / `group_permission.grant` / `group_permission.revoke`), exactly
+one entry per accepted mutation, written inside the same transaction as the act.
+
+**Consumers:** chats resolves a routing candidate pool through `ListGroupMembers`; roadmap 9.6a will use a
+group as a grant subject for views and folders.
+
+⚠️ **`PersonalizeGroup` in the contract is NOT this.** It means "a hand-picked batch of users edited at
+once" (feature 011) and owned the word first. The wire name is kept because renaming an rpc trips
+`buf breaking`; in TypeScript it is `OverrideService.personalizeSelection`, and
+`tests/naming/personalize-group-disambiguated.spec.ts` keeps the two apart.

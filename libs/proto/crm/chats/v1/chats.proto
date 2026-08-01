@@ -90,6 +90,10 @@ message Conversation {
   // on a cardinality change.
   string subject = 15;
   string subject_source = 16;
+  // Feature 024 (roadmap 5.3): the GROUP this conversation was routed to. A soft ref to
+  // `auth.Group.id`, empty when it was not routed through a desk. It is the fact an automation's
+  // group scope matches on, and the reason a dangling scope fails closed rather than open.
+  string routed_group_id = 17;
 }
 
 // Feature 016 (roadmap 4.9) — rendering metadata for a file attached to a message. The bytes are
@@ -427,10 +431,23 @@ message AssignConversationRequest {
   string operator_id = 2;             // "" = unassign
 }
 
+// ⚠️ Feature 024 (roadmap 5.3) adds `group_id`. See the field's own note: when it is set it WINS and
+// `candidates` is ignored — two sources for one routing answer is how a routing decision becomes
+// unexplainable, and "which of the two did it use?" is not a question anyone should have to ask of a
+// live queue.
 message AutoAssignRequest {
   string conversation_id = 1;
   string group_key = 2;                        // opaque; rotation state keyed by (account, group_key)
-  repeated RoundRobinCandidate candidates = 3; // caller-supplied until Phase 5
+  repeated RoundRobinCandidate candidates = 3; // caller-supplied; still fully supported
+  // Feature 024 (roadmap 5.3): name a GROUP and let the service build the pool — membership from
+  // auth, operator profiles from users, current load counted here, capacity from a 🅿 PROVISIONAL
+  // configured default (revised by 4.19–4.21 and 5.9).
+  //
+  // PRECEDENCE: when set, this WINS and `candidates` is ignored. It also becomes the rotation key and
+  // is recorded on the conversation as `routed_group_id`. A group that resolves to nobody assignable
+  // answers with the existing GROUP_ROUTING_NOT_AVAILABLE — a guess is worse than a truthful "not
+  // yet" (feature 013 US3 #4), and that is unchanged.
+  string group_id = 4;
 }
 message AutoAssignResult {
   bool assigned = 1;

@@ -37,6 +37,7 @@ model User {
   refreshTokens RefreshToken[]
   permissionSet     UserPermissionSet? // feature 011 — copy-on-write personalization state
   permissionEntries UserPermissionEntry[] // feature 011 — standalone snapshot rows
+  groups            GroupMember[] // feature 024 — the units this person belongs to
 
   @@unique([account_id, email])
   @@index([account_id])
@@ -182,6 +183,7 @@ model Permission {
 
   rolePermissions RolePermission[]
   userEntries     UserPermissionEntry[]
+  groupGrants     GroupPermission[] // feature 024 — grants a group confers on its members
 
   @@unique([account_id, category, key])
   @@index([account_id])
@@ -227,6 +229,89 @@ model UserPermissionEntry {
 
   @@id([user_id, permission_id])
   @@index([user_id])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// GROUPS (feature 024, roadmap 5.3 — ADR 0039). An operator-named unit of staff.
+///
+/// ⚠️ WHY THESE THREE TABLES ARE IN auth_db AND NOT users_db, where an org-chart entity would
+/// intuitively live. Both enforcement tiers consume ONE resolved permission set: the gateway asks
+/// `ResolveEffectivePermissions` and forwards the answer as `x-actor-permissions`, and every service
+/// guard reads only that. So there is exactly one function where "may they?" is answered —
+/// `RbacResolverService.resolve`, over this database. Putting the group anywhere else would need a
+/// gRPC hop INSIDE the hot permission path, or a second place that decides access. ADR 0039 §2 is
+/// explicit that the second is forbidden: two mechanisms that both decide access will diverge, and
+/// the divergence is invisible until someone sees something they should not.
+///
+/// ⚠️ A GROUP GRANTS AND NEVER DENIES (ADR 0039 §3). See the note on GroupPermission.
+///
+/// NOT here, deliberately: no `type` column (structural / functional describe how a group is USED,
+/// and an enum would force a false choice the first time someone wants a structural group with a
+/// folder — which the operator's own VIP example already is, ADR 0039 §5); no `brand_id` (§10 — a
+/// group never acquires a brand dimension); no folder or audience (roadmap 9.6a owns that, and U15
+/// unified it with view visibility into one grant model).
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+model Group {
+  id         String   @id @default(uuid())
+  account_id String
+  /// Operator-authored. Trimmed before storage AND before comparison. No name is hardcoded anywhere
+  /// in the product and no code branches on one — ADR 0039 §9, guarded by a structural test.
+  name       String
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  members     GroupMember[]
+  permissions GroupPermission[]
+
+  /// Two groups an administrator cannot tell apart are worse than none — and the collision must
+  /// surface as a named refusal, not as a database error reaching the caller as a 500.
+  @@unique([account_id, name])
+  @@index([account_id])
+}
+
+/// Membership: the many-to-many edge between a group and a STAFF IDENTITY.
+///
+/// Keyed on the auth `User.id`, not on `users.Operator.id`: the resolver keys on the user, so any
+/// other subject would need translating on the hot path. The reverse direction already exists and is
+/// free — `users.Operator.auth_user_id` is a soft ref to this same identity.
+///
+/// The composite primary key IS the idempotence guarantee: adding someone who is already a member
+/// cannot produce a second row. An application-level "is this person already in?" check would be a
+/// race; a primary key is not (the same reasoning feature 014 recorded for AutomationRun's unique).
+/// No account_id — scoped through both parents, like UserRole and RolePermission.
+model GroupMember {
+  group_id String
+  user_id  String
+
+  group Group @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([group_id, user_id])
+  /// The resolver's hot lookup: "which groups does this user belong to?"
+  @@index([user_id])
+}
+
+/// What a group confers on its members.
+///
+/// ⚠️ THERE IS DELIBERATELY NO `granted` BOOLEAN HERE, and the absence is load-bearing. The
+/// neighbouring `UserPermissionEntry` carries one because it is a MATERIALISED SNAPSHOT that must be
+/// able to say "explicitly not". A group must only ever grant (ADR 0039 §3 / FR-010), so the model is
+/// given no way to write a denial: **a row's existence is the grant**. "We never write false" is a
+/// convention; "the column does not exist" is a guarantee, and
+/// tests/data-model/group-grant-is-positive-only.spec.ts asserts it stays that way.
+///
+/// Revoking deletes the row. That returns the group to SILENCE about the key — it never denies it,
+/// so a member who holds the key from their role or from another group keeps it.
+model GroupPermission {
+  group_id      String
+  permission_id String
+
+  group      Group      @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([group_id, permission_id])
+  @@index([permission_id])
 }
 
 /// Audit trail entry (feature 015, roadmap 4.8 — ADR 0019; SEC-29/SEC-30; extended by 0032/SEC-AP3).

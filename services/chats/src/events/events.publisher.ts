@@ -110,6 +110,8 @@ export class DomainEventPublisher {
       channel: c.channel,
       hasAssignee: !!c.assignee_operator_id,
       labelIds,
+      // Feature 024: the group SCOPE input. Null when the work was not routed through a desk.
+      routedGroupId: c.routed_group_id,
       ...(messageText === undefined ? {} : { messageText }),
     };
   }

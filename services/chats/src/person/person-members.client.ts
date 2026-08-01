@@ -82,11 +82,26 @@ interface PlayerRefWire {
   playerId?: string;
 }
 
+/** One member of a group, translated from an auth identity to someone who can hold work. */
+export interface AssignableOperator {
+  operatorId: string;
+  authUserId: string;
+}
+
+interface ResolvedOperatorWire {
+  operatorId?: string;
+  authUserId?: string;
+}
+
 interface UsersReadGrpc {
   listPersonMembers(
     d: { personId: string },
     md?: Metadata,
   ): Observable<{ members?: PlayerRefWire[] }>;
+  listOperatorsByAuthUsers(
+    d: { accountId: string; authUserIds: string[] },
+    md?: Metadata,
+  ): Observable<{ operators?: ResolvedOperatorWire[] }>;
 }
 
 @Injectable()
@@ -135,6 +150,56 @@ export class PersonMembersClient implements OnModuleInit {
     return res.members
       .filter((m): m is Required<PlayerRefWire> => !!m?.brandId && !!m?.playerId)
       .map((m) => ({ brandId: m.brandId, playerId: m.playerId }));
+  }
+
+  /**
+   * Translate AUTH user ids into ASSIGNABLE operator profiles (feature 024, roadmap 5.3).
+   *
+   * Group membership is keyed on the auth identity; a conversation's assignee is an operator profile.
+   * This is that translation, and it is an explicit call because the two live in different databases
+   * (Principle VIII). Only ACTIVE profiles come back, so a member who cannot hold work is simply
+   * absent — and the caller can compare what it asked for with what it got.
+   *
+   * ⚠️ **`users` returning FEWER than asked is normal; users failing is not.** The first is a fact
+   * about staffing, the second is an absence of information, and if this method returned `[]` for
+   * both, an unreachable users service would look exactly like "this desk has nobody" — routing would
+   * stop for a whole team with every request still answering 200.
+   *
+   * @param metadata the CALLER's own metadata, forwarded unchanged so `users` evaluates
+   *                 `crm.conversation.assign` against the real actor. Calling as a system actor would
+   *                 launder the permission — the rule feature 022 established one field over.
+   * @throws MembershipUnavailableError when the answer cannot be established; a gRPC refusal is
+   *         rethrown as-is so a 403 stays a 403.
+   */
+  async resolveOperators(
+    accountId: string,
+    authUserIds: readonly string[],
+    metadata: Metadata,
+  ): Promise<AssignableOperator[]> {
+    const ids = [...new Set(authUserIds.filter((id) => id))];
+    // Nobody to translate. Not an error: an empty group is a legitimate answer that the caller turns
+    // into "group routing not available".
+    if (ids.length === 0) return [];
+
+    let res: { operators?: ResolvedOperatorWire[] };
+    try {
+      res = await firstValueFrom(
+        this.users.listOperatorsByAuthUsers({ accountId, authUserIds: ids }, metadata),
+      );
+    } catch (err) {
+      if (typeof (err as { code?: number })?.code === 'number') throw err;
+      throw new MembershipUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+    }
+
+    // proto3 omits an empty repeated field, so an ABSENT list here genuinely means "none of them has
+    // an active profile" — a real answer. `null` or a non-array is a response we cannot read.
+    const rows = res?.operators;
+    if (rows === undefined) return [];
+    if (!Array.isArray(rows)) throw new MembershipUnavailableError('unreadable response');
+
+    return rows
+      .filter((o): o is Required<ResolvedOperatorWire> => !!o?.operatorId && !!o?.authUserId)
+      .map((o) => ({ operatorId: o.operatorId, authUserId: o.authUserId }));
   }
 }
 

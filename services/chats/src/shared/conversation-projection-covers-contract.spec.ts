@@ -53,6 +53,7 @@ const detailRow = {
   sub_category: 'deposit',
   classified_by: 'ai',
   subject_source: 'auto',
+  routed_group_id: null,
 };
 
 /**

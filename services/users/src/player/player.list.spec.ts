@@ -208,7 +208,13 @@ describe('*** page tokens: malformed is refused, FOREIGN is accepted and still f
 
 describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any entry ***', () => {
   function guardHarness(role: string) {
-    const players = { getPlayer: jest.fn(), listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })) };
+    const players = {
+      getPlayer: jest.fn(),
+      listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })),
+      // Feature 022: the page's person lookup (see the query-count test at the end of this file).
+      personIdOf: jest.fn(async () => null),
+      personIdsFor: jest.fn(async () => new Map<string, string>()),
+    };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
       ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
@@ -273,6 +279,8 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     const players = {
       getPlayer: jest.fn(),
       listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })),
+      personIdOf: jest.fn(async () => null),
+      personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
@@ -336,6 +344,8 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
     const players = {
       getPlayer: jest.fn(),
       listByBrand: jest.fn(async () => ({ rows: ROWS, nextCursor: null })),
+      personIdOf: jest.fn(async () => null),
+      personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     return {
       ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
@@ -385,6 +395,8 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
         rows: ROWS.slice(0, 2),
         nextCursor: { createdAt: '2026-07-28T11:00:00.000Z', id: 'p2' },
       })),
+      personIdOf: jest.fn(async () => null),
+      personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     const ctl = new PlayerReadController(
       players as never,
@@ -399,5 +411,74 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       createdAt: '2026-07-28T11:00:00.000Z',
       id: 'p2',
     });
+  });
+});
+
+/**
+ * Feature 022 (roadmap 4.13), T050 — **the page's person lookup is ONE query, not one per row.**
+ *
+ * `ListPlayersByBrand` returns a page, and the natural implementation of "each record says which human it
+ * belongs to" is a lookup inside the map — a textbook N+1 (Principle VII), and the kind that only shows up
+ * as a slow screen once a brand has thousands of customers. Counted here rather than reasoned about.
+ */
+describe('T050 — one membership lookup per PAGE (never per row)', () => {
+  function harness(rows: typeof ROWS, linked: Array<[string, string]> = []) {
+    const personIdsFor = jest.fn(async () => new Map(linked));
+    const personIdOf = jest.fn(async () => null);
+    const players = {
+      getPlayer: jest.fn(),
+      listByBrand: jest.fn(async () => ({ rows, nextCursor: null })),
+      personIdOf,
+      personIdsFor,
+    };
+    const ctl = new PlayerReadController(
+      players as never,
+      { getById: jest.fn() } as never,
+      { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
+      personsStub(),
+    );
+    return { ctl, personIdsFor, personIdOf };
+  }
+
+  it('a multi-row page issues exactly one membership query', async () => {
+    const { ctl, personIdsFor, personIdOf } = harness(ROWS);
+    await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'));
+    expect(personIdsFor).toHaveBeenCalledTimes(1);
+    // …and never the single-record lookup, which is what an N+1 would look like here.
+    expect(personIdOf).not.toHaveBeenCalled();
+  });
+
+  it('it asks for exactly the page’s player ids, under the page’s brand', async () => {
+    const { ctl, personIdsFor } = harness(ROWS);
+    await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'));
+    const [accountId, brandId, ids] = personIdsFor.mock.calls[0] as unknown as [
+      string,
+      string,
+      string[],
+    ];
+    expect(brandId).toBe('brand-a');
+    expect(accountId).toBe('acc-1');
+    expect(ids).toEqual(ROWS.map((r) => r.player_id));
+  });
+
+  it('the linked rows carry their person id and the unlinked ones carry none', async () => {
+    const first = ROWS[0]!.player_id;
+    const { ctl } = harness(ROWS, [[first, 'person-1']]);
+    const page = (await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'))) as {
+      players: Array<Record<string, unknown>>;
+    };
+    const linked = page.players.find((p) => p.playerId === first)!;
+    expect(linked.personId).toBe('person-1');
+    for (const other of page.players.filter((p) => p.playerId !== first)) {
+      // Absent, not an empty-looking placeholder: proto3 renders an absent string as '' on the wire, and a
+      // fabricated "person of one" would be a claim nobody made.
+      expect('personId' in other).toBe(false);
+    }
+  });
+
+  it('an empty page still issues at most one lookup', async () => {
+    const { ctl, personIdsFor } = harness([]);
+    await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'));
+    expect(personIdsFor.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });

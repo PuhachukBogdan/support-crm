@@ -28,7 +28,36 @@ async function run(): Promise<void> {
         create: p,
         update: p,
       });
-    console.log(`users seed: ok (${seed.players.length} players, incl. the cross-brand id collision)`);
+    /**
+     * Feature 022 (roadmap 4.13): the explicitly linked cross-brand person.
+     *
+     * Written AFTER the players, because `PersonMember` carries a real foreign key to `Player` on the triple
+     * — the one place in this schema where a link is enforced by the database rather than by a service
+     * remembering to check (feature 020). Seeding the members first would fail on that constraint, which is
+     * the constraint doing its job.
+     *
+     * The person is upserted by id and the members by their composite key, so re-seeding is idempotent and
+     * a re-run cannot silently create a second person for the same records.
+     */
+    for (const person of seed.persons)
+      await db.person.upsert({ where: { id: person.id }, create: person, update: person });
+    for (const m of seed.personMembers)
+      await db.personMember.upsert({
+        where: {
+          account_id_person_id_brand_id_player_id: {
+            account_id: m.account_id,
+            person_id: m.person_id,
+            brand_id: m.brand_id,
+            player_id: m.player_id,
+          },
+        },
+        create: m,
+        update: m,
+      });
+    console.log(
+      `users seed: ok (${seed.players.length} players, incl. the cross-brand id collision; ` +
+        `${seed.persons.length} person linking ${seed.personMembers.length} records)`,
+    );
   } finally {
     await base.$disconnect();
   }

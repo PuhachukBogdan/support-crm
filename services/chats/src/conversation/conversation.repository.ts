@@ -40,6 +40,17 @@ export interface ListFilters {
   idIn?: string[];
   /** Brand restriction: undefined = none; [] = deliberately empty (permitted set excludes the ask). */
   brandIn?: string[];
+  /**
+   * Feature 022 (roadmap 4.13) — the conversations of a PERSON: every `(brand, player)` pair that makes
+   * up one human, resolved from `users` (never inferred from a matching id — that merge was the 5.2
+   * defect). `[]` means "this person has no members", which must yield an EMPTY page rather than an
+   * unfiltered one, exactly as `idIn: []` does.
+   *
+   * ONE query with an `OR` over the pairs, not one per member: every conversation lives in this database,
+   * so the union is a single indexed read. The k-way merge feature 015 uses exists because those rows sit
+   * in three separate databases (research R6).
+   */
+  membersIn?: Array<{ brandId: string; playerId: string }>;
   limit: number;
   cursor: Cursor | null;
 }
@@ -76,6 +87,14 @@ export class ConversationRepository {
     if (f.playerId) where.player_id = f.playerId;
     if (f.brandIn) where.brand_id = { in: f.brandIn };
     if (f.idIn) where.id = { in: f.idIn };
+    if (f.membersIn) {
+      // A person with no members matches NOTHING. Expressed as `id: { in: [] }` rather than `OR: []`,
+      // because an empty `OR` is a Prisma detail one refactor away from meaning "no restriction" — and
+      // "no restriction" here would return the whole account.
+      if (f.membersIn.length === 0) where.id = { in: [] };
+      else
+        where.OR = f.membersIn.map((m) => ({ brand_id: m.brandId, player_id: m.playerId }));
+    }
 
     if (f.cursor) {
       const at = new Date(f.cursor.createdAt);

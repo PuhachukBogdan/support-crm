@@ -56,9 +56,16 @@ function fakePrisma(brand: string | null = 'brand-a') {
   const messages: Record<string, unknown>[] = [];
   const attachments: Record<string, unknown>[] = [];
 
+  /** Feature 022 — the contact-stamp writes this path now also makes. */
+  const stamps: Record<string, unknown>[] = [];
+
   const scoped = {
     conversation: {
       findFirst: jest.fn().mockResolvedValue(brand === null ? null : { brand_id: brand }),
+      updateMany: jest.fn((args: { data: Record<string, unknown> }) => {
+        stamps.push(args.data);
+        return Promise.resolve({ count: 1 });
+      }),
     },
     message: {
       create: jest.fn((args: { data: Record<string, unknown> }) =>
@@ -94,11 +101,20 @@ function fakePrisma(brand: string | null = 'brand-a') {
     if (Array.isArray(arg)) {
       return Promise.resolve(arg.map((s) => (s as { __run: () => unknown }).__run()));
     }
-    return Promise.resolve([]);
+    // Feature 022 — the INTERACTIVE form. `post` needs the created row's own `created_at` for the
+    // contact stamp, which the batch form cannot reference (research R2). The lazy statements above
+    // still work here: awaiting one runs it exactly once, which is what the callback does.
+    return (arg as (tx: unknown) => Promise<unknown>)(scoped);
   };
 
   const forAccount = jest.fn(() => scoped);
-  return { prisma: { forAccount } as unknown as PrismaService, messages, attachments, scoped };
+  return {
+    prisma: { forAccount } as unknown as PrismaService,
+    messages,
+    attachments,
+    stamps,
+    scoped,
+  };
 }
 
 /**
@@ -177,11 +193,19 @@ describe('a valid attachment is written WITH its message', () => {
     // Position is explicit so display order is stable rather than whatever the planner returns.
     expect(attachments.map((a) => a.position)).toEqual([0, 1]);
     expect(attachments.every((a) => a.account_id === 'acc-1')).toBe(true);
-    // The message id is generated BEFORE the batch, because the batch form cannot reference a row it
-    // is about to create. Asserting that both statements carry the SAME id is the real check — a
-    // mismatch would produce attachment rows pointing at nothing.
-    expect(res.id).toMatch(/^[0-9a-f-]{36}$/);
+    // ⚠️ **This assertion changed in feature 022, and what it dropped was never the guarantee.**
+    // It used to read `expect(res.id).toMatch(/^[0-9a-f-]{36}$/)` — the message id was generated in the
+    // repository with `randomUUID` because the BATCH `$transaction` cannot reference a row it is about
+    // to create. Feature 022 needs the created row's own `created_at` for the contact stamp, so the
+    // write moved to the interactive form, where the row IS available — and the up-front id went with
+    // the constraint that required it. The id now comes from the database, so its FORMAT is Postgres's
+    // business, not this test's.
+    //
+    // The real check is the one that was always the real check, and it is unchanged: both statements
+    // carry the SAME id. A mismatch would leave attachment rows pointing at nothing.
+    expect(res.id).toBeTruthy();
     expect(attachments.every((a) => a.message_id === res.id)).toBe(true);
+    expect(messages[0]!.id).toBe(res.id);
   });
 
   it('a message with no attachments writes no attachment rows and makes no claim call', async () => {

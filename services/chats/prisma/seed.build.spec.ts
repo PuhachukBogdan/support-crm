@@ -1,9 +1,15 @@
-import { buildSeed } from './seed.build';
+import {
+  buildSeed,
+  deriveContactStamps,
+  SEED_MESSAGE_PLAYER_AT,
+  SEED_MESSAGE_REPLY_AT,
+} from './seed.build';
 import {
   SEED_ACCOUNT_ID,
   SEED_BRAND_ID,
   SEED_BRAND_ID_2,
   SEED_PLAYER_ID,
+  SEED_CONVERSATION_OPEN_ID,
   SEED_CONVERSATION_UNASSIGNED_ID,
   SEED_MACRO_ID,
   SEED_MACRO_ASSIGN_ID,
@@ -13,6 +19,9 @@ import {
   SEED_AUTOMATION_BREACH_ID,
   SEED_AUTOMATION_KEYWORD,
   SEED_CONVERSATION_SLA_ID,
+  // feature 022 (roadmap 4.13).
+  SEED_PLAYER_LINKED_A,
+  SEED_PLAYER_LINKED_B,
 } from '@crm/common';
 
 /**
@@ -35,14 +44,60 @@ describe('chats seed builder', () => {
   });
 
   it('conversations share the player and span two brands (player brand-union, feature 012 US3)', () => {
-    for (const c of seed.conversations) {
-      expect(c.player_id).toBe(SEED_PLAYER_ID);
-    }
-    const brands = new Set(seed.conversations.map((c) => c.brand_id));
+    /**
+     * ⚠️ **NARROWED by feature 022, and the original wording is why.** This read "for every conversation,
+     * `player_id` is `SEED_PLAYER_ID`" — true only while the fixture had exactly one player. Feature 022 added
+     * the LINKED pair (two distinct platform ids, one per brand, explicitly one human), which is a different
+     * fixture proving a different thing, so the assertion now scopes itself to the player it is about.
+     *
+     * What it still proves is untouched: one platform id appearing under BOTH brands — which, since feature
+     * 020, is two humans and the reason the feed keys on the triple.
+     */
+    const collisionPlayer = seed.conversations.filter((c) => c.player_id === SEED_PLAYER_ID);
+    expect(collisionPlayer.length).toBeGreaterThan(1);
+    const brands = new Set(collisionPlayer.map((c) => c.brand_id));
     expect(brands.has(SEED_BRAND_ID)).toBe(true);
     expect(brands.has(SEED_BRAND_ID_2)).toBe(true); // same player_id spanning brands
     // at least one conversation is classified (reserved fields, ADR 0027)
     expect(seed.conversations.some((c) => c.category === 'billing' && c.classified_by === 'seed')).toBe(true);
+  });
+
+  it('feature 022: the LINKED pair is a SECOND, opposite fixture — distinct ids, one per brand', () => {
+    // The two fixtures prove opposite things and the live run needs both: with only the collision pair,
+    // "the person feed spans brands" is unfalsifiable; with only the linked pair, "an id match is not a
+    // person" is.
+    const a = seed.conversations.find((c) => c.player_id === SEED_PLAYER_LINKED_A)!;
+    const b = seed.conversations.find((c) => c.player_id === SEED_PLAYER_LINKED_B)!;
+    expect(a.brand_id).toBe(SEED_BRAND_ID);
+    expect(b.brand_id).toBe(SEED_BRAND_ID_2);
+    // Distinct platform ids — that is what makes them a LINK rather than a collision.
+    expect(a.player_id).not.toBe(b.player_id);
+    // Different recorded channels, so a per-channel rollup across the person is observable.
+    expect(a.channel).not.toBe(b.channel);
+    // And the second brand's contact is LATER, so the person-level maximum can only come from it.
+    expect(b.last_inbound_at!.getTime()).toBeGreaterThan(a.last_inbound_at!.getTime());
+  });
+
+  it('feature 022: a SYSTEM entry is the newest message on the open conversation, and stamps nothing', () => {
+    const system = seed.messages.filter((m) => m.author_type === 'system');
+    expect(system).toHaveLength(1);
+    const open = seed.conversations.find((c) => c.id === SEED_CONVERSATION_OPEN_ID)!;
+    const newest = Math.max(
+      ...seed.messages
+        .filter((m) => m.conversation_id === SEED_CONVERSATION_OPEN_ID)
+        .map((m) => m.created_at.getTime()),
+    );
+    // The system row IS the newest — so counting machine output as contact would change the answer.
+    expect(system[0]!.created_at.getTime()).toBe(newest);
+    expect(open.last_outbound_at!.getTime()).toBeLessThan(newest);
+  });
+
+  it('feature 022: one of the collision player’s conversations has a channel, the rest have none', () => {
+    const mine = seed.conversations.filter((c) => c.player_id === SEED_PLAYER_ID);
+    const named = mine.filter((c) => (c as { channel?: string | null }).channel);
+    expect(named).toHaveLength(1);
+    // The others are the state the whole existing history is in until Phase 6 — the unrecorded bucket.
+    expect(mine.length - named.length).toBeGreaterThan(0);
   });
 
   it('includes at least one private (internal) message', () => {
@@ -210,5 +265,84 @@ describe('chats seed — feature 014 (automations + first-reply SLA)', () => {
     expect(conv).toBeDefined();
     expect(conv!.assignee_operator_id).toBeNull();
     expect(seed.messages.some((m) => m.conversation_id === SEED_CONVERSATION_SLA_ID)).toBe(false);
+  });
+});
+
+/**
+ * Feature 022 (roadmap 4.13), T017 — **the fixtures carry contact stamps, and they agree with the
+ * fixture messages.**
+ *
+ * `seed.ts` writes messages with `upsert`, bypassing the repository that maintains the stamps
+ * (research R3), so the builder derives them. Track B runs on this seed: unstamped fixtures would make
+ * the live run report a product defect that is really a fixture defect.
+ *
+ * The property asserted here is the same one `migration-022.spec.ts` asserts for the backfill and Track B
+ * asserts for live rows: **what the columns say is what the messages say.**
+ */
+describe('chats seed builder — contact stamps (feature 022)', () => {
+  const seed = buildSeed();
+  const conv = (id: string) => seed.conversations.find((c) => c.id === id)!;
+
+  it('every conversation carries both stamp fields (present, even when null)', () => {
+    // A missing FIELD and a null VALUE are different: the first means the derivation skipped a fixture,
+    // which would ship as "never contacted" for that card.
+    for (const c of seed.conversations) {
+      expect(Object.keys(c)).toContain('last_inbound_at');
+      expect(Object.keys(c)).toContain('last_outbound_at');
+    }
+  });
+
+  it('the stamps equal the derivation over that conversation’s own messages', () => {
+    for (const c of seed.conversations) {
+      const mine = seed.messages.filter((m) => m.conversation_id === c.id);
+      const maxOf = (pick: (m: (typeof mine)[number]) => boolean) => {
+        const times = mine.filter(pick).map((m) => m.created_at.getTime());
+        return times.length ? new Date(Math.max(...times)) : null;
+      };
+      expect({ id: c.id, inbound: c.last_inbound_at, outbound: c.last_outbound_at }).toEqual({
+        id: c.id,
+        inbound: maxOf((m) => m.author_type === 'player' && !m.private),
+        outbound: maxOf((m) => m.author_type === 'operator' && !m.private),
+      });
+    }
+  });
+
+  it('the private note does NOT become the last outbound contact, though it is the latest message', () => {
+    // The fixture is built so this mistake changes a value rather than changing nothing: the note is
+    // 09:30, the public reply 09:15. A card reading 09:30 would be reporting a staff-only note as a
+    // conversation with the customer.
+    const c = conv(SEED_CONVERSATION_OPEN_ID);
+    const note = seed.messages.find((m) => m.private)!;
+    expect(c.last_outbound_at).toEqual(SEED_MESSAGE_REPLY_AT);
+    expect(note.created_at.getTime()).toBeGreaterThan(SEED_MESSAGE_REPLY_AT.getTime());
+    expect(c.last_outbound_at).not.toEqual(note.created_at);
+  });
+
+  it('a conversation with no messages has BOTH stamps null (never contacted, not an error)', () => {
+    const c = conv(SEED_CONVERSATION_SLA_ID);
+    expect(c.last_inbound_at).toBeNull();
+    expect(c.last_outbound_at).toBeNull();
+  });
+
+  it('message timestamps are FIXED, so Track B can compare a stored value with an API value', () => {
+    // With `now()` at seed time the live comparison would be a coin toss, and the two halves of Track
+    // B's equality assertion (a backfilled row and a freshly written one) could not both be pinned.
+    for (const m of seed.messages) expect(m.created_at).toBeInstanceOf(Date);
+    expect(conv(SEED_CONVERSATION_OPEN_ID).last_inbound_at).toEqual(SEED_MESSAGE_PLAYER_AT);
+  });
+
+  it('the derivation helper is reusable and handles a system entry as inert', () => {
+    // Exercises the helper directly, so the rule's own edge cases are pinned here too — the Track-B
+    // fixtures added later (a system message, a channel-less conversation) go through this same path.
+    const out = deriveContactStamps(
+      [{ id: 'c-x' }],
+      [
+        { conversation_id: 'c-x', author_type: 'system', created_at: new Date('2026-07-21T10:00:00Z') },
+        { conversation_id: 'c-x', author_type: 'player', created_at: new Date('2026-07-21T09:00:00Z') },
+        { conversation_id: 'c-other', author_type: 'player', created_at: new Date('2026-07-22T09:00:00Z') },
+      ],
+    );
+    expect(out[0]!.last_inbound_at).toEqual(new Date('2026-07-21T09:00:00Z'));
+    expect(out[0]!.last_outbound_at).toBeNull(); // a system entry stamps nothing
   });
 });

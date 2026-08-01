@@ -2,6 +2,7 @@ import { Metadata } from '@grpc/grpc-js';
 import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { FeedReadController } from './feed.grpc.controller';
+import type { PersonMembersClient } from '../person/person-members.client';
 
 /**
  * ⚠️ **This spec used to certify the defect.** Its first test read *"merges a player across the brands
@@ -51,7 +52,22 @@ function md(accountId = 'acc-1'): Metadata {
   return m;
 }
 
-const ctrlFor = (prisma: PrismaService) => new FeedReadController(new ConversationRepository(prisma));
+/**
+ * Feature 022 gave this controller a second dependency (the person-membership client, for `GetPersonFeed`).
+ * A NAMED stub that THROWS, not a permissive mock: the PLAYER feed already holds the full identity and
+ * must never ask `users` who a person is. If a future edit made it consult membership, these tests fail
+ * loudly rather than passing against a fake that answered anyway.
+ */
+function noMembers() {
+  return {
+    membersOf: () => {
+      throw new Error('the player feed must not resolve person membership');
+    },
+  } as unknown as PersonMembersClient;
+}
+
+const ctrlFor = (prisma: PrismaService) =>
+  new FeedReadController(new ConversationRepository(prisma), noMembers());
 
 describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 020)', () => {
   it('*** the same platform id under another brand does NOT appear in this feed ***', async () => {

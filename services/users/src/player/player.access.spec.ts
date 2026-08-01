@@ -56,6 +56,10 @@ function harness() {
         : null,
     ),
     listByBrand: jest.fn(async () => ({ rows: [], nextCursor: null })),
+    // Feature 022: the person lookup. `null` — an unlinked record, which is the state that must leave the
+    // byte-identical unknown/not-yours answers below completely unchanged.
+    personIdOf: jest.fn(async () => null),
+    personIdsFor: jest.fn(async () => new Map<string, string>()),
   };
   const operators = {
     getById: jest.fn(async (accountId: string, id: string) =>
@@ -253,6 +257,8 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
         brands: [],
       })),
       listByBrand: jest.fn(),
+      personIdOf: jest.fn(async () => null),
+      personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     const access = {
       recordView: jest.fn(async () => {

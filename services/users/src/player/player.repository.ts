@@ -84,6 +84,62 @@ export class PlayerRepository {
         hasMore && last ? { createdAt: last.created_at.toISOString(), id: last.player_id } : null,
     };
   }
+
+  /**
+   * Which HUMAN this record belongs to — `null` when it is not linked to any other (feature 022,
+   * roadmap 4.13).
+   *
+   * ── Why this direction did not exist ─────────────────────────────────────────────────────────
+   * Feature 020 stored the link and exposed only `person → members`. Every card, though, is opened on a
+   * brand-scoped PLAYER record, so the person-level reads 020 declared could not be addressed: the caller
+   * had no way to obtain the identifier they require. A stored link unreachable from the side the product
+   * reads from is the same defect as an rpc nothing serves, one layer down.
+   *
+   * ── No new index ────────────────────────────────────────────────────────────────────────────
+   * Served exactly by `PersonMember.@@unique([account_id, brand_id, player_id])` (feature 020). That
+   * constraint is also why a record can belong to at most ONE person — a database guarantee, not a service
+   * convention, which is why this returns a value rather than picking from a list.
+   *
+   * `null` is deliberately not "a person of one". A caller must be able to tell "linked to nobody" from
+   * "linked to a person that currently has one member" — the second is a real state an unlink can leave.
+   */
+  async personIdOf(id: PlayerIdentity): Promise<string | null> {
+    // ⚠️ Takes a `PlayerIdentity`, not three strings — and that is not style. The first draft of this method
+    // was `personIdOf(accountId, brandId, playerId)`, which `identity.structure.spec.ts` flagged: three
+    // parameters of the same type in a row can be passed in the wrong order and nothing notices, which is
+    // precisely the class of mistake feature 020 introduced this type to make impossible. The guard was
+    // right about the code, not merely about the pattern.
+    const rows = (await this.prisma.forAccount(id.accountId).personMember.findMany({
+      where: { brand_id: id.brandId, player_id: id.playerId },
+      select: { person_id: true, player_id: true },
+      take: 1,
+    })) as Array<{ person_id: string }>;
+    return rows[0]?.person_id ?? null;
+  }
+
+  /**
+   * The same answer for a whole PAGE, in ONE query.
+   *
+   * `ListPlayersByBrand` returns a page of records, and one lookup per row would be a textbook N+1
+   * (Principle VII) — the kind that surfaces as a slow card only once a brand has thousands of customers.
+   * Returns a map keyed by `player_id`; an absent key means that record is linked to nobody.
+   *
+   * Takes the brand once plus a LIST, rather than a list of identities: a page is by definition one brand's
+   * customers, so repeating the brand per row would invite two rows in one page to disagree about it.
+   */
+  async personIdsFor(
+    accountId: string,
+    brandId: string,
+    playerIds: string[],
+  ): Promise<Map<string, string>> {
+    // An empty page asks nothing: `player_id: { in: [] }` is a round trip to learn what we already know.
+    if (playerIds.length === 0) return new Map();
+    const rows = (await this.prisma.forAccount(accountId).personMember.findMany({
+      where: { brand_id: brandId, player_id: { in: playerIds } },
+      select: { person_id: true, player_id: true },
+    })) as Array<{ person_id: string; player_id: string }>;
+    return new Map(rows.map((r) => [r.player_id, r.person_id]));
+  }
 }
 
 /**

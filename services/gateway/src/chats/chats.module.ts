@@ -9,6 +9,7 @@ import { MacrosController } from './macros.controller';
 import { CannedController } from './canned.controller';
 import { AutomationsController } from './automations.controller';
 import { SlaController } from './sla.controller';
+import { PersonController } from './person.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -30,6 +31,9 @@ import { SlaController } from './sla.controller';
     // Feature 014 (roadmap 4.6/4.7).
     AutomationsController,
     SlaController,
+    // Feature 022 (roadmap 4.13): the person level — `GetPersonFeed` finally has a route, and the
+    // person contact summary with it. A controller nobody registers serves nothing while looking healthy.
+    PersonController,
   ],
 })
 export class ChatsModule {}

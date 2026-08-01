@@ -128,6 +128,21 @@ service ChatsReadService {
   // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
   // exists anywhere — append-only means there is no mutation path to expose.
   rpc ListAuditEntries(crm.audit.v1.ListAuditEntriesRequest) returns (crm.audit.v1.AuditEntryPage);
+
+  // ── Feature 022 (contact history + last contact, roadmap 4.13) — additive ──
+  //
+  // "When did we last talk to this customer, and on which channels?" — answered WITHOUT paging the
+  // feed, because the feed answers a different question and its `last_activity_at` answers this one
+  // WRONGLY: that value is `Conversation.updated_at`, which relabelling, reassigning or resolving
+  // bumps. A card built on it reports our own internal work as customer contact, and looks right
+  // doing it.
+  //
+  // Both are gated by `crm.inbox.view` at both tiers, like the feeds. The person-level call
+  // ADDITIONALLY requires `crm.contact.view`, because answering it means asking `users` which records
+  // are one human — a statement about a customer that the contact key gates. Calling `users` as a
+  // system actor to avoid that would launder the key, so it is not done (spec FR-025).
+  rpc GetPlayerContactSummary(GetPlayerContactSummaryRequest) returns (ContactSummary);
+  rpc GetPersonContactSummary(GetPersonContactSummaryRequest) returns (ContactSummary);
 }
 
 message ListConversationsRequest {
@@ -190,6 +205,84 @@ message GetPersonFeedRequest {
   ThreadProjection projection = 2;
   string page_token = 3;
   int32 page_size = 4;
+}
+
+// ── Feature 022 (roadmap 4.13) ───────────────────────────────────────────────────────────────────
+
+// One brand's player. `brand_id` is REQUIRED for the same reason `GetPlayerFeedRequest` requires it
+// (feature 020 / roadmap 5.2): GR8's `player_id` is unique only WITHIN a brand, so a request naming
+// only the platform id names two customers. Absent ⇒ INVALID_ARGUMENT, never merged.
+message GetPlayerContactSummaryRequest {
+  string player_id = 1;
+  string brand_id = 2;
+}
+
+// One HUMAN, across the brands they were EXPLICITLY linked on (feature 020: a link is established
+// from a matching email or phone, never from an id collision). Deliberately a separate call rather
+// than a flag on the one above — the same reason GetPersonFeed is separate from GetPlayerFeed: a
+// single call whose meaning depends on data it does not name is the shape of the 5.2 defect.
+message GetPersonContactSummaryRequest {
+  string person_id = 1;
+}
+
+// The card's contact facts. ONE response type for both questions: the shape is identical and only the
+// identity in the request differs, so a second type would be two things to keep in step.
+//
+// ⚠️ Timestamps are OPTIONAL BY ABSENCE, expressed as strings that are EMPTY when the thing never
+// happened. `""` = never — never an epoch date, which renders as "1 January 1970" on a card and is the
+// classic way an absent timestamp becomes a wrong fact (FR-008).
+//
+// ⚠️ NO CONTACT VALUE IS EXPRESSIBLE HERE, and that is structural rather than a convention: there is
+// no phone, email, handle or address field, and none may be added (SEC-AP1 / 0032 §5, FR-016).
+// `tests/contracts/no-contact-fields-in-summary.spec.ts` asserts it. A channel KIND ("email",
+// "whatsapp") is not a contact value and is present; a channel IDENTIFIER is one and has no field to
+// sit in.
+message ContactSummary {
+  // The most recent CUSTOMER-authored message. "" = the customer has never written to us.
+  string last_inbound_at = 1;
+  // The most recent PUBLIC staff reply. "" = we have never publicly replied.
+  // A private note is INERT — it is not contact with the customer. The same rule already governs the
+  // first-reply SLA clock (roadmap 4.7); one fact, one definition.
+  string last_outbound_at = 2;
+  // DERIVED: the later of the two above, named as derived so nobody reads it as a third fact.
+  // "" = no contact in either direction. Returned rather than left to the caller, because two callers
+  // computing it would eventually disagree about which one wins on a tie.
+  string last_contact_at = 3;
+
+  // Conversations in scope (one player, or every linked member of one person).
+  int32 conversation_count = 4;
+  // Per-status counts over the CLOSED status vocabulary — deliberately NOT a single "open count".
+  // "Open" is ambiguous between `status = open` and "not resolved" (pending and snoozed both exist),
+  // and the two readings differ on real rows; a number whose definition the caller cannot see is the
+  // mistake this message avoids one level up (research R9).
+  repeated StatusCount counts_by_status = 5;
+
+  // One entry per channel the customer ever reached us on, INCLUDING the conversations whose channel
+  // was never recorded. The per-entry conversation counts SUM to `conversation_count` — no
+  // conversation is absent from this list (FR-010).
+  repeated ChannelContactEntry channels = 6;
+}
+
+message StatusCount {
+  ConversationStatus status = 1;
+  int32 conversation_count = 2;
+}
+
+// Contact facts within one channel.
+message ChannelContactEntry {
+  // The recorded channel, verbatim. Empty when `channel_unrecorded` is true.
+  string channel = 1;
+  // TRUE for the conversations whose channel was never recorded — `Conversation.channel` is nullable
+  // and only the seed / API path writes it until Phase 6 builds real channels.
+  //
+  // ⚠️ A BOOLEAN, not a reserved string. `""` is how a null channel already renders elsewhere and is
+  // indistinguishable from a channel genuinely named `""`; a sentinel like "unknown" would collide
+  // with a future channel of that name. A separate field cannot collide with any value Phase 6 picks.
+  bool channel_unrecorded = 2;
+
+  string last_inbound_at = 3;
+  string last_outbound_at = 4;
+  int32 conversation_count = 5;
 }
 
 service ChatsWriteService {

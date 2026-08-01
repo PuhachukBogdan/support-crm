@@ -35,6 +35,22 @@ model Conversation {
   classified_by        String? // "ai" | operator id | null
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt
+  // ── Feature 022 (roadmap 4.13): the CONTACT facts, maintained on the message write ─────────────
+  //
+  // ⚠️ `updated_at` above is NOT one of them, and that is the whole reason these exist. It is a Prisma
+  // `@updatedAt` column, so relabelling, reassigning or resolving bumps it — a player card built on it
+  // reports our own internal work as customer contact, and looks right doing so.
+  //
+  // Written inside `MessageRepository.post`'s transaction from the created message's own `created_at`,
+  // for the column `message/contact-stamp.ts` selects (research R1/R2). NULL means "this never happened
+  // in this conversation" — a conversation whose only message is a private note has both null and is
+  // still counted. Never rendered as an epoch date.
+  //
+  // NO INDEX on either, deliberately: they are projected and aggregated, never filtered on. The reads
+  // narrow by `(account_id, player_id)`, which is already indexed below; indexing these would add write
+  // cost on the busiest path in the product for no read.
+  last_inbound_at      DateTime? // most recent CUSTOMER-authored message
+  last_outbound_at     DateTime? // most recent PUBLIC staff reply (a private note is inert)
 
   messages Message[]
   labels   ConversationLabel[]

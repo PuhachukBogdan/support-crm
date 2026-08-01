@@ -1,8 +1,34 @@
-import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import type { Cursor } from '../shared/cursor';
 import type { MessageRow, Projection } from '../shared/wire';
+import { decideContactStamp } from './contact-stamp';
+
+/**
+ * The slice of the transaction client `post` uses (feature 022).
+ *
+ * Prisma types an interactive `$transaction` callback as `Omit<PrismaClient, …>`, which does not carry
+ * our `$extends` account scoping in its *type* even though it does at *runtime* (the extension wraps
+ * every operation). Rather than fight that, declare exactly the delegates we touch and go through one
+ * narrow, documented cast — the approach `assignment/round-robin-state.repository.ts` already takes.
+ */
+interface MessageTx {
+  message: { create(args: unknown): Promise<unknown> };
+  conversation: { updateMany(args: unknown): Promise<unknown> };
+  messageAttachment: { createMany(args: unknown): Promise<unknown> };
+}
+
+/**
+ * The scoped client, narrowed to the interactive-transaction signature.
+ *
+ * ⚠️ NOTE: the cast is on the **client**, not on the method. Pulling `$transaction` out into a variable
+ * loses its `this` binding and Prisma then dies on `this._engineConfig` — a failure only a live run
+ * shows, because a unit-test fake is a standalone function that never needed `this` (feature 013's
+ * live-only defect). Always call it as `client.$transaction(...)`.
+ */
+interface TxCapableClient {
+  $transaction<T>(fn: (tx: MessageTx) => Promise<T>): Promise<T>;
+}
 
 /**
  * Feature 016: attachment links are selected THROUGH the message, as a nested select. That is the
@@ -95,21 +121,37 @@ export class MessageRepository {
   }
 
   /**
-   * Write the message and, when the caller supplied already-claimed uploads, its attachment rows —
-   * in ONE batch `$transaction` (feature 016, T037).
+   * Write the message, the conversation's contact stamp, and (when the caller supplied already-claimed
+   * uploads) its attachment rows — in ONE interactive `$transaction`.
    *
-   * ── Why the batch form, and why the id is generated here ───────────────────────────────────────
-   * The batch form is the one that CANNOT reproduce feature 013's live-only defect: there is no
-   * `$transaction` pulled into a variable to lose its `this` on. It also cannot reference a row it is
-   * about to create, which is why the message id is generated up front — that turns two dependent
-   * writes into two independent statements, which is exactly what makes the safe form usable here.
+   * ── Why the form changed in feature 022, and why that is not a step backwards ───────────────────
+   * Feature 016 used the BATCH form deliberately: it cannot reproduce feature 013's live-only defect
+   * (a `$transaction` pulled into a variable loses its `this` and Prisma dies on `this._engineConfig`),
+   * and it cannot reference a row it is about to create — which is why the message id used to be
+   * generated up front.
+   *
+   * Feature 022 needs something the batch form cannot express: the conversation's `last_inbound_at` /
+   * `last_outbound_at` must be set to **the created message's own `created_at`**, which only exists
+   * after the insert. So the callback form is used, exactly as
+   * `assignment/round-robin-state.repository.ts` already does for its read-modify-write, with the same
+   * discipline: `db.$transaction(...)` is called **on the client**, never destructured — that, not the
+   * batch shape, is what 013's defect was actually about.
+   *
+   * With a row id available inside the transaction, generating one up front is no longer needed. The
+   * constraint that shaped that code is gone, so the code follows.
+   *
+   * ── Why the stamp lives HERE and not beside the SLA call ────────────────────────────────────────
+   * The first-reply clock is driven from the controller AFTER this method returns, outside its
+   * transaction. That is tolerable for the SLA because the sweep re-derives from Postgres. Nothing
+   * re-derives the contact stamp, so a crash between two separate writes would leave a message the
+   * player card cannot see — the exact wrong answer this feature exists to prevent. One transaction, or
+   * the guarantee is a hope.
    *
    * Validation is NOT done here. Everything that can refuse has already run (research R8 / the 013
-   * ordering discipline), so by the time this executes the only possible outcome is both rows or
-   * neither.
+   * ordering discipline), so by the time this executes the only possible outcome is every row or none.
    */
   async post(accountId: string, input: PostInput): Promise<MessageRow> {
-    const db = this.prisma.forAccount(accountId);
+    const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
     const data = {
       account_id: accountId, // also injected by the scoped client; set explicitly for the type
       conversation_id: input.conversationId,
@@ -120,24 +162,36 @@ export class MessageRepository {
       // mentions are meaningful only on a private note (R6); empty otherwise.
       mentions: input.isPrivate ? input.mentions : [],
     };
-
     const uploadIds = [...new Set(input.uploadIds ?? [])];
-    if (uploadIds.length === 0) {
-      return (await db.message.create({ data, select: MESSAGE_SELECT })) as MessageRow;
-    }
+    // ONE rule, one place (`contact-stamp.ts`): a private note and a system entry stamp nothing.
+    const stampColumn = decideContactStamp(input.authorType, input.isPrivate);
 
-    const messageId = randomUUID();
-    const [row] = (await db.$transaction([
-      db.message.create({ data: { id: messageId, ...data }, select: MESSAGE_SELECT }),
-      db.messageAttachment.createMany({
-        data: uploadIds.map((upload_id, position) => ({
-          account_id: accountId,
-          message_id: messageId,
-          upload_id,
-          position,
-        })),
-      }),
-    ] as never)) as unknown as [MessageRow];
-    return row;
+    return db.$transaction(async (tx) => {
+      const row = (await tx.message.create({ data, select: MESSAGE_SELECT })) as MessageRow;
+
+      if (stampColumn) {
+        // `updateMany`, not `update`: the scoped client injects an `account_id` predicate, which
+        // composes with a filter and not with a unique-id lookup (the pattern every write here uses).
+        // The value is the row's OWN timestamp, so "the column equals what the messages say" is an
+        // equality by construction rather than a tolerance — see research R2.
+        await tx.conversation.updateMany({
+          where: { id: input.conversationId },
+          data: { [stampColumn]: row.created_at },
+        });
+      }
+
+      if (uploadIds.length > 0) {
+        await tx.messageAttachment.createMany({
+          data: uploadIds.map((upload_id, position) => ({
+            account_id: accountId,
+            message_id: row.id,
+            upload_id,
+            position,
+          })),
+        });
+      }
+
+      return row;
+    });
   }
 }

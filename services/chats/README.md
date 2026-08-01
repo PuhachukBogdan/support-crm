@@ -27,10 +27,17 @@ conversations, messages incl. protected private notes, player feed) and the **wo
   run records) and `crm.sla.manage` (the first-reply target). Both are supervisory — no operational
   agent role holds them by default, because whoever can author rules decides what the system does by
   itself.
-- **Caller context rides in gRPC metadata** (`x-actor-account-id/user-id/role/permissions/brands`),
-  never in message fields (research R1). Brand scope (`x-actor-brands`) intersects list/feed results;
-  singleton reads/writes are brand resource-checked. Absent brands ⇒ no brand filter (Brands service,
-  Phase 5).
+- **Caller context rides in gRPC metadata** (`x-actor-account-id` / `-user-id` / `-role` /
+  `-permissions`), never in message fields (research R1).
+  *⚠️ **This paragraph described a brand-scope header until feature 022 corrected it.** It read "brand
+  scope (`x-actor-brands`) intersects list/feed results; singleton reads/writes are brand
+  resource-checked" — machinery **ADR 0038 removed**, because there is one support department serving
+  every brand and a brand therefore never decides who may see what. Brand is a player's **identity** and
+  a **filter a caller may ask for**; it is never a permission. The code has been clean since feature 020
+  and a standing guard (`tests/data-model/no-brand-scope-remnants.spec.ts`) keeps it that way — but that
+  guard scans `.ts` / `.proto` / `.prisma`, not Markdown, so this file went on describing a control that
+  no longer exists. A doc that promises an authorization check is exactly as misleading as inert code
+  that looks like one.*
 - **SEC-13 (private notes):** the CUSTOMER thread projection excludes private-note rows **at the
   query** (`private:false`) — they are never loaded or serialised for a customer view (SC-002).
 - **Macro apply is all-or-nothing (FR-008).** Two layers, in this order: every check (each action's
@@ -92,7 +99,8 @@ conversations, messages incl. protected private notes, player feed) and the **wo
   [`prisma/migrations/`](prisma/migrations) (Track B: `prisma migrate deploy`). Feature 013 adds two
   account-scoped tables — `CannedResponse` and `RoundRobinState` (rotation cursor). Feature 014 gives
   the reserved `Automation` model meaning (+ author, position, revision) and adds `AutomationRun`,
-  `FirstReplySlaPolicy` and `ConversationSlaState`. Feature 016 adds `MessageAttachment`. All are enrolled in
+  `FirstReplySlaPolicy` and `ConversationSlaState`. Feature 016 adds `MessageAttachment`. Feature 022 adds
+  **two maintained columns on `Conversation`** — `last_inbound_at` / `last_outbound_at` — and no table. All are enrolled in
   [`src/prisma.scoped-models.ts`](src/prisma.scoped-models.ts), cross-checked against the schema by
   `tests/data-model/account-scope-coverage.spec.ts`.
 - Isolation extension: [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
@@ -248,3 +256,57 @@ guarantee holds unchanged.
   leaves no downloadable partial" provable. `ExpireDueExports` flips `ready → expired` and clears
   `upload_id`; **the bytes are deleted independently by `users`**, from the same TTL constant, so neither
   service waits on the other.
+
+## Contact history & last contact (feature 022, roadmap 4.13)
+
+The player card asks two questions this service now answers: **when did we last talk to this customer**,
+and **which channels do they use**. Both across one brand's record (`GetPlayerContactSummary`) and across
+every record explicitly linked into one human (`GetPersonContactSummary`, `GetPersonFeed`).
+
+- **⚠️ `Conversation.updated_at` is NOT the last contact, and that is why this exists.** It is a Prisma
+  `@updatedAt` column: relabelling, reassigning or resolving bumps it. A card built on it reports our own
+  internal work as customer contact and looks entirely right doing so. The facts come from **messages**,
+  maintained on two nullable columns.
+- **The stamp is written inside `MessageRepository.post`'s own transaction**, from the created row's own
+  `created_at`, for the column [`message/contact-stamp.ts`](src/message/contact-stamp.ts) selects. That
+  differs deliberately from the neighbouring SLA write, which happens *after* the transaction: the sweep
+  re-derives an SLA state from Postgres, and nothing re-derives a contact stamp — so a crash between two
+  separate writes would leave a message the card cannot see.
+- **A private note and a system entry stamp nothing.** "A private note is inert" is the SAME rule the
+  first-reply clock encodes (roadmap 4.7); one fact, one definition, or the product ends up holding two
+  answers to "did we reply".
+- **The rule exists in two languages by necessity** — TypeScript for new messages, SQL in the migration's
+  backfill for the existing history — and `tests/migration-022.spec.ts` compares them textually, so
+  changing one without the other fails a test instead of corrupting data.
+- **One grouped query answers everything**: `groupBy(['channel','status'])` with `_count` and `_max` over
+  the two columns. No `Message` row is read on a summary path, so the cost is bounded by the customer's
+  conversation count and not by their message history. The channel rollup, the per-status counts and the
+  totals are arithmetic on that ONE result set, which is what makes "the per-channel counts sum to the
+  total" an identity rather than an agreement between two queries.
+- **The unrecorded channel is a boolean, not a name.** `Conversation.channel` is nullable until Phase 6,
+  and `''` already renders a null channel elsewhere — so a sentinel like `"unknown"` would collide with a
+  future channel of that name. `ChannelContactEntry.channel_unrecorded` cannot collide with anything.
+- **Per-status counts, never a single "open count"** — *open* is ambiguous between `status = open` and *not
+  resolved*, and `pending` / `snoozed` make the two readings differ on real rows.
+
+### The person level, and the two keys
+
+`GetPersonFeed` was **declared by feature 020 and served by nothing** for a whole roadmap point, while
+`users.ListPersonMembers` sat on the other side with no caller. Both halves are built now:
+
+- membership is resolved through [`person/person-members.client.ts`](src/person/person-members.client.ts),
+  which forwards **the caller's own metadata** so `users` enforces **`crm.contact.view`** itself — knowing
+  that two records are one person is a statement about a customer. A system-actor call would launder that
+  key, so it is not made. Conversations themselves stay behind `crm.inbox.view`;
+- if membership cannot be established the read **fails** (`MembershipUnavailableError`). It never answers
+  from the members that happened to resolve: an aggregate over a subset of a human is indistinguishable
+  from one over the human, so nobody would investigate it;
+- the union is **one** indexed query with an `OR` over the member pairs — all conversations live in this
+  database, so the k-way merge the audit log needs (three databases) does not apply;
+- an **empty** membership is a data state (never-contacted); an **unreadable** one is a failure. Answering
+  both the same way is the thing that requirement forbids.
+
+**Standing guard added with it:** [`tests/contracts/every-rpc-is-served.spec.ts`](../../tests/contracts/every-rpc-is-served.spec.ts)
+fails when any service declares an rpc nothing serves, unless the declaration itself carries
+`option deprecated = true` or an `UNSERVED:` note — and it fails again if a marked rpc gains a handler.
+Written repo-wide because running the check by hand found **two more** instances beyond this one.

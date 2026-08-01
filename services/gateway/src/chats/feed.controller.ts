@@ -23,6 +23,8 @@ interface ConversationPageWire {
 }
 interface ChatsReadGrpc {
   getPlayerFeed(d: Record<string, unknown>, md?: unknown): Observable<ConversationPageWire>;
+  /** Feature 022 (roadmap 4.13) — the card's contact facts, one grouped read, no paging. */
+  getPlayerContactSummary(d: Record<string, unknown>, md?: unknown): Observable<unknown>;
 }
 
 type ChatsReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -63,6 +65,35 @@ export class FeedController implements OnModuleInit {
         },
         md,
       ),
+    );
+  }
+
+  /**
+   * Feature 022 (roadmap 4.13) — `GET /players/:playerId/contact-summary?brandId=…`
+   *
+   * The card's "when did we last talk to this customer, and on which channels". A separate route rather
+   * than a field on the feed: an aggregate attached to a paged response is recomputed on every page and
+   * invites a caller to read page 1 to learn a total (FR-013).
+   *
+   * `brandId` is forwarded and NOT defaulted — the owning service refuses a request without one, because
+   * a platform id alone names two customers (feature 020 / roadmap 5.2). The edge does not invent an
+   * identity to make a call succeed.
+   *
+   * ⚠️ The route carries `@RequiresPermission`, which is also what makes the gateway resolve and forward
+   * the caller's permission set. Feature 016's live-only defect was a route with no permission metadata:
+   * the gateway forwarded an EMPTY `x-actor-permissions` and the owning service correctly refused
+   * everything. `contact-summary.spec.ts` asserts the metadata is present rather than assuming it.
+   */
+  @Get('contact-summary')
+  @RequiresPermission('crm.inbox.view')
+  async contactSummary(
+    @Param('playerId') playerId: string,
+    @Query() q: { brandId?: string },
+    @Req() req: ChatsReq,
+  ) {
+    const md = buildActorMetadata(req.claims!, req.effective);
+    return callChats(
+      this.read.getPlayerContactSummary({ playerId, brandId: q.brandId ?? '' }, md),
     );
   }
 }

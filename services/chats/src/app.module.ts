@@ -8,6 +8,13 @@ import { ConversationWriteController } from './conversation/conversation.write.c
 import { MessageRepository } from './message/message.repository';
 import { MessageReadController, MessageWriteController } from './message/message.grpc.controller';
 import { FeedReadController } from './feed/feed.grpc.controller';
+// Feature 022 (roadmap 4.13): contact history + last contact for the player card.
+import { ContactSummaryController } from './contact/contact.grpc.controller';
+import { ContactSummaryRepository } from './contact/contact-summary.repository';
+// Feature 022: chats → users for person membership. The rpc has existed since feature 020 and had no
+// caller; the module that finally makes the call is registered here (a module nobody imports contributes
+// no providers, which is feature 015's live-only defect one level up).
+import { ChatsPersonModule } from './person/person-members.client';
 import { AssignmentRepository } from './assignment/assignment.repository';
 import { AssignmentWriteController } from './assignment/assignment.grpc.controller';
 import { LabelsRepository } from './labels/labels.repository';
@@ -47,7 +54,7 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
 // ChatsReadService / ChatsWriteService over chats_db, account-scoped (forAccount) with a
 // service-tier RBAC guard (ChatsAccessGuard). US1 conversations + US2 messages; feed lands in US3.
 @Module({
-  imports: [ChatsAuthModule, ChatsUploadsModule],
+  imports: [ChatsAuthModule, ChatsUploadsModule, ChatsPersonModule],
   controllers: [
     HealthGrpcController,
     ConversationReadController,
@@ -55,6 +62,11 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     MessageReadController,
     MessageWriteController,
     FeedReadController,
+    // Feature 022 (roadmap 4.13): the card's contact facts — one grouped read over the two columns the
+    // message write maintains. Registered here because a controller nobody registers contributes no
+    // handlers and the service answers UNIMPLEMENTED while looking perfectly healthy (feature 015's
+    // single live-only defect).
+    ContactSummaryController,
     // Feature 013 (roadmap 4.4/4.5): the workflow layer.
     AssignmentWriteController,
     AutoAssignController,
@@ -102,6 +114,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     ExportQuota,
     ExportService,
     ExportMaintenance,
+    // Feature 022 (roadmap 4.13).
+    ContactSummaryRepository,
   ],
 })
 export class AppModule implements OnModuleInit {

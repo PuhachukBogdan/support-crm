@@ -89,7 +89,19 @@ export class PlayerReadController {
     // Unknown id and another account's id land here identically — one answer, one message, no oracle.
     if (!row) throw notFound();
 
-    const masked = maskPlayer(row as unknown as Record<string, unknown>, actor.effectiveRole);
+    /**
+     * Feature 022 (roadmap 4.13): which HUMAN this record belongs to, so a card opened on a player can
+     * address the person-level reads at all. One indexed lookup on the key feature 020 already created;
+     * absent link ⇒ absent identifier, never a synthesised person of one.
+     *
+     * Resolved BEFORE masking and folded into the object the mask reads, so the field goes THROUGH the tier
+     * policy rather than around it. It is classified `open` — identity, not contact data — but the route it
+     * takes is what matters: a field added past the mask is a field no policy governs.
+     */
+    const personId = await this.players.personIdOf(identity);
+
+    const subject = { ...(row as unknown as Record<string, unknown>), person_id: personId };
+    const masked = maskPlayer(subject, actor.effectiveRole);
 
     /**
      * STRICT, and awaited before anything is returned (FR-016).
@@ -176,14 +188,27 @@ export class PlayerReadController {
       actor.underPreview,
     );
 
+    // Feature 022: ONE membership lookup for the WHOLE page. A lookup per row would be a textbook N+1
+    // (Principle VII) — and the kind that only shows up as a slow screen once a brand has thousands of
+    // customers. `player.list.spec.ts` counts the queries rather than trusting this comment.
+    const personIds = await this.players.personIdsFor(
+      actor.accountId,
+      brandId,
+      page.rows.map((r) => r.player_id),
+    );
+
     return {
-      players: page.rows.map((row) =>
-        toPlayerWire(
-          maskPlayer(row as unknown as Record<string, unknown>, actor.effectiveRole),
-          row,
-          actor,
-        ),
-      ),
+      players: page.rows.map((row) => {
+        // Built as a named subject first, so the masking call stays the one-line shape
+        // `tests/users-read/single-policy-path.spec.ts` reads: that guard asserts BOTH handlers mask through
+        // the same function with the ACTOR's role, and it parses the call's arguments as text. Inlining a
+        // multi-line spread here truncated what it could see — the guard was right about the shape.
+        const subject = {
+          ...(row as unknown as Record<string, unknown>),
+          person_id: personIds.get(row.player_id) ?? null,
+        };
+        return toPlayerWire(maskPlayer(subject, actor.effectiveRole), row, actor);
+      }),
       nextPageToken: page.nextCursor ? encodeCursor(page.nextCursor) : '',
     };
   }
@@ -292,6 +317,16 @@ function toPlayerWire(
   // Rule 4: present only when the mask kept them. Still an explicit list — the loop walks a fixed
   // pairing of wire name to masked column, so a new column cannot arrive here by accident.
   const maskable: [string, unknown][] = [
+    /**
+     * Feature 022 — tier `open`, so every role that can open a card at all sees it. It goes through the
+     * SAME masked-value gate as everything else rather than around it: `masked.person_id` is present only
+     * when the caller's tier permits the field, and the value is then supplied from the resolved lookup.
+     *
+     * A linear agent could always see which brand a customer came from; "these two records are one person"
+     * is the same class of fact with no value attached. What must NOT change is the masking boundary — a
+     * caller below it still gets no contact fields, which `player.masking.spec.ts` asserts.
+     */
+    ['personId', masked.person_id],
     ['vip', masked.vip],
     ['segment', masked.segment],
     ['amNotes', masked.am_notes],

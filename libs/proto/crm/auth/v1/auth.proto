@@ -32,6 +32,13 @@ service AuthService {
   rpc VerifyLoginCode(VerifyLoginCodeRequest) returns (TokenPair);
 
   // Re-send a code for an active challenge (rate-limited). Optional this feature.
+  //
+  // UNSERVED: declared by feature 009 as "optional this feature" and never implemented, and roadmap
+  // 3.11 (the two-step login flow) closed `[x]` WITHOUT it — so no open point owns it. This marker
+  // records a deliberate absence, not a to-do: without it, "nobody built this yet" is indistinguishable
+  // from an oversight. Found by feature 022's repo-wide guard
+  // (`tests/contracts/every-rpc-is-served.spec.ts`), which honours this marker as the exemption and
+  // FAILS if the rpc ever gains a handler while the marker is still here.
   rpc ResendLoginCode(ResendLoginCodeRequest) returns (LoginChallenge);
 
   // Exchange a refresh token for a new pair (token expiry — SEC-4/5); rotates the refresh.

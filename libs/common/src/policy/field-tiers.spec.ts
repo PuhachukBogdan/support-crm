@@ -1,6 +1,8 @@
 import {
   allowedFields,
   canMassExportContacts,
+  FIELD_TIERS,
+  ROLE_VISIBLE_TIERS,
   surfacedMaskableTiers,
   visibleTiersFor,
 } from './field-tiers';
@@ -49,6 +51,30 @@ describe('field-tiers policy', () => {
   it('reports the maskable tiers a read surfaces (audit driver)', () => {
     expect(surfacedMaskableTiers('support_agent')).toEqual([]); // open only → nothing to audit
     expect(surfacedMaskableTiers('am')).toEqual(['operational', 'am_only']);
+  });
+
+  /**
+   * Feature 022 (roadmap 4.13) — `person_id` is `open`, and the second assertion is the load-bearing one.
+   *
+   * The field says which HUMAN a brand-scoped record belongs to. It is identity, not contact data, so
+   * every role that can open a card at all may see it — a linear agent has always been able to see
+   * which brand a customer came from, and "these two records are the same person" is the same class of
+   * fact with no value attached.
+   *
+   * What must NOT change is the audit behaviour. `contact.reveal` is written when a read surfaces a
+   * MASKABLE tier, and `open` is not one — so this addition writes no entry and needs no new audit
+   * action. That is how feature 022 claims "no audit change" (FR-018) and proves it here rather than
+   * asserting it in prose. The companion guard is `libs/common/src/audit/catalogue.spec.ts`, which pins
+   * the `access` class to an exact action list: adding one fails THERE, so this feature deliberately
+   * writes no second guard for it.
+   */
+  it('classifies person_id as open — visible to a linear role, and invisible to the audit driver', () => {
+    expect(FIELD_TIERS.person_id).toBe('open');
+    expect(allowedFields('support_agent').has('person_id')).toBe(true);
+    for (const role of Object.keys(ROLE_VISIBLE_TIERS)) {
+      // `open` is never a maskable tier, so no role's read is upgraded to an audited reveal by it.
+      expect(surfacedMaskableTiers(role)).not.toContain('open');
+    }
   });
 
   it('blocks mass export for a masked (linear) role, allows it above', () => {

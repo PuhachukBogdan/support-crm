@@ -122,6 +122,29 @@ message Player {
   // The brand this record belongs to — part of its IDENTITY, never part of an access decision
   // (ADR 0038 §1: one support department serves every brand). Field 10 = additive.
   string brand_id = 10;             // tier: open
+  // ── Feature 022 (roadmap 4.13) — additive, field 11 ───────────────────────────────────────────
+  //
+  // WHICH HUMAN THIS RECORD BELONGS TO. Empty when this record is not linked to any other.
+  //
+  // Why it exists: feature 020 stored the cross-brand link (`Person` / `PersonMember`) and exposed it
+  // in ONE direction only — `ListPersonMembers(person_id)` → members. Nothing could go the other way,
+  // and every card is opened on a brand-scoped player record. So the person-level reads 020 declared
+  // (`chats.GetPersonFeed`) were UNADDRESSABLE: the caller had no way to obtain the identifier they
+  // require. A link that cannot be reached from the side the product reads from is the same defect as
+  // an rpc nothing serves, one layer down.
+  //
+  // Why a FIELD and not a `GetPersonForPlayer` rpc: the card already fetches the player, so it learns
+  // the person in a read it is already making. A separate lookup would be a second round trip on the
+  // critical path of every card open, and a card that rendered before it returned would show the
+  // brand-scoped answer and then widen — a visible flicker between two truths about one human.
+  //
+  // At most one person per player record is a DATABASE guarantee
+  // (`PersonMember.@@unique([account_id, brand_id, player_id])`), which is why "absent link ⇒ empty"
+  // needs no tie-breaking rule and the reverse lookup needs no new index.
+  //
+  // NOT a write surface: establishing, changing or removing a link stays feature 020's
+  // (`linkByContact` / `unlink`, on a matching email or phone).
+  string person_id = 11;            // tier: open
 }
 
 message Operator {

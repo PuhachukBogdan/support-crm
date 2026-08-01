@@ -53,3 +53,51 @@ describe('player masking (anti-pitching, allow-list)', () => {
     expect(() => assertCanMassExport('am')).not.toThrow();
   });
 });
+
+/**
+ * Feature 022 (roadmap 4.13), T049 — **the person id is visible to everyone, and it widens NOTHING.**
+ *
+ * The field says which HUMAN a brand-scoped record belongs to. It is identity, not contact data: a linear
+ * agent has always been able to see which brand a customer came from, and "these two records are one
+ * person" is the same class of fact with no value attached. So it is tier `open`.
+ *
+ * The assertion that matters is the second one. Exposing a new fact about a customer is exactly the moment
+ * a masking boundary quietly moves, so the below-the-boundary role is checked for both things at once: it
+ * gets the person id **and** still gets no contact fields, no operational fields and no portfolio (SEC-AP1
+ * unchanged).
+ */
+describe('person_id masking (feature 022)', () => {
+  const LINKED = { ...PLAYER, person_id: 'person-1' } as Record<string, unknown>;
+
+  it('a LINEAR role sees the person id — and still sees nothing it could pitch with', () => {
+    const out = maskPlayer(LINKED, 'support_agent') as Record<string, unknown>;
+    expect(out.person_id).toBe('person-1');
+    // The boundary is unmoved: everything above `open` stays absent, not null.
+    for (const withheld of ['am_notes', 'preferences', 'portfolio', 'segment', 'vip', 'gr8_snapshot']) {
+      expect(withheld in out).toBe(false);
+    }
+  });
+
+  it('every role sees it, including the ones cleared for PII (it is not a tiered secret)', () => {
+    for (const role of ['support_agent', 'teamlead', 'vip_support', 'am', 'shift_am', 'admin', 'super_admin']) {
+      expect({ role, personId: (maskPlayer(LINKED, role) as Record<string, unknown>).person_id }).toEqual({
+        role,
+        personId: 'person-1',
+      });
+    }
+  });
+
+  it('an unknown role — treated as linear — sees it too, and nothing else new', () => {
+    const out = maskPlayer(LINKED, 'not-a-role') as Record<string, unknown>;
+    expect(out.person_id).toBe('person-1');
+    expect('am_notes' in out).toBe(false);
+  });
+
+  it('an UNLINKED record carries the key with a null value, never a fabricated person', () => {
+    // The mask must pass `null` through rather than dropping the key: the wire mapper turns absence into an
+    // empty string, and "linked to nobody" has to be expressible.
+    const out = maskPlayer({ ...PLAYER, person_id: null }, 'support_agent') as Record<string, unknown>;
+    expect('person_id' in out).toBe(true);
+    expect(out.person_id).toBeNull();
+  });
+});

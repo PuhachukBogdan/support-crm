@@ -74,6 +74,10 @@ function harness(row: PlayerRow | null = ROW) {
   const players = {
     getPlayer: jest.fn(async () => row),
     listByBrand: jest.fn(async () => ({ rows: row ? [row] : [], nextCursor: null })),
+    // Feature 022 (roadmap 4.13): which human a record belongs to. `null` here — these specs are about the
+    // tier masking, and an UNLINKED record is the state that must not change what any role sees.
+    personIdOf: jest.fn(async () => null),
+    personIdsFor: jest.fn(async () => new Map<string, string>()),
   };
   const operators = { getById: jest.fn(async () => null) };
   return {

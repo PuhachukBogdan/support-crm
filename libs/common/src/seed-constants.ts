@@ -14,6 +14,21 @@ export const SEED_BRAND_SLUG = 'bow'; // neutral placeholder slug — no real id
 export const SEED_BRAND_ID_2 = 'seed-brand-0000-0000-000000000002'; // feature 012: player brand-union fixture
 export const SEED_PLAYER_ID = 'seed-player-001';
 
+/**
+ * Feature 022 (roadmap 4.13) — the LINKED person fixture, and it exists because the alternative is an
+ * unfalsifiable live run.
+ *
+ * `SEED_PLAYER_ID` above appears under BOTH seeded brands and is deliberately **two different humans**
+ * (feature 020's id-collision fixture). These two ids are the opposite case: distinct platform ids, one per
+ * brand, explicitly linked into ONE person. Without them, "the person feed spans brands" would be
+ * indistinguishable from "the player feed, with a wider name".
+ */
+export const SEED_PLAYER_LINKED_A = 'seed-player-linked-a'; // under SEED_BRAND_ID
+export const SEED_PLAYER_LINKED_B = 'seed-player-linked-b'; // under SEED_BRAND_ID_2
+export const SEED_PERSON_ID = 'seed-person-0000-0000-000000000001';
+/** Which kind of identifier established the link — never the value itself (SEC-26 / feature 020). */
+export const SEED_PERSON_LINKED_ON = 'email';
+
 // auth_db
 export const SEED_AUTH_USER_ID = 'seed-user-0000-0000-000000000001';
 export const SEED_ROLE_ID = 'seed-role-0000-0000-000000000001';
@@ -46,6 +61,28 @@ export const SEED_CANNED_RESPONSE_ID = 'seed-canned-0000-0000-00000000001';
 export const SEED_MESSAGE_PLAYER_ID = 'seed-msg-0000-0000-000000000001';
 export const SEED_MESSAGE_REPLY_ID = 'seed-msg-0000-0000-000000000002';
 export const SEED_MESSAGE_NOTE_ID = 'seed-msg-0000-0000-000000000003';
+
+// ── feature 022 (contact history + last contact, roadmap 4.13) fixtures ──────────────────────────
+//
+// Each of these exists to make a specific mistake VISIBLE on the live run rather than harmless:
+//
+//  • the SYSTEM message is the LATEST entry on the open conversation, so counting machine output as
+//    contact would change the card's answer instead of leaving it alone (the private note, seeded at
+//    09:30, does the same job for "a note to ourselves is not a reply");
+//  • the two LINKED conversations sit under different brands with contact at different times, so
+//    "the person feed spans brands" is falsifiable — with one brand it would be unfalsifiable;
+//  • one conversation carries a NAMED channel while the others carry none, so the rollup has both an
+//    identified entry and the unrecorded bucket, and the "counts sum to the total" identity is not
+//    trivially true.
+export const SEED_MESSAGE_SYSTEM_ID = 'seed-msg-0000-0000-000000000004';
+export const SEED_CONVERSATION_LINKED_A_ID = 'seed-conv-linked-a-0000-0000001';
+export const SEED_CONVERSATION_LINKED_B_ID = 'seed-conv-linked-b-0000-0000001';
+export const SEED_MESSAGE_LINKED_A_ID = 'seed-msg-0000-0000-000000000005';
+export const SEED_MESSAGE_LINKED_B_ID = 'seed-msg-0000-0000-000000000006';
+export const SEED_MESSAGE_LINKED_B_REPLY_ID = 'seed-msg-0000-0000-000000000007';
+/** A recorded channel, so the rollup has a named entry next to the unrecorded one. */
+export const SEED_CHANNEL_EMAIL = 'email';
+export const SEED_CHANNEL_API = 'api';
 
 // feature 014 (automations + first-reply SLA, roadmap 4.6/4.7) fixtures.
 /** Keyword rule: inbound message + unassigned + text contains the keyword → label + status. */

@@ -121,3 +121,45 @@ describe('chats — feature 014: automations + SLA carry no PII', () => {
     expect(ret.slice(0, 120)).not.toMatch(/conversation_id|account_id/);
   });
 });
+
+/**
+ * Feature 022 (roadmap 4.13), T028 — the contact-summary path.
+ *
+ * The scan above already covers these files (it walks all of `src/`), and the sensitive-token list
+ * already includes `player_id` / `playerId`. What is added here is the stronger local statement: this
+ * module logs **nothing at all**, so there is no line for a future edit to interpolate an identifier
+ * into.
+ *
+ * ⚠️ `channel` is deliberately NOT a sensitive token. A channel KIND ("email", "whatsapp") is not
+ * contact data and the card is useless without it; a channel IDENTIFIER (a phone number, a handle) is
+ * contact data — and there is no field anywhere in this feature that could hold one, which is asserted
+ * structurally in `tests/contracts/no-contact-fields-in-summary.spec.ts` rather than by grepping logs.
+ */
+describe('chats — the contact-summary path logs nothing (feature 022)', () => {
+  const CONTACT_DIR = join(SRC, 'contact');
+
+  it('the module exists and was actually scanned (a guard that scans nothing must fail)', () => {
+    const files = tsFiles(CONTACT_DIR);
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.some((f) => f.endsWith('contact.grpc.controller.ts'))).toBe(true);
+  });
+
+  it('no file in it contains a logging call of any kind', () => {
+    for (const file of tsFiles(CONTACT_DIR)) {
+      expect({ file, logs: LOG_CALL.test(readFileSync(file, 'utf8')) }).toEqual({
+        file,
+        logs: false,
+      });
+    }
+  });
+
+  it('the refusal message names no caller-supplied value', () => {
+    // Feature 021's live-only defect, second half: an error message that echoed an arbitrary caller key
+    // back through the gateway and into its logs. The only refusal on this path is "brandId is required",
+    // which is static text.
+    const src = readFileSync(join(CONTACT_DIR, 'contact.grpc.controller.ts'), 'utf8');
+    for (const m of src.matchAll(/message:\s*(['"`])([^'"`]*)\1/g)) {
+      expect(m[2]).not.toMatch(/\$\{/);
+    }
+  });
+});

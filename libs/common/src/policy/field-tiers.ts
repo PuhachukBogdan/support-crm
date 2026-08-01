@@ -44,6 +44,16 @@ export const FIELD_TIERS: Readonly<Record<string, FieldTier>> = {
   // now identifies the record rather than listing a union. (`brands` stays for the deprecated wire
   // field until nothing reads it.)
   brand_id: 'open',
+  // Feature 022 (roadmap 4.13): WHICH HUMAN this brand-scoped record belongs to. Open for the same
+  // reason `player_id` and `brand_id` are — it is an internal grouping identifier, i.e. identity,
+  // not contact data, and it carries no value a pitch could use.
+  //
+  // ⚠️ Classifying it is MANDATORY, not cosmetic: `allowedFields` filters THIS map, so an unclassified
+  // field is served to nobody at all (see the note above). And because `open` never appears in
+  // `surfacedMaskableTiers`, adding it changes NO audit behaviour — a `contact.reveal` entry is still
+  // written exactly when a maskable tier is surfaced, which is what let feature 022 claim it adds no
+  // audit action and prove it (`field-tiers.spec.ts`).
+  person_id: 'open',
   gr8_stale: 'open',
   gr8_fetched_at: 'open',
   // operational — VIP Support and above (routing / segment signal).

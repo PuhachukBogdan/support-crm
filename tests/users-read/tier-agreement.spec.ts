@@ -87,6 +87,9 @@ describe('the scan reads the real artefacts (nothing below can pass vacuously)',
       // Feature 020 — the record's own brand, part of its identity. `brand_ids` above is deprecated
       // in place (kept for consumers that already read it) and now carries exactly one element.
       'brand_id',
+      // Feature 022 — which HUMAN this record belongs to. DERIVED per read from `PersonMember`, not a
+      // `Player` column, which is why the classification rule below had to grow a category for it.
+      'person_id',
     ]);
   });
 
@@ -242,12 +245,44 @@ describe('*** every customer field is classified, in exactly one tier ***', () =
     }
   });
 
-  it('the tier map classifies nothing that is not a real column or relation', () => {
-    // Guards the other direction: a renamed column leaving a stale classification behind, which would
-    // read as "still governed" while governing nothing.
+  /**
+   * ⚠️ **WIDENED by feature 022 (roadmap 4.13), and the widening is the interesting part.**
+   *
+   * The rule was "every classified field is a real `Player` column". Feature 022 added the first
+   * classified field that is **not a column**: `person_id` is DERIVED on read from `PersonMember`
+   * (which human this brand-scoped record belongs to) and served on the wire.
+   *
+   * It cannot simply be left unclassified — `allowedFields` filters `FIELD_TIERS`, so an unclassified
+   * field is served to NOBODY, including `super_admin` (the case this file proves a few blocks below).
+   * So a served-but-derived field MUST be classified, and this rule has to admit that category.
+   *
+   * It admits it EXPLICITLY, one name at a time. The point of the original rule survives intact: a
+   * renamed column leaving a stale classification behind still fails here, because the stale name would
+   * be neither a column nor on this list.
+   */
+  const DERIVED_SERVED_FIELDS = [
+    // Feature 022: resolved from `PersonMember.@@unique([account_id, brand_id, player_id])` per read,
+    // never stored on `Player`. Tier `open` — identity, not contact data.
+    'person_id',
+  ];
+
+  it('the tier map classifies nothing that is not a real column, a relation, or a declared derived field', () => {
     const columns = new Set(player.fields.map((f) => f.name));
     for (const field of Object.keys(FIELD_TIERS)) {
-      expect({ field, isAColumn: columns.has(field) }).toEqual({ field, isAColumn: true });
+      const known = columns.has(field) || DERIVED_SERVED_FIELDS.includes(field);
+      expect({ field, known }).toEqual({ field, known: true });
+    }
+  });
+
+  it('every declared derived field is actually served on the wire (no stale entry)', () => {
+    // The other half of the exemption: a derived field that stops being served must be removed from
+    // both lists, or the exemption would keep excusing a classification that governs nothing — the
+    // exact failure the rule above exists to catch, re-entering through its own escape hatch.
+    for (const field of DERIVED_SERVED_FIELDS) {
+      expect({ field, onTheWire: playerWireFields.includes(field) }).toEqual({
+        field,
+        onTheWire: true,
+      });
     }
   });
 

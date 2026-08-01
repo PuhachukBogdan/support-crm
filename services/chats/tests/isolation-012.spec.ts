@@ -5,6 +5,7 @@ import { ConversationRepository } from '../src/conversation/conversation.reposit
 import type { SlaRepository } from '../src/sla/sla.repository';
 import { ConversationReadController } from '../src/conversation/conversation.grpc.controller';
 import { FeedReadController } from '../src/feed/feed.grpc.controller';
+import type { PersonMembersClient } from '../src/person/person-members.client';
 
 /**
  * T033 (feature 012) — consolidated cross-account isolation sweep (Principle I / SC-003). A store
@@ -76,6 +77,17 @@ function noSla() {
 
 describe('cross-account isolation sweep (SC-003)', () => {
   const repo = () => new ConversationRepository(fakePrisma());
+  /**
+   * Feature 022's second dependency on this controller. A THROWING stub, because the player feed holds the
+   * full identity and must never resolve person membership — and in an isolation file that matters twice
+   * over: a cross-service call would be a second place where an account boundary has to be re-established.
+   */
+  const noMembers = () =>
+    ({
+      membersOf: () => {
+        throw new Error('the player feed must not resolve person membership');
+      },
+    }) as unknown as PersonMembersClient;
 
   it('list by player_id returns only the caller account rows', async () => {
     const res = await new ConversationReadController(repo(), noSla()).listConversations(
@@ -95,14 +107,14 @@ describe('cross-account isolation sweep (SC-003)', () => {
     // Feature 020 added the brand to the request; the isolation property this test exists for is
     // untouched — and it is now the LESSER of two separations, since the same id under two brands
     // inside ONE account is also two customers (see feed.spec.ts).
-    const res = await new FeedReadController(repo()).getPlayerFeed(
+    const res = await new FeedReadController(repo(), noMembers()).getPlayerFeed(
       { playerId: 'p1', brandId: 'brand-a' },
       md('acc-1'),
     );
     expect(res.conversations.map((c) => c.id)).toEqual(['c1']);
 
     // …and from acc-2's side, only c2 — symmetric proof.
-    const other = await new FeedReadController(repo()).getPlayerFeed(
+    const other = await new FeedReadController(repo(), noMembers()).getPlayerFeed(
       { playerId: 'p1', brandId: 'brand-a' },
       md('acc-2'),
     );

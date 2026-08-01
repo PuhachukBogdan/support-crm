@@ -14,7 +14,15 @@ function md(accountId = 'acc-1', userId = 'op-1'): Metadata {
   return m;
 }
 
-/** Fake scoped Prisma: conversation brand lookup + message create echoing the input. */
+/** The timestamp the fake's database assigns to a created message. */
+const CREATED_AT = new Date('2026-07-22T12:00:00.000Z');
+
+/**
+ * Fake scoped Prisma: conversation brand lookup, message create echoing the input, and — since feature
+ * 022 — the contact-stamp update plus the interactive `$transaction` the write now runs in.
+ *
+ * `updateMany` calls are collected so the stamp can be asserted on: WHICH column, and with what value.
+ */
 function fakePrisma(brand: string | null = 'brand-a') {
   const create = jest.fn((args: { data: Record<string, unknown> }) =>
     Promise.resolve({
@@ -25,14 +33,30 @@ function fakePrisma(brand: string | null = 'brand-a') {
       body: args.data.body,
       private: args.data.private,
       mentions: args.data.mentions ?? [],
-      created_at: new Date('2026-07-22T12:00:00.000Z'),
+      created_at: CREATED_AT,
     }),
   );
   const findFirst = jest.fn().mockResolvedValue(brand === null ? null : { brand_id: brand });
-  const forAccount = jest
-    .fn()
-    .mockReturnValue({ message: { create }, conversation: { findFirst } });
-  return { prisma: { forAccount } as unknown as PrismaService, create, findFirst };
+  const stamps: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+  const updateMany = jest.fn(
+    (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+      stamps.push(args);
+      return Promise.resolve({ count: 1 });
+    },
+  );
+  const createMany = jest.fn(() => Promise.resolve({ count: 0 }));
+  const scoped = {
+    message: { create },
+    conversation: { findFirst, updateMany },
+    messageAttachment: { createMany },
+  } as Record<string, unknown>;
+  // The INTERACTIVE form: `post` needs the created row's own `created_at` (research R2), which the
+  // batch form cannot reference. Handing the same scoped object to the callback is faithful — at
+  // runtime the account-scoping extension wraps every operation inside the transaction too.
+  (scoped as { $transaction: unknown }).$transaction = (fn: (tx: unknown) => Promise<unknown>) =>
+    fn(scoped);
+  const forAccount = jest.fn().mockReturnValue(scoped);
+  return { prisma: { forAccount } as unknown as PrismaService, create, findFirst, stamps };
 }
 
 /**
@@ -135,5 +159,78 @@ describe('MessageWriteController.postMessage (US2)', () => {
     );
     expect(create.mock.calls[0]![0].data).toMatchObject({ author_type: 'player', private: false });
     expect(res.kind).toBe('MESSAGE_KIND_INCOMING_CUSTOMER');
+  });
+});
+
+/**
+ * Feature 022 (roadmap 4.13), T014 — **the write records its effect on the conversation.**
+ *
+ * The player card's "last contact" is these two columns. What makes them trustworthy is that they are
+ * written in the message's OWN transaction, from the message's OWN timestamp, for the column
+ * `contact-stamp.ts` selects — and for NO column when the message is not contact with the customer.
+ *
+ * The two cases that look like contact and are not (a private note, a system entry) are asserted here
+ * as well as in `contact-stamp.spec.ts`: that file proves the rule, this one proves the call site obeys
+ * it. Feature 014's live-only lesson was that a rule can be right while the place that consults it is
+ * not.
+ */
+describe('the contact stamp is written with the message (feature 022)', () => {
+  it('a PUBLIC reply stamps last_outbound_at with the created message’s own timestamp', async () => {
+    const { prisma, stamps } = fakePrisma();
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    await ctrl.postMessage(
+      { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'answered' },
+      md('acc-1', 'op-1'),
+    );
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0]!.where).toEqual({ id: 'c1' });
+    // The row's own `created_at`, not `new Date()` in the service: that is what makes "the column equals
+    // what the messages say" an equality rather than a tolerance (research R2).
+    expect(stamps[0]!.data).toEqual({ last_outbound_at: CREATED_AT });
+  });
+
+  it('an INBOUND customer message stamps last_inbound_at', async () => {
+    const { prisma, stamps } = fakePrisma();
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    await ctrl.recordIncomingMessage(
+      { conversationId: 'c1', body: 'help', authorId: 'player-9' },
+      md('acc-1', 'op-1'),
+    );
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0]!.data).toEqual({ last_inbound_at: CREATED_AT });
+  });
+
+  it('a PRIVATE NOTE stamps NOTHING — no update statement is issued at all', async () => {
+    const { prisma, stamps } = fakePrisma();
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const res = await ctrl.postMessage(
+      { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'internal', mentions: ['op-2'] },
+      md('acc-1', 'op-1'),
+    );
+    // The note itself is still written — it is inert for CONTACT, not skipped.
+    expect(res.kind).toBe('MESSAGE_KIND_PRIVATE_NOTE');
+    expect(stamps).toEqual([]);
+  });
+
+  it('the stamp writes exactly ONE column, never both', async () => {
+    // A "helpful" future edit that also touched the other column would make a reply look like the
+    // customer wrote, which is the single most misleading thing this card can say.
+    const { prisma, stamps } = fakePrisma();
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    await ctrl.postMessage(
+      { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' },
+      md('acc-1', 'op-1'),
+    );
+    expect(Object.keys(stamps[0]!.data)).toEqual(['last_outbound_at']);
+  });
+
+  it('never touches updated_at — the column this feature exists to stop trusting', async () => {
+    const { prisma, stamps } = fakePrisma();
+    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    await ctrl.recordIncomingMessage({ conversationId: 'c1', body: 'hi' }, md('acc-1', 'op-1'));
+    for (const s of stamps) {
+      expect(Object.keys(s.data)).not.toContain('updated_at');
+      expect(Object.keys(s.data)).not.toContain('created_at');
+    }
   });
 });

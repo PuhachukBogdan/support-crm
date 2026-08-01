@@ -14,8 +14,30 @@ async function run(): Promise<void> {
   try {
     for (const label of seed.labels)
       await db.label.upsert({ where: { id: label.id }, create: label, update: label });
-    for (const conv of seed.conversations)
-      await db.conversation.upsert({ where: { id: conv.id }, create: conv, update: conv });
+    for (const conv of seed.conversations) {
+      /**
+       * ⚠️ **The contact stamps are written on CREATE only, never on UPDATE — found by Track B.**
+       *
+       * `last_inbound_at` / `last_outbound_at` are **maintained data**, produced by the message write
+       * (feature 022), not fixture configuration. The first live run exposed what a plain `update: conv`
+       * does on a host with history: `seed-conv-open` had accumulated three public replies from earlier
+       * features' Track-B runs, the migration's backfill had correctly stamped it `2026-07-26 16:11`, and
+       * re-seeding **reset it to 09:15** — the value derived from the fixture messages alone. The row then
+       * disagreed with its own messages, and Track A could not see it: its fixtures ARE the whole history.
+       *
+       * A fixture may declare a starting state. It may not overwrite data the product maintains and it did
+       * not produce. So a fresh host gets the derived values through `create`, and an existing row keeps
+       * whatever the message path has since maintained.
+       */
+      const { last_inbound_at, last_outbound_at, ...withoutStamps } = conv;
+      void last_inbound_at;
+      void last_outbound_at;
+      await db.conversation.upsert({
+        where: { id: conv.id },
+        create: conv,
+        update: withoutStamps,
+      });
+    }
     for (const msg of seed.messages)
       await db.message.upsert({ where: { id: msg.id }, create: msg, update: msg });
     for (const cl of seed.conversationLabels)

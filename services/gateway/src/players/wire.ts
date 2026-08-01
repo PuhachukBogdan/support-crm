@@ -39,6 +39,12 @@ const PLAYER_FIELDS = [
   // difference between an allow-list and a spread.
   'brandId',
   'brandIds',
+  // Feature 022: which HUMAN this record belongs to. ⚠️ **Its absence was caught by the live run — the
+  // SECOND time this list dropped a newly added field, `brandId` above being the first.** Twice is a
+  // pattern, so `player-projection-covers-contract.spec.ts` now derives the expected set from the proto
+  // and fails when a field is declared and not projected. An allow-list doing its job is correct; an
+  // allow-list nobody is obliged to update is a silent filter.
+  'personId',
   'vip',
   'segment',
   'amNotes',
@@ -46,6 +52,9 @@ const PLAYER_FIELDS = [
   'preferencesJson',
   'portfolioJson',
 ] as const;
+
+/** Exported so the coverage guard compares against the real list rather than a copy of it. */
+export const PROJECTED_PLAYER_FIELDS: readonly string[] = PLAYER_FIELDS;
 
 /** True for proto3's default of each supported kind — the values canonical JSON omits. */
 function isProtoDefault(v: unknown): boolean {

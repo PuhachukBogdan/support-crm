@@ -6,7 +6,7 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext } from '../security/actor-context';
 import { ContactSummaryRepository } from './contact-summary.repository';
-import { PersonMembersClient } from '../person/person-members.client';
+import { PersonMembersClient, toPersonRpc } from '../person/person-members.client';
 import { foldContactSummary, type ContactSummaryFacts } from './contact-summary.fold';
 import { statusToWire } from '../shared/wire';
 
@@ -100,7 +100,15 @@ export class ContactSummaryController {
     // An EMPTY membership is a legitimate data state (an unlink can leave a person of one behind, and a
     // person with no members is not an error). An UNREADABLE membership is a failure — the client draws
     // that distinction, and this call must not blur it back together.
-    const members = await this.members.membersOf(req.personId, metadata);
+    // The failure is TRANSLATED, not allowed to escape: a plain error leaving a Nest gRPC handler becomes
+// UNKNOWN, so a caller lacking `crm.contact.view` was told the server had broken (500 instead of 403).
+    // Found on the live run — see `toPersonRpc`.
+    let members;
+    try {
+      members = await this.members.membersOf(req.personId, metadata);
+    } catch (err) {
+      throw toPersonRpc(err);
+    }
     const groups = await this.repo.groupsForMembers(ctx.accountId, members);
     return toWire(foldContactSummary(groups));
   }

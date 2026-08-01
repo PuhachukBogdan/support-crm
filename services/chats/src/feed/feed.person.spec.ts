@@ -1,4 +1,4 @@
-import { Metadata } from '@grpc/grpc-js';
+import { Metadata, status as GrpcStatus } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
@@ -189,21 +189,49 @@ describe('GetPersonFeed — the conversations of one human', () => {
   it('FAILS when membership cannot be established — never a narrower answer', async () => {
     // FR-022. An aggregate over the members that happened to resolve is worse than an error: it is a
     // statement about a subset of a human wearing the shape of a statement about the human.
-    const { prisma } = fakePrisma([conv('c-a1', 'brand-a', 'p1', '2026-07-20T09:00:00Z')]);
+    const { prisma, findMany } = fakePrisma([conv('c-a1', 'brand-a', 'p1', '2026-07-20T09:00:00Z')]);
     await expect(
       ctrl(prisma, failingMembers(new MembershipUnavailableError('rpc failed'))).getPersonFeed(
         { personId: 'person-1' },
         md(),
       ),
-    ).rejects.toBeInstanceOf(MembershipUnavailableError);
+    ).rejects.toBeInstanceOf(RpcException);
+    expect(findMany).not.toHaveBeenCalled();
   });
 
-  it('a REFUSAL from users propagates (a caller without crm.contact.view is refused, not served)', async () => {
-    const denied = Object.assign(new Error('forbidden'), { code: 7 });
+  /**
+   * ⚠️ **This assertion is about the STATUS, and the previous version was not — which is how the live run
+   * came back with a 500.** It asserted the call rejected with the same object, and it passed; but a plain
+   * error leaving a Nest gRPC handler becomes UNKNOWN, so a caller lacking `crm.contact.view` was told the
+   * server had broken instead of being told no.
+   */
+  it('a REFUSAL from users keeps its status — PERMISSION_DENIED, so the edge answers 403', async () => {
+    const denied = Object.assign(new Error('forbidden'), { code: GrpcStatus.PERMISSION_DENIED });
     const { prisma } = fakePrisma([]);
-    await expect(
-      ctrl(prisma, failingMembers(denied)).getPersonFeed({ personId: 'person-1' }, md()),
-    ).rejects.toBe(denied);
+    try {
+      await ctrl(prisma, failingMembers(denied)).getPersonFeed({ personId: 'person-1' }, md());
+      throw new Error('should have refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RpcException);
+      expect(((err as RpcException).getError() as { code: number }).code).toBe(
+        GrpcStatus.PERMISSION_DENIED,
+      );
+    }
+  });
+
+  it('an UNAVAILABLE identity source stays distinguishable from a refusal', async () => {
+    const { prisma } = fakePrisma([]);
+    try {
+      await ctrl(prisma, failingMembers(new MembershipUnavailableError('down'))).getPersonFeed(
+        { personId: 'person-1' },
+        md(),
+      );
+      throw new Error('should have failed');
+    } catch (err) {
+      expect(((err as RpcException).getError() as { code: number }).code).toBe(
+        GrpcStatus.UNAVAILABLE,
+      );
+    }
   });
 
   it('refuses a malformed page token rather than silently returning page one', async () => {

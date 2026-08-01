@@ -1,6 +1,7 @@
 import { Inject, Injectable, Module, OnModuleInit } from '@nestjs/common';
-import { ClientsModule, type ClientGrpc } from '@nestjs/microservices';
+import { ClientsModule, RpcException, type ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, type Observable } from 'rxjs';
+import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { grpcClientOptions, USERS_PACKAGE, USERS_PROTO } from '@crm/common';
 
@@ -48,6 +49,32 @@ export class MembershipUnavailableError extends Error {
 export interface MemberIdentity {
   brandId: string;
   playerId: string;
+}
+
+/**
+ * Normalise a membership failure into an RpcException **that keeps its status**.
+ *
+ * ⚠️ **Found on the live run: without this, a refusal arrived as a 500.** `users` gates
+ * `ListPersonMembers` with `crm.contact.view` and answers PERMISSION_DENIED; the client rethrows it, and a
+ * plain error escaping a Nest gRPC handler becomes UNKNOWN — which the gateway correctly maps to 500. So a
+ * caller who simply lacks a permission was told the server had broken. Feature 012's Track B found the same
+ * class ("a correctly-NOT_FOUND cross-account read surfaced as 500 + stack trace"), and the Track-A test
+ * here could not see it: it asserted the call REJECTED, never which status the service then emitted.
+ *
+ * The status is preserved rather than flattened — 403 must stay 403, because "you may not ask this" and
+ * "the identity source is down" are different facts and only one of them is the caller's to fix. The
+ * MESSAGE never comes from downstream (SEC-26): no person id, no address, no response body.
+ */
+export function toPersonRpc(err: unknown): RpcException {
+  if (err instanceof RpcException) return err;
+  if (err instanceof MembershipUnavailableError) {
+    return new RpcException({ code: GrpcStatus.UNAVAILABLE, message: 'identity unavailable' });
+  }
+  const code = (err as { code?: number })?.code;
+  if (typeof code === 'number') {
+    return new RpcException({ code, message: code === GrpcStatus.PERMISSION_DENIED ? 'forbidden' : 'identity unavailable' });
+  }
+  return new RpcException({ code: GrpcStatus.UNAVAILABLE, message: 'identity unavailable' });
 }
 
 interface PlayerRefWire {

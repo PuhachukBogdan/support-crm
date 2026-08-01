@@ -8,7 +8,7 @@ import { readActorContext, resolveBrandIn } from '../security/actor-context';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
 import { toSummaryWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
-import { PersonMembersClient } from '../person/person-members.client';
+import { PersonMembersClient, toPersonRpc } from '../person/person-members.client';
 
 interface GetPlayerFeedRequestWire {
   playerId: string;
@@ -137,7 +137,16 @@ export class FeedReadController {
 
     // The caller's OWN metadata goes to users, which enforces `crm.contact.view` on it: knowing that two
     // records are one person is a statement about a customer. A system-actor call would launder that key.
-    const members = await this.members.membersOf(req.personId, metadata);
+    //
+    // The failure is TRANSLATED (`toPersonRpc`), not allowed to escape: a plain error leaving a Nest gRPC
+    // handler becomes UNKNOWN, and the live run showed a caller who merely lacked a permission being told
+    // the server had broken — 500 where 403 was the answer.
+    let members;
+    try {
+      members = await this.members.membersOf(req.personId, metadata);
+    } catch (err) {
+      throw toPersonRpc(err);
+    }
 
     const { rows, nextCursor } = await this.repo.list(ctx.accountId, {
       // `[]` (a person with no members) yields an empty page — never an unfiltered one.

@@ -1,4 +1,5 @@
-import { Metadata } from '@grpc/grpc-js';
+import { Metadata, status as GrpcStatus } from '@grpc/grpc-js';
+import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
 import { ContactSummaryRepository } from './contact-summary.repository';
 import { ContactSummaryController } from './contact.grpc.controller';
@@ -206,22 +207,58 @@ describe('GetPersonContactSummary — the facts across a person’s linked recor
   });
 
   it('FAILS when membership is unavailable — never an aggregate over the members that resolved', async () => {
-    const { prisma } = fakePrisma([conv()]);
+    const { prisma, groupBy } = fakePrisma([conv()]);
     const failing = {
       membersOf: () => Promise.reject(new MembershipUnavailableError('rpc failed')),
     } as unknown as PersonMembersClient;
     await expect(
       ctrl(prisma, failing).getPersonContactSummary({ personId: 'person-1' }, md()),
-    ).rejects.toBeInstanceOf(MembershipUnavailableError);
+    ).rejects.toBeInstanceOf(RpcException);
+    // The load-bearing half: it does not fall back to querying anyway.
+    expect(groupBy).not.toHaveBeenCalled();
   });
 
-  it('a refusal from users propagates with its status (403 stays 403)', async () => {
-    const denied = Object.assign(new Error('forbidden'), { code: 7 });
+  /**
+   * ⚠️ **This test used to assert `rejects.toBe(denied)` — and that is why the live run found a 500.**
+   *
+   * The call did reject, so the old assertion passed. But a plain error leaving a Nest gRPC handler becomes
+   * **UNKNOWN**, which the gateway correctly maps to 500 — so a caller who merely lacked `crm.contact.view`
+   * was told the server had broken. What matters is not that it rejected; it is **which status the service
+   * emits**, because that is the only part the caller ever sees.
+   */
+  it('a refusal from users surfaces with ITS OWN status — PERMISSION_DENIED, not UNKNOWN', async () => {
+    const denied = Object.assign(new Error('forbidden'), { code: GrpcStatus.PERMISSION_DENIED });
     const { prisma } = fakePrisma([]);
     const refusing = { membersOf: () => Promise.reject(denied) } as unknown as PersonMembersClient;
-    await expect(
-      ctrl(prisma, refusing).getPersonContactSummary({ personId: 'person-1' }, md()),
-    ).rejects.toBe(denied);
+    try {
+      await ctrl(prisma, refusing).getPersonContactSummary({ personId: 'person-1' }, md());
+      throw new Error('should have refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RpcException);
+      const e = (err as RpcException).getError() as { code: number; message: string };
+      expect(e.code).toBe(GrpcStatus.PERMISSION_DENIED);
+      // And the message carries nothing from downstream (SEC-26).
+      expect(e.message).toBe('forbidden');
+      expect(e.message).not.toContain('person-1');
+    }
+  });
+
+  it('an UNAVAILABLE identity source surfaces as UNAVAILABLE, distinguishably from a refusal', async () => {
+    // The two must not collapse into one status: "you may not ask this" is the caller's to fix and "the
+    // source is down" is not.
+    const { prisma } = fakePrisma([]);
+    const failing = {
+      membersOf: () => Promise.reject(new MembershipUnavailableError('rpc failed')),
+    } as unknown as PersonMembersClient;
+    try {
+      await ctrl(prisma, failing).getPersonContactSummary({ personId: 'person-1' }, md());
+      throw new Error('should have failed');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RpcException);
+      expect(((err as RpcException).getError() as { code: number }).code).toBe(
+        GrpcStatus.UNAVAILABLE,
+      );
+    }
   });
 
   it('an empty personId is the never-contacted answer and asks users nothing', async () => {

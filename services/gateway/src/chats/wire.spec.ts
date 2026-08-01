@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
 import {
   toKindWire,
@@ -6,6 +8,8 @@ import {
   toProjectionWire,
   toStatusWire,
   toStatusWireRequired,
+  toSubjectWire,
+  MAX_SUBJECT_LENGTH,
 } from './wire';
 
 /**
@@ -119,6 +123,34 @@ describe('chats REST → wire mapping (fail-closed)', () => {
         ]),
       ).toThrow(BadRequestException);
     });
+  });
+
+  /**
+   * Feature 023 (roadmap 4.18). The edge and the owning service both bound the title, and the two
+   * numbers are DUPLICATED rather than shared — the gateway does not import a service's internals, and
+   * `@crm/common` is for things both tiers own. A duplicated constant is only safe while something
+   * checks it, so this reads the real declaration rather than trusting the comment beside it.
+   *
+   * If they drifted apart, the edge would reject titles the service would have accepted (or worse, the
+   * other way round: accept one the service refuses, turning a 400 into a confusing round trip).
+   */
+  it('normalises a title, and refuses rather than truncating (feature 023)', () => {
+    expect(toSubjectWire('  выплата\n  задерживается  ')).toBe('выплата задерживается');
+    expect(toSubjectWire('a'.repeat(MAX_SUBJECT_LENGTH))).toHaveLength(MAX_SUBJECT_LENGTH);
+    expect(() => toSubjectWire('a'.repeat(MAX_SUBJECT_LENGTH + 1))).toThrow(BadRequestException);
+    for (const blank of [undefined, '', '   ', '\n\t']) {
+      expect(() => toSubjectWire(blank)).toThrow(BadRequestException);
+    }
+  });
+
+  it('the edge cap equals the service cap — the duplication is pinned, not trusted', () => {
+    const derive = readFileSync(
+      join(__dirname, '..', '..', '..', 'chats', 'src', 'subject', 'subject.derive.ts'),
+      'utf8',
+    );
+    const declared = /MAX_SUBJECT_LENGTH\s*=\s*(\d+)/.exec(derive)?.[1];
+    expect(declared).toBeDefined(); // the scan found the declaration
+    expect(Number(declared)).toBe(MAX_SUBJECT_LENGTH);
   });
 
   it('error messages name the field and the allow-list, nothing else', () => {

@@ -3,6 +3,19 @@ import { PrismaService } from '../prisma.service';
 import type { Cursor } from '../shared/cursor';
 import type { MessageRow, Projection } from '../shared/wire';
 import { decideContactStamp } from './contact-stamp';
+import { TransitionRecorder } from '../transition/transition.recorder';
+import {
+  firstPublicReplyBase,
+  subjectSet,
+  TRANSITION_BEFORE_SELECT,
+  type ConversationBefore,
+  type TransitionActor,
+} from '../transition/conversation-transitions';
+import {
+  CLOSING_PLAYER_MESSAGE_COUNT,
+  decideSubject,
+  type AttachmentKind,
+} from '../subject/subject.derive';
 
 /**
  * The slice of the transaction client `post` uses (feature 022).
@@ -13,10 +26,35 @@ import { decideContactStamp } from './contact-stamp';
  * narrow, documented cast — the approach `assignment/round-robin-state.repository.ts` already takes.
  */
 interface MessageTx {
-  message: { create(args: unknown): Promise<unknown> };
-  conversation: { updateMany(args: unknown): Promise<unknown> };
+  message: {
+    create(args: unknown): Promise<unknown>;
+    // Feature 023 (T030): how many CUSTOMER messages this conversation has, to close the title window.
+    count(args: unknown): Promise<number>;
+  };
+  conversation: {
+    updateMany(args: unknown): Promise<unknown>;
+    // Feature 023: the before-row — first-public-reply and the title window both read it.
+    findFirst(args: unknown): Promise<MessageBeforeRow | null>;
+  };
   messageAttachment: { createMany(args: unknown): Promise<unknown> };
+  conversationTransition: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 }
+
+/** The conversation columns this write path reads before touching anything. */
+type MessageBeforeRow = ConversationBefore & {
+  last_outbound_at: Date | null;
+  subject: string | null;
+  subject_source: string | null;
+  category: string | null;
+};
+
+const MESSAGE_BEFORE_SELECT = {
+  ...TRANSITION_BEFORE_SELECT,
+  last_outbound_at: true,
+  subject: true,
+  subject_source: true,
+  category: true,
+} as const;
 
 /**
  * The scoped client, narrowed to the interactive-transaction signature.
@@ -57,6 +95,21 @@ export interface PostInput {
   mentions: string[];
   /** Feature 016 — already validated and CLAIMED by the caller before this is reached (research R8). */
   uploadIds?: string[];
+  /**
+   * Feature 023 (FR-017): the KIND of the first attachment, derived by the caller from the uploads it
+   * already described (`attachmentKindOf`). Never a file name — the caller must not pass one, and the
+   * title never holds one.
+   *
+   * ⚠️ **No caller sets this today, and that is correct, not an oversight.** A title is derived only
+   * from CUSTOMER messages, and the only customer-authored write path is `RecordIncomingMessage`,
+   * which carries no attachments — customer-side attachment ingestion arrives with the channels
+   * (roadmap 6.1 / 6.4). The staff path does carry uploads, but a staff message closes the window
+   * rather than naming it, so reading a kind there would be theatre.
+   *
+   * The seam ships now for the same reason the reserved catalogue types do: so the channel work adds
+   * one argument instead of re-deriving the rule.
+   */
+  attachmentKind?: AttachmentKind | null;
 }
 
 /**
@@ -69,7 +122,10 @@ export interface PostInput {
  */
 @Injectable()
 export class MessageRepository {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+  ) {}
 
   /** The conversation's brand (for the brand resource-check) — null when absent in this account. */
   async conversationBrand(accountId: string, conversationId: string): Promise<string | null> {
@@ -150,7 +206,11 @@ export class MessageRepository {
    * Validation is NOT done here. Everything that can refuse has already run (research R8 / the 013
    * ordering discipline), so by the time this executes the only possible outcome is every row or none.
    */
-  async post(accountId: string, input: PostInput): Promise<MessageRow> {
+  async post(
+    accountId: string,
+    input: PostInput,
+    actor: TransitionActor,
+  ): Promise<MessageRow> {
     const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
     const data = {
       account_id: accountId, // also injected by the scoped client; set explicitly for the type
@@ -167,6 +227,21 @@ export class MessageRepository {
     const stampColumn = decideContactStamp(input.authorType, input.isPrivate);
 
     return db.$transaction(async (tx) => {
+      // ── ONE read of the conversation's BEFORE-state, taken before any write in this transaction ───
+      //
+      // ⚠️ The ordering is load-bearing, and getting it wrong is silent. The stamp update below sets
+      // `last_outbound_at`; a read taken after it can never observe the null that MEANS "this is the
+      // first public reply", so the transition would simply never be recorded — with every unit test
+      // still green, because a fake `findFirst` returns whatever it was told regardless of the
+      // `updateMany` before it. Only a live run would have shown it.
+      //
+      // One read serves both concerns (first-public-reply and the title window) rather than two: the
+      // row is the same row, and the message path is the busiest one in the product.
+      const before = (await tx.conversation.findFirst({
+        where: { id: input.conversationId },
+        select: MESSAGE_BEFORE_SELECT,
+      })) as MessageBeforeRow | null;
+
       const row = (await tx.message.create({ data, select: MESSAGE_SELECT })) as MessageRow;
 
       if (stampColumn) {
@@ -178,6 +253,31 @@ export class MessageRepository {
           where: { id: input.conversationId },
           data: { [stampColumn]: row.created_at },
         });
+      }
+
+      // ── Feature 023 (roadmap 4.8a): the FIRST public reply is a transition ─────────────────────
+      //
+      // "Public" is NOT re-derived here. `decideContactStamp` above already owns that rule, and it is
+      // the same rule the SLA clock uses — a third definition of "we replied" would drift, and the
+      // drift is invisible until a card, an SLA report and the event stream disagree about one
+      // conversation (the 022 lesson, stated in contact-stamp.ts).
+      //
+      // FIRST is decided by the column the stamp maintains: if `last_outbound_at` was null before this
+      // write, this reply is the first one. No counting, no second source of truth.
+      if (stampColumn === 'last_outbound_at' && before && !before.last_outbound_at) {
+        await this.transitions.record(tx, {
+          ...firstPublicReplyBase(accountId, before, actor, row.created_at),
+          payload: { messageId: row.id },
+        });
+      }
+
+      // ── Feature 023 (roadmap 4.18): the title window ───────────────────────────────────────────
+      //
+      // The decision is pure (`subject.derive.ts`); this only supplies the facts and writes the result.
+      // Nothing here re-reads earlier message BODIES: the first substantive message becomes the
+      // candidate as it arrives, so closing the window later needs only the count.
+      if (before) {
+        await this.closeOrAdvanceSubjectWindow(tx, accountId, input, before, row, actor);
       }
 
       if (uploadIds.length > 0) {
@@ -193,5 +293,73 @@ export class MessageRepository {
 
       return row;
     });
+  }
+
+  /**
+   * Advance or close the title window for this message (FR-014…FR-019, T030/T030a).
+   *
+   * ── The count, and why it is not free but is still cheap ────────────────────────────────────────
+   * Only the customer's 3rd message closes the window by count, so the count is read ONLY while the
+   * window is open and only for a customer message — that is a handful of rows on a conversation that
+   * is minutes old, on the `(conversation_id, created_at)` index. On every other post (a staff reply,
+   * a private note, any message on a conversation whose title is already fixed) it is not read at all,
+   * and the frozen check runs first precisely so the common path costs nothing.
+   *
+   * ── `updateMany` with the window predicate, not a bare id ───────────────────────────────────────
+   * The `where` repeats `subject_source: null`, so two concurrent messages cannot both close the
+   * window: the second matches zero rows. The scoped client injects `account_id`, which composes with
+   * a filter and not with a unique-id lookup — the pattern every write here uses.
+   */
+  private async closeOrAdvanceSubjectWindow(
+    tx: MessageTx,
+    accountId: string,
+    input: PostInput,
+    before: MessageBeforeRow,
+    row: MessageRow,
+    actor: TransitionActor,
+  ): Promise<void> {
+    // Frozen — the overwhelmingly common case. Truthiness, not `!== null`: an absent column reads as
+    // `undefined` through a narrowed select and both mean "no source recorded"; `auto` and `manual`
+    // are the only legal values and both are truthy.
+    if (before.subject_source) return;
+
+    let playerMessageCount = 0;
+    if (input.authorType === 'player' && !input.isPrivate) {
+      playerMessageCount = await tx.message.count({
+        where: { conversation_id: input.conversationId, author_type: 'player', private: false },
+        take: CLOSING_PLAYER_MESSAGE_COUNT, // the exact number is irrelevant past the threshold
+      });
+    }
+
+    const change = decideSubject(
+      {
+        subject: before.subject ?? null,
+        subject_source: before.subject_source ?? null,
+        category: before.category ?? null,
+      },
+      {
+      authorType: input.authorType,
+      isPrivate: input.isPrivate,
+      body: input.body,
+        attachmentKind: input.attachmentKind ?? null,
+        playerMessageCount,
+      },
+    );
+    if (!change) return;
+
+    await tx.conversation.updateMany({
+      where: { id: input.conversationId, subject_source: null },
+      data: change,
+    });
+
+    // The transition is recorded only when the window CLOSES — while it is open the title is a
+    // candidate, not a decision, and recording each candidate would report a title being "set"
+    // several times for one conversation.
+    if (change.subject_source) {
+      await this.transitions.record(
+        tx,
+        subjectSet(accountId, before, change.subject_source, actor, row.created_at),
+      );
+    }
   }
 }

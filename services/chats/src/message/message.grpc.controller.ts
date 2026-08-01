@@ -12,6 +12,7 @@ import { FirstReplyClock } from '../sla/first-reply.clock';
 import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.client';
 import type { AttachmentWire } from '../shared/wire';
 import { MessageRepository } from './message.repository';
+import { userActor } from '../transition/conversation-transitions';
 
 interface GetThreadRequestWire {
   conversationId: string;
@@ -217,15 +218,19 @@ export class MessageWriteController {
       await this.claimOrRefuse(ctx.accountId, uploadIds, metadata);
     }
 
-    const row = await this.repo.post(ctx.accountId, {
-      conversationId: req.conversationId,
-      authorType: 'operator',
-      authorId: ctx.userId || null,
-      body: req.body ?? '',
-      isPrivate,
-      mentions: req.mentions ?? [],
-      uploadIds,
-    });
+    const row = await this.repo.post(
+        ctx.accountId,
+        {
+        conversationId: req.conversationId,
+        authorType: 'operator',
+        authorId: ctx.userId || null,
+        body: req.body ?? '',
+        isPrivate,
+        mentions: req.mentions ?? [],
+        uploadIds,
+      },
+      userActor(ctx.userId),
+    );
     // Feature 014: only a PUBLIC reply stops the first-reply clock. A private note is routed here too
     // and resolves to no change — the rule lives in one place (decideStop) rather than at each call
     // site, so it cannot be forgotten on a future write path (FR-012 / SC-007).
@@ -266,14 +271,18 @@ export class MessageWriteController {
   async recordIncomingMessage(req: RecordIncomingRequestWire, metadata: Metadata) {
     const ctx = readActorContext(metadata);
     await assertConversationAccess(this.repo, ctx, req.conversationId);
-    const row = await this.repo.post(ctx.accountId, {
-      conversationId: req.conversationId,
-      authorType: 'player',
-      authorId: req.authorId || null,
-      body: req.body ?? '',
-      isPrivate: false,
-      mentions: [],
-    });
+    const row = await this.repo.post(
+        ctx.accountId,
+        {
+        conversationId: req.conversationId,
+        authorType: 'player',
+        authorId: req.authorId || null,
+        body: req.body ?? '',
+        isPrivate: false,
+        mentions: [],
+      },
+      userActor(ctx.userId),
+    );
     // Feature 014: an inbound player message both STARTS the first-reply clock and is what rules
     // react to. The clock first — a rule may change the conversation, and the measurement is of the
     // player's wait, not of the post-automation state.

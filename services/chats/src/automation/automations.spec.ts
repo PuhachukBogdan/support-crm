@@ -4,6 +4,7 @@ import type { PrismaService } from '../prisma.service';
 import { AuditRepository } from '../audit/audit.repository';
 import { AutomationsRepository } from './automations.repository';
 import { AutomationsController } from './automations.grpc.controller';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 function md(perms: string[], accountId = 'acc-1', userId = 'u1'): Metadata {
   const m = new Metadata();
@@ -53,7 +54,7 @@ describe('DeleteAutomation is audited (feature 015)', () => {
     };
     const prisma = { forAccount: jest.fn(() => scoped) } as unknown as PrismaService;
     const ctrl = new AutomationsController(
-      new AutomationsRepository(prisma),
+      new AutomationsRepository(prisma, new TransitionRecorder()),
       new AuditRepository(prisma),
     );
     return { ctrl, auditCreate, $transaction };

@@ -1,5 +1,32 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import type { Metadata } from '@grpc/grpc-js';
+import { TransitionRecorder } from '../transition/transition.recorder';
+import {
+  statusChanged,
+  subjectSet,
+  TRANSITION_BEFORE_SELECT,
+  type ConversationBefore,
+  type TransitionActor,
+} from '../transition/conversation-transitions';
+
+/** Prisma types an interactive $transaction callback as a narrowed client; the cast is on the
+ * CLIENT, never on the method — pulling $transaction into a variable loses `this` (feature 013). */
+/** The slice of a transaction client these writes touch — narrow on purpose, so a future write to
+ * some other table has to widen it deliberately rather than inherit `any`. */
+interface TransactionScope {
+  conversation: {
+    findFirst(args: unknown): Promise<ConversationBefore | null>;
+    updateMany(args: unknown): Promise<{ count: number }>;
+  };
+  conversationTransition: {
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
+  };
+}
+
+interface TxCapableClient {
+  $transaction<T>(fn: (tx: TransactionScope) => Promise<T>): Promise<T>;
+}
 import type { Cursor } from '../shared/cursor';
 import type {
   ConversationDetailRow,
@@ -17,6 +44,8 @@ const SUMMARY_SELECT = {
   channel: true,
   created_at: true,
   updated_at: true,
+  // Feature 023 (roadmap 4.18): the title rides the SUMMARY, because the list is what it exists to fix.
+  subject: true,
 } as const;
 
 const DETAIL_SELECT = {
@@ -25,6 +54,9 @@ const DETAIL_SELECT = {
   category: true,
   sub_category: true,
   classified_by: true,
+  // …and the SOURCE rides the detail only: the list does not need to know how a title was set, and
+  // this is the widest-fanout query in the product.
+  subject_source: true,
 } as const;
 
 export interface ListFilters {
@@ -74,7 +106,10 @@ export interface CreateInput {
  */
 @Injectable()
 export class ConversationRepository {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+  ) {}
 
   async list(
     accountId: string,
@@ -146,17 +181,96 @@ export class ConversationRepository {
     })) as ConversationDetailRow;
   }
 
-  /** Set status; returns the updated row, or null when the id is not in this account. */
+  /**
+   * Set status; returns the updated row, or null when the id is not in this account.
+   *
+   * ── Feature 023: the change and its transition land together, or neither lands ─────────────────
+   * `actor` is REQUIRED, not optional. An optional parameter would have let every existing call site
+   * keep compiling while silently recording nothing — the gap this whole feature exists to prevent.
+   * Feature 020 made the same choice with the composite key for the same reason: 16 stale call sites
+   * that FAIL TO COMPILE are worth more than zero errors and a silent hole.
+   *
+   * The `before` read is inside the transaction, so `from` is the value this update actually replaced.
+   */
   async setStatus(
     accountId: string,
     id: string,
     status: DbStatus,
+    actor: TransitionActor,
+    metadata?: Metadata,
   ): Promise<ConversationDetailRow | null> {
-    const res = await this.prisma.forAccount(accountId).conversation.updateMany({
-      where: { id },
-      data: { status },
+    const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
+
+    // Called as a method so `this` stays the Prisma client — feature 013 lost that binding by pulling
+    // `$transaction` into a variable, and every auto-assign 500ed.
+    const changed = await db.$transaction(async (tx) => {
+      const before = await tx.conversation.findFirst({
+        where: { id },
+        select: TRANSITION_BEFORE_SELECT,
+      });
+      if (!before) return false;
+
+      const res = await tx.conversation.updateMany({ where: { id }, data: { status } });
+      if (res.count === 0) return false;
+
+      await this.transitions.record(
+        tx,
+        statusChanged(accountId, before, status, actor, new Date(), metadata),
+      );
+      return true;
     });
-    if (res.count === 0) return null;
+
+    if (!changed) return null;
+    return this.getById(accountId, id);
+  }
+
+  /**
+   * Set the title BY HAND, and lock it (feature 023, roadmap 4.18 — FR-022 / U9).
+   *
+   * ── Why the lock is the write and not a flag beside it ──────────────────────────────────────────
+   * `subject_source = 'manual'` is set in the SAME statement as the title, so there is no instant at
+   * which a human's wording sits in the column without the mark that protects it. Every automated
+   * writer — the derivation, the sweep, a macro — checks that mark first and refuses (FR-022), and the
+   * refusal is a predicate rather than a policy: `decideSubject` returns null and the sweep's
+   * `subject_source: null` `where` matches zero rows.
+   *
+   * ── Idempotent by predicate, not by comparison ──────────────────────────────────────────────────
+   * There is no "did the value actually change" check. Setting the same title twice records two
+   * transitions, and that is correct: each is a real act by a real person at a real time, and the
+   * question the stream answers is *who named this and when*, not *how many distinct strings existed*.
+   */
+  async setSubject(
+    accountId: string,
+    id: string,
+    subject: string,
+    actor: TransitionActor,
+    metadata?: Metadata,
+  ): Promise<ConversationDetailRow | null> {
+    const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
+
+    const changed = await db.$transaction(async (tx) => {
+      const before = await tx.conversation.findFirst({
+        where: { id },
+        select: TRANSITION_BEFORE_SELECT,
+      });
+      if (!before) return false;
+
+      const res = await tx.conversation.updateMany({
+        where: { id },
+        // No `subject_source` predicate here, deliberately: a person may rename a conversation another
+        // person named. The lock is against AUTOMATION, not against people.
+        data: { subject, subject_source: 'manual' },
+      });
+      if (res.count === 0) return false;
+
+      await this.transitions.record(
+        tx,
+        subjectSet(accountId, before, 'manual', actor, new Date(), metadata),
+      );
+      return true;
+    });
+
+    if (!changed) return null;
     return this.getById(accountId, id);
   }
 }

@@ -103,6 +103,31 @@ export class SlaSweepJob implements OnModuleInit, OnModuleDestroy {
         `sla sweep: checked=${res.checked} breached=${res.breached} rulesApplied=${res.rulesApplied}`,
       );
     }
+
+    // ── Feature 023 (roadmap 4.18): close the title windows whose ten minutes have passed ────────
+    //
+    // It rides THIS tick and not the five-minute expiry tick: the window is ten minutes, and a
+    // five-minute sweep would close it anywhere between ten and fifteen. On a thirty-second tick the
+    // title appears when the rule says it does. A third scheduler for one capped query would be more
+    // moving parts than the question deserves (research R5 rejected the per-conversation timer for
+    // the same reason).
+    //
+    // ⚠️ It must be reached from a job at all, or `tests/worker/maintenance-ticks.spec.ts` fails the
+    // build — declaring the rpc and never calling it is the defect feature 017 shipped.
+    //
+    // Awaited separately with its own catch: a failing SLA sweep must not skip the subject sweep, and
+    // an operator has to be able to tell WHICH half is stuck. Both are retried by the next tick,
+    // because a window that is still open is still overdue.
+    try {
+      const subjects = await this.chats.sweepConversationSubjects(this.batch);
+      if (subjects.checked > 0) {
+        this.logger.log(
+          `subject sweep: checked=${subjects.checked} closed=${subjects.closed}`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`subject sweep failed: ${(err as Error)?.name ?? 'error'}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

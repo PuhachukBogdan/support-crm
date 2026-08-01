@@ -95,12 +95,16 @@ export interface ConversationSummaryRow {
   channel: string | null;
   created_at: Date;
   updated_at: Date;
+  /** Feature 023 (roadmap 4.18): the human-readable title. Null while the window is open. */
+  subject: string | null;
 }
 export interface ConversationDetailRow extends ConversationSummaryRow {
   reference: string | null;
   category: string | null;
   sub_category: string | null;
   classified_by: string | null;
+  /** `auto` | `manual`; null while the derivation window is still open (feature 023). */
+  subject_source: string | null;
 }
 
 export function toSummaryWire(r: ConversationSummaryRow) {
@@ -114,6 +118,8 @@ export function toSummaryWire(r: ConversationSummaryRow) {
     channel: r.channel ?? '',
     lastActivityAt: r.updated_at.toISOString(),
     createdAt: r.created_at.toISOString(),
+    // Feature 023: the reason this whole feature exists — a scannable list.
+    subject: r.subject ?? '',
   };
 }
 export interface MessageRow {
@@ -198,5 +204,7 @@ export function toDetailWire(r: ConversationDetailRow) {
     classifiedBy: r.classified_by ?? '',
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
+    subject: r.subject ?? '',
+    subjectSource: r.subject_source ?? '',
   };
 }

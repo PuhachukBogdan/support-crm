@@ -37,6 +37,37 @@ export function toStatusWireRequired(status?: string): string {
   return CONVERSATION_STATUS[status] ?? reject('status', status, Object.keys(CONVERSATION_STATUS));
 }
 
+/**
+ * The longest title a person may set (feature 023, roadmap 4.18).
+ *
+ * ⚠️ Deliberately the SAME number as the derivation's cap, and deliberately DUPLICATED rather than
+ * imported: the gateway does not depend on a service's internals, and `@crm/common` is for things both
+ * tiers own. The pin below asserts the two agree, so a change to one fails the build rather than
+ * producing an edge that rejects titles the service would have accepted.
+ */
+export const MAX_SUBJECT_LENGTH = 120;
+
+/**
+ * A human-set conversation title.
+ *
+ * **Refused, never truncated.** A silently shortened title is a title the author did not write, and
+ * they have no way to tell — the same fail-closed stance every parser in this file takes, for the same
+ * reason. Empty is refused too: clearing a title would freeze the conversation at nothing, because the
+ * automated writers may never fill a `manual` field again.
+ *
+ * Whitespace is COLLAPSED, not rejected — a pasted line break is a formatting accident, not an intent
+ * to send something invalid, and the owning service normalises identically.
+ */
+export function toSubjectWire(subject?: string): string {
+  const value = (subject ?? '').replace(/\s+/gu, ' ').trim();
+  if (!value) throw new BadRequestException('subject is required');
+  if (value.length > MAX_SUBJECT_LENGTH) {
+    // LENGTH only. Echoing the value would put a human's words into a client log (SEC-26's spirit).
+    throw new BadRequestException(`subject must be at most ${MAX_SUBJECT_LENGTH} characters`);
+  }
+  return value;
+}
+
 const MESSAGE_KIND: Record<string, string> = {
   reply: 'MESSAGE_KIND_PUBLIC_REPLY',
   note: 'MESSAGE_KIND_PRIVATE_NOTE',

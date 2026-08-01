@@ -6,6 +6,7 @@ import { LabelsRepository } from '../labels/labels.repository';
 import { MacrosRepository } from './macros.repository';
 import { MacrosController } from './macros.grpc.controller';
 import { MACRO_ACTION_TYPES, parseActions, requiredPermissions } from './macro-definition';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 /**
  * T021 (feature 013, US2) — macros. The load-bearing assertion is **all-or-nothing** (FR-008 /
@@ -64,6 +65,11 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
     findMany: jest.fn(),
     create: jest.fn(),
   };
+  // Feature 023: `create` RETURNS a statement here rather than performing a write — that is what
+  // makes the transition land in the same batch as the action it describes.
+  const conversationTransition = {
+    create: jest.fn((a: unknown) => ({ __stmt: 'transition.create', arg: a })),
+  };
   const conversationLabel = {
     upsert: over.linkUpsert ?? jest.fn().mockReturnValue({ __stmt: 'link.upsert' }),
     deleteMany: jest.fn(),
@@ -72,9 +78,17 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   const $transaction = over.$transaction ?? jest.fn().mockResolvedValue([]);
   const forAccount = jest
     .fn()
-    .mockReturnValue({ conversation, macro, label, conversationLabel, $transaction });
+    .mockReturnValue({
+      conversation,
+      macro,
+      label,
+      conversationLabel,
+      conversationTransition,
+      $transaction,
+    });
   return {
     prisma: { forAccount } as unknown as PrismaService,
+    conversationTransition,
     conversation,
     macro,
     label,
@@ -94,9 +108,9 @@ function md(perms: string[], accountId = 'acc-1'): Metadata {
 
 const build = (prisma: PrismaService) =>
   new MacrosController(
-    new MacrosRepository(prisma),
+    new MacrosRepository(prisma, new TransitionRecorder()),
     new LabelsRepository(prisma),
-    new ConversationRepository(prisma),
+    new ConversationRepository(prisma, new TransitionRecorder()),
   );
 
 const ALL_PERMS = [
@@ -212,7 +226,14 @@ describe('ApplyMacro — all-or-nothing (FR-008 / SC-004)', () => {
 
     expect($transaction).toHaveBeenCalledTimes(1);
     const batch = $transaction.mock.calls[0][0] as unknown[];
-    expect(batch).toHaveLength(2); // set status + add label
+    // Feature 023: THREE now — set status + add label + the transition that records the status
+    // change. The transition riding this same batch is the guarantee: either the macro and its
+    // record both land, or neither does.
+    expect(batch).toHaveLength(3);
+    const transition = (batch as Array<Record<string, unknown>>).find(
+      (b) => b.__stmt === 'transition.create',
+    );
+    expect(transition).toBeDefined();
     expect(conversation.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1' },
       data: { status: 'pending' }, // wire name → storage scalar

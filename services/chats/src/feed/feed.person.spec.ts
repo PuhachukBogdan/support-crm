@@ -9,6 +9,7 @@ import {
   type PersonMembersClient,
 } from '../person/person-members.client';
 import { encodeCursor } from '../shared/cursor';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
@@ -95,7 +96,7 @@ function failingMembers(err: unknown) {
 }
 
 const ctrl = (prisma: PrismaService, m: PersonMembersClient) =>
-  new FeedReadController(new ConversationRepository(prisma), m);
+  new FeedReadController(new ConversationRepository(prisma, new TransitionRecorder()), m);
 
 /**
  * Feature 022 (roadmap 4.13), T042 — **`GetPersonFeed`, the rpc feature 020 declared and never served.**

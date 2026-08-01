@@ -4,6 +4,8 @@ import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { AssignmentRepository } from './assignment.repository';
 import { AssignmentWriteController } from './assignment.grpc.controller';
+import { TransitionRecorder } from '../transition/transition.recorder';
+import { userActor } from '../transition/conversation-transitions';
 
 /**
  * T014 (feature 013, US1) — assign / reassign / unassign. Every path goes through the
@@ -39,8 +41,24 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
     create: jest.fn(),
     findMany: jest.fn(),
   };
-  const forAccount = jest.fn().mockReturnValue({ conversation });
-  return { prisma: { forAccount } as unknown as PrismaService, conversation, forAccount };
+  // Feature 023: setAssignee now writes the change and its transition in ONE transaction.
+  // `$transaction` is a METHOD on the object so `this` survives — feature 013 lost exactly that
+  // binding by pulling it into a variable, and every auto-assign 500ed.
+  const conversationTransition = { create: jest.fn() };
+  const client = {
+    conversation,
+    conversationTransition,
+    async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+      return fn(client);
+    },
+  };
+  const forAccount = jest.fn().mockReturnValue(client);
+  return {
+    prisma: { forAccount } as unknown as PrismaService,
+    conversation,
+    conversationTransition,
+    forAccount,
+  };
 }
 
 function md(accountId = 'acc-1'): Metadata {
@@ -51,8 +69,8 @@ function md(accountId = 'acc-1'): Metadata {
 }
 
 const build = (prisma: PrismaService) => {
-  const convRepo = new ConversationRepository(prisma);
-  return new AssignmentWriteController(new AssignmentRepository(prisma, convRepo), convRepo);
+  const convRepo = new ConversationRepository(prisma, new TransitionRecorder());
+  return new AssignmentWriteController(new AssignmentRepository(prisma, new TransitionRecorder(), convRepo), convRepo);
 };
 
 describe('AssignConversation (US1)', () => {
@@ -61,6 +79,9 @@ describe('AssignConversation (US1)', () => {
       findFirst: jest
         .fn()
         .mockResolvedValueOnce(detailRow()) // resource check
+        // Feature 023 added a read INSIDE the transaction: the before-row, so `from` is the value
+        // this write actually replaced rather than one read a moment earlier.
+        .mockResolvedValueOnce(detailRow()) // before-row
         .mockResolvedValueOnce(detailRow({ assignee_operator_id: 'op-a' })), // re-read
     });
     const res = await build(prisma).assignConversation(
@@ -81,6 +102,7 @@ describe('AssignConversation (US1)', () => {
       findFirst: jest
         .fn()
         .mockResolvedValueOnce(detailRow({ assignee_operator_id: 'op-a' }))
+        .mockResolvedValueOnce(detailRow({ assignee_operator_id: 'op-a' })) // before-row (023)
         .mockResolvedValueOnce(detailRow({ assignee_operator_id: 'op-b' })),
     });
     const res = await build(prisma).assignConversation(
@@ -99,6 +121,7 @@ describe('AssignConversation (US1)', () => {
       findFirst: jest
         .fn()
         .mockResolvedValueOnce(detailRow({ assignee_operator_id: 'op-a' }))
+        .mockResolvedValueOnce(detailRow({ assignee_operator_id: 'op-a' })) // before-row (023)
         .mockResolvedValueOnce(detailRow({ assignee_operator_id: null })),
     });
     const res = await build(prisma).assignConversation(
@@ -145,7 +168,7 @@ describe('AssignConversation (US1)', () => {
   it('never resolves the operator through another service (soft ref only — R8)', async () => {
     // The repository takes only Prisma + the conversation repo; no Users client is reachable.
     const { prisma } = fakePrisma();
-    const repo = new AssignmentRepository(prisma, new ConversationRepository(prisma));
+    const repo = new AssignmentRepository(prisma, new TransitionRecorder(), new ConversationRepository(prisma, new TransitionRecorder()));
     expect(Object.values(repo as unknown as Record<string, unknown>)).not.toContainEqual(
       expect.objectContaining({ getService: expect.any(Function) }),
     );
@@ -155,14 +178,14 @@ describe('AssignConversation (US1)', () => {
 describe('AssignmentRepository.setAssignee', () => {
   it('returns null (not a throw) when the row is outside the account', async () => {
     const { prisma } = fakePrisma({ updateMany: jest.fn().mockResolvedValue({ count: 0 }) });
-    const repo = new AssignmentRepository(prisma, new ConversationRepository(prisma));
-    await expect(repo.setAssignee('acc-1', 'c1', 'op-a')).resolves.toBeNull();
+    const repo = new AssignmentRepository(prisma, new TransitionRecorder(), new ConversationRepository(prisma, new TransitionRecorder()));
+    await expect(repo.setAssignee('acc-1', 'c1', 'op-a', userActor('u1'))).resolves.toBeNull();
   });
 
   it('always goes through forAccount — never the raw client', async () => {
     const { prisma, forAccount } = fakePrisma();
-    const repo = new AssignmentRepository(prisma, new ConversationRepository(prisma));
-    await repo.setAssignee('acc-9', 'c1', null);
+    const repo = new AssignmentRepository(prisma, new TransitionRecorder(), new ConversationRepository(prisma, new TransitionRecorder()));
+    await repo.setAssignee('acc-9', 'c1', null, userActor('u1'));
     expect(forAccount).toHaveBeenCalledWith('acc-9');
   });
 });

@@ -3,6 +3,7 @@ import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
+import { TransitionRecorder } from '../transition/transition.recorder';
 import {
   AutoAssignController,
   GROUP_ROUTING_NOT_AVAILABLE,
@@ -44,7 +45,10 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
     updateMany: over.rrUpdateMany ?? jest.fn().mockResolvedValue({ count: 1 }),
     create: over.rrCreate ?? jest.fn().mockResolvedValue({ id: 'rr1' }),
   };
-  const scoped = { conversation, roundRobinState } as Record<string, unknown>;
+  // Feature 023: auto-assignment is the FIFTH writer of assignee_operator_id, so the transition
+  // rides this same interactive transaction.
+  const conversationTransition = { create: over.transitionCreate ?? jest.fn() };
+  const scoped = { conversation, roundRobinState, conversationTransition } as Record<string, unknown>;
   // Interactive $transaction: hand the callback the same scoped client (what Prisma does).
   //
   // Declared as a METHOD (not a detached arrow) and it asserts its own `this`, because feature-013
@@ -62,6 +66,7 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
     prisma: { forAccount } as unknown as PrismaService,
     conversation,
     roundRobinState,
+    conversationTransition,
     $transaction,
     forAccount,
   };
@@ -77,8 +82,8 @@ function md(accountId = 'acc-1'): Metadata {
 
 const build = (prisma: PrismaService) =>
   new AutoAssignController(
-    new RoundRobinStateRepository(prisma),
-    new ConversationRepository(prisma),
+    new RoundRobinStateRepository(prisma, new TransitionRecorder()),
+    new ConversationRepository(prisma, new TransitionRecorder()),
   );
 
 const cand = (operatorId: string, capacity = 5, currentLoad = 0) => ({

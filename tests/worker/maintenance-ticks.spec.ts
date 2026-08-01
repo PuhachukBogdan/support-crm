@@ -81,7 +81,16 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
     // asks "and what calls it?".
     expect(names).toEqual([
       'ChatsMaintenanceService.ExpireDueExports',
+      // Feature 023 (roadmap 4.8a). The review moment this pin exists for actually happened: declaring
+      // it turned this suite red before a single line of the handler was written, and the answer to
+      // "what calls it?" is the expiry tick — a five-minute heartbeat, which is the right frequency
+      // for "has recording stopped".
+      'ChatsMaintenanceService.ReportTransitionStreamHealth',
       'ChatsMaintenanceService.RunDueExports',
+      // Feature 023 (roadmap 4.18). Same review moment, second time: the answer to "what calls it?" is
+      // the SLA tick and NOT the expiry tick — the title window is ten minutes, and a five-minute
+      // heartbeat would close it anywhere between ten and fifteen.
+      'ChatsMaintenanceService.SweepConversationSubjects',
       'ChatsMaintenanceService.SweepFirstReplySla',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
     ]);

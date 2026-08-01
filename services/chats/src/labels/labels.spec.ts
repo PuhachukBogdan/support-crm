@@ -4,6 +4,7 @@ import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { LabelsRepository } from './labels.repository';
 import { LabelsController } from './labels.grpc.controller';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 /**
  * T020 (feature 013, US2) — labels: idempotent attach/detach (SC-006), managed create with a
@@ -62,7 +63,7 @@ function md(accountId = 'acc-1'): Metadata {
 }
 
 const build = (prisma: PrismaService) =>
-  new LabelsController(new LabelsRepository(prisma), new ConversationRepository(prisma));
+  new LabelsController(new LabelsRepository(prisma), new ConversationRepository(prisma, new TransitionRecorder()));
 
 describe('Labels — attach / detach idempotency (SC-006)', () => {
   it('attach upserts the link, so attaching twice is a no-op', async () => {

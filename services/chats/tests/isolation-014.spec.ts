@@ -8,6 +8,7 @@ import { AutomationEngine } from '../src/automation/engine';
 import { LabelsRepository } from '../src/labels/labels.repository';
 import type { AuthorAuthorityClient } from '../src/auth/auth.client';
 import { messageReceivedKey } from '../src/events/events.types';
+import { TransitionRecorder } from '../src/transition/transition.recorder';
 
 /**
  * T020 / T034 (feature 014) — cross-account isolation sweep for automations + SLA (Principle I /
@@ -171,6 +172,23 @@ function scopedFor(acc: string) {
         writes.push({ table: 'conversation', account: acc, data: a });
         return Promise.resolve({ count: 1 });
       },
+      // Feature 023: the before-row, read before the batch is assembled.
+      findFirst: () =>
+        Promise.resolve({
+          id: 'c1',
+          status: 'open',
+          brand_id: 'brand-a',
+          channel: null,
+          assignee_operator_id: null,
+        }),
+    },
+    // Feature 023: recorded through the SCOPED client like every other write, so the assertion that
+    // the engine never touches the base client covers transitions too.
+    conversationTransition: {
+      create: (a: unknown) => {
+        writes.push({ table: 'conversationTransition', account: acc, data: a });
+        return Promise.resolve({});
+      },
     },
   } as Record<string, unknown>;
   scoped.$transaction = (arg: unknown) =>
@@ -191,7 +209,7 @@ function md(accountId: string, perms: string[] = ['crm.automations.manage']): Me
 
 // Feature 015: the controller also writes an audit entry inside the delete's transaction.
 const controller = () =>
-  new AutomationsController(new AutomationsRepository(prisma), new AuditRepository(prisma));
+  new AutomationsController(new AutomationsRepository(prisma, new TransitionRecorder()), new AuditRepository(prisma));
 
 beforeEach(() => {
   writes.length = 0;
@@ -256,7 +274,7 @@ describe('automation authoring is account-scoped', () => {
 describe('the ENGINE’s caller-less writes stay inside the account (the new case in 014)', () => {
   const engine = (accountId: string) =>
     new AutomationEngine(
-      new AutomationsRepository(prisma),
+      new AutomationsRepository(prisma, new TransitionRecorder()),
       new LabelsRepository(prisma),
       {
         resolve: jest.fn(async () => ({

@@ -38,14 +38,24 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
-/** A paged list over `Conversation`: `conversation.findMany` with a `take`. */
+/**
+ * A paged list over `Conversation`: `conversation.findMany` fetching **one row past the limit**.
+ *
+ * ⚠️ **Sharpened 2026-08-01 (feature 023).** The predicate used to be "`findMany` with any `take:`",
+ * and it flagged the title-window sweep — a capped internal selection of `{account_id, id}` with no
+ * cursor, no page token and nothing returned to a caller. It is not a list by any reading, so the
+ * predicate was wrong, not the sweep.
+ *
+ * The corrected signal is the one this file's own comment already named: **`take: <n> + 1`**. Keyset
+ * paging fetches the extra row precisely to know whether a next page exists and what its cursor is.
+ * A bounded batch (`take: min(cap, limit)`) has no such row and cannot produce a cursor — that is the
+ * difference between a list endpoint and a work queue, and it is visible in the code.
+ */
 export function pagesConversations(source: string): boolean {
   const code = stripComments(source).replace(/\s+/g, ' ');
   for (const m of code.matchAll(/\.conversation\s*\.\s*findMany\s*\(/g)) {
-    // The `take: limit + 1` idiom is what makes a read a PAGE (keyset paging computes the next cursor
-    // from the extra row). A `findMany` without it is a bounded internal lookup, not a list endpoint.
     const tail = code.slice(m.index!, m.index! + 400);
-    if (/take\s*:/.test(tail)) return true;
+    if (/take\s*:\s*[^,}]*\+\s*1\b/.test(tail)) return true;
   }
   return false;
 }
@@ -118,6 +128,17 @@ describe('T063 — the detector can fail (proved on planted input)', () => {
     ).toBe(false);
   });
 
+  it('does NOT flag a CAPPED BATCH — a work queue is not a list (feature 023)', () => {
+    // The title-window sweep. No `+ 1`, therefore no next-page row, therefore no cursor it could
+    // return. This is the case that sharpened the predicate; deleting it re-opens the false positive.
+    expect(
+      pagesConversations(
+        'await this.prisma.conversation.findMany({ where: { subject_source: null }, ' +
+          'take: Math.max(1, Math.min(5000, limit)), select: { account_id: true, id: true } });',
+      ),
+    ).toBe(false);
+  });
+
   it('does NOT flag a bounded single-row lookup', () => {
     // `findFirst` for a brand check, or a `findMany` with no `take`, is not a list endpoint — flagging it
     // would make the guard ban ordinary internal reads and guarantee its own deletion.
@@ -136,7 +157,7 @@ describe('T063 — the detector can fail (proved on planted input)', () => {
   it('is not fooled by a `//` inside a string literal', () => {
     expect(
       pagesConversations(
-        'const u = "https://x//y"; await db.conversation.findMany({ where, take: 10 });',
+        'const u = "https://x//y"; await db.conversation.findMany({ where, take: limit + 1 });',
       ),
     ).toBe(true);
   });

@@ -6,6 +6,7 @@ import { hasPermission } from '@crm/common';
 import { ChatsAccessGuard, readActorPermissions } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext } from '../security/actor-context';
+import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { LabelsRepository } from '../labels/labels.repository';
@@ -138,7 +139,9 @@ export class MacrosController {
     }
 
     // 6. All actions in ONE transaction (FR-008).
-    await this.macros.applyActions(ctx.accountId, conversationId, actions);
+    // Feature 023: a macro is an explicit HUMAN action (U9) — the agent invoked it deliberately, so
+    // the transition names them, not the macro.
+    await this.macros.applyActions(ctx.accountId, conversationId, actions, userActor(ctx.userId));
 
     const updated = await this.conversations.getById(ctx.accountId, conversationId);
     if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });

@@ -36,6 +36,12 @@ import { SlaRepository } from './sla/sla.repository';
 import { SlaSweepRepository } from './sla/sla-sweep.repository';
 import { FirstReplyClock } from './sla/first-reply.clock';
 import { SlaController, SlaMaintenanceController } from './sla/sla.grpc.controller';
+// Feature 023 (roadmap 4.8a): the transition stream. The recorder is a provider called from inside
+// repository transactions; the controller is its ONLY read surface and returns counts.
+import { TransitionMaintenanceController } from './transition/transition.grpc.controller';
+import { TransitionHealthRepository } from './transition/transition.repository';
+import { SubjectSweepRepository } from './subject/subject.sweep';
+import { TransitionRecorder } from './transition/transition.recorder';
 // Feature 015 (roadmap 4.8): the audit trail — this service's source of the federated log.
 import { AuditRepository } from './audit/audit.repository';
 import { ExportController } from './export/export.grpc.controller';
@@ -80,6 +86,7 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // R3) — it is the only caller of the single unscoped id-only read.
     SlaController,
     SlaMaintenanceController,
+    TransitionMaintenanceController,
     // Feature 015.
     AuditReadController,
     // Feature 017: the export surface + its two maintenance passes.
@@ -90,6 +97,12 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     ConversationRepository,
     MessageRepository,
     ChatsAccessGuard,
+    // Feature 023 (roadmap 4.8a). The recorder is injected into the repositories that own the write
+    // paths — it is never reached from a controller, which is where the automation dispatcher is
+    // published from. Two opposite placement rules, protecting two different things (research R1).
+    TransitionRecorder,
+    TransitionHealthRepository,
+    SubjectSweepRepository,
     // Feature 013.
     AssignmentRepository,
     RoundRobinStateRepository,

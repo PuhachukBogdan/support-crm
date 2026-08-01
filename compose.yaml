@@ -175,6 +175,22 @@ services:
       # Acyclic — users never calls chats. Chats holds NO storage credentials: it references an
       # upload by id and never sees a byte.
       USERS_GRPC_TARGET: users:50052
+      # ── Feature 023 (roadmap 4.8a + 4.18) ────────────────────────────────────────────────────
+      #
+      # ⚠️ These are REQUIRED, not defaulted-in-code. `loadConfig` checks presence before zod runs, so
+      # a `.default()` in the schema never applies — the first draft had one, and the service
+      # crash-looped here on its first live boot. Compose passes only what is listed (the documented
+      # gotcha: `.env` substitutes `${VAR}`, it does not inject).
+      #
+      # 🅿 PROVISIONAL retention windows, revised by the operator's answer on access-record retention
+      # (Q1) and by SEC-25. NOTHING READS THEM YET and no deletion job exists (research R9): deleting
+      # history on a number nobody has confirmed is what feature 018 refused when it reverted
+      # `record.open`. Declaring them now means the later job reads a value instead of inventing one.
+      TRANSITION_RETENTION_DAYS: ${TRANSITION_RETENTION_DAYS:-365}
+      TRANSITION_RESTRICTED_RETENTION_DAYS: ${TRANSITION_RESTRICTED_RETENTION_DAYS:-90}
+      # The title window's third arm. Lower it on a test box so the sweep is observable in a run that
+      # does not last fifteen minutes.
+      SUBJECT_WINDOW_TIMEOUT_MINUTES: ${SUBJECT_WINDOW_TIMEOUT_MINUTES:-10}
 
   brands:
     <<: *service-base

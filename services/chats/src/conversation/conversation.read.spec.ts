@@ -5,6 +5,7 @@ import type { SlaRepository } from '../sla/sla.repository';
 import { ConversationRepository } from './conversation.repository';
 import { ConversationReadController } from './conversation.grpc.controller';
 import { MAX_PAGE_SIZE } from '../shared/cursor';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 /** A fake account-scoped Prisma exposing only the conversation delegate used here (Track A). */
 function fakePrisma(rows: unknown[]) {
@@ -50,7 +51,7 @@ function noSla() {
 describe('ConversationReadController.listConversations (US1)', () => {
   it('scopes to the caller account and builds the filter where-clause', async () => {
     const { prisma, findMany, forAccount } = fakePrisma([row()]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
 
     const res = await ctrl.listConversations(
       { status: 'CONVERSATION_STATUS_OPEN', priority: 'high', playerId: 'p1' },
@@ -70,7 +71,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
 
   it('applies no brand filter when the caller asked for none', async () => {
     const { prisma, findMany } = fakePrisma([row()]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
     await ctrl.listConversations({}, md('acc-1')); // no brands metadata
     expect(findMany.mock.calls[0][0].where.brand_id).toBeUndefined();
   });
@@ -81,7 +82,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
     // every brand. A filter narrows what you asked for; a scope narrows what you may ask for. Only
     // the first exists, so asking for any brand returns that brand.
     const { prisma, findMany } = fakePrisma([]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
     await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1'));
     expect(findMany.mock.calls[0][0].where.brand_id).toEqual({ in: ['brand-z'] });
   });
@@ -92,7 +93,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       row({ id: `c${i}`, created_at: new Date(Date.now() - i * 1000) }),
     );
     const { prisma, findMany } = fakePrisma(rows);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
     const res = await ctrl.listConversations({ pageSize: 10_000 }, md('acc-1'));
     expect(findMany.mock.calls[0][0].take).toBe(MAX_PAGE_SIZE + 1);
     expect(res.conversations).toHaveLength(MAX_PAGE_SIZE);
@@ -101,7 +102,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
 
   it('rejects a malformed page token with INVALID_ARGUMENT (no unfiltered fallback)', async () => {
     const { prisma } = fakePrisma([]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
     await expect(ctrl.listConversations({ pageToken: 'garbage-$$$' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
     );

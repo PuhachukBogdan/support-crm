@@ -12,6 +12,7 @@ import { MacrosRepository } from '../src/macros/macros.repository';
 import { MacrosController } from '../src/macros/macros.grpc.controller';
 import { CannedRepository } from '../src/canned/canned.repository';
 import { CannedController } from '../src/canned/canned.grpc.controller';
+import { TransitionRecorder } from '../src/transition/transition.recorder';
 
 /**
  * T036 (feature 013) — consolidated cross-account isolation sweep for the workflow layer
@@ -89,7 +90,10 @@ function scopedFor(acc: string) {
     return Promise.resolve(match ?? null);
   };
 
-  const scoped = {
+  const scoped: Record<string, unknown> = {
+    // Feature 023: the transition rides the same transaction as the write it describes. The fake
+    // records into an array so the isolation assertions can still see exactly what was written.
+    conversationTransition: { create: (a: { data: unknown }) => Promise.resolve(a.data) },
     conversation: {
       findFirst: (a: { where: Record<string, unknown> }) =>
         findFirstIn(conversations, a.where).then((r) => (r ? fullConversation(r) : null)),
@@ -173,18 +177,18 @@ const ALL = [
   'crm.conversation.reply',
 ];
 
-const conversationRepo = () => new ConversationRepository(prisma);
+const conversationRepo = () => new ConversationRepository(prisma, new TransitionRecorder());
 const assignment = () =>
   new AssignmentWriteController(
-    new AssignmentRepository(prisma, conversationRepo()),
+    new AssignmentRepository(prisma, new TransitionRecorder(), conversationRepo()),
     conversationRepo(),
   );
 const autoAssign = () =>
-  new AutoAssignController(new RoundRobinStateRepository(prisma), conversationRepo());
+  new AutoAssignController(new RoundRobinStateRepository(prisma, new TransitionRecorder()), conversationRepo());
 const labelsCtrl = () => new LabelsController(new LabelsRepository(prisma), conversationRepo());
 const macrosCtrl = () =>
   new MacrosController(
-    new MacrosRepository(prisma),
+    new MacrosRepository(prisma, new TransitionRecorder()),
     new LabelsRepository(prisma),
     conversationRepo(),
   );

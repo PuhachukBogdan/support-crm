@@ -5,6 +5,7 @@ import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext } from '../security/actor-context';
+import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { AssignmentRepository } from './assignment.repository';
@@ -48,7 +49,14 @@ export class AssignmentWriteController {
 
     // "" means unassign — store NULL, never an empty string (it would look like an operator id).
     const operatorId = (req.operatorId ?? '').trim() || null;
-    const updated = await this.assignments.setAssignee(ctx.accountId, conversationId, operatorId);
+    // Feature 023: the human who assigned, and one correlation id for this act.
+    const updated = await this.assignments.setAssignee(
+      ctx.accountId,
+      conversationId,
+      operatorId,
+      userActor(ctx.userId),
+      metadata,
+    );
     if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     return toDetailWire(updated);
   }

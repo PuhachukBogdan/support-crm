@@ -52,6 +52,27 @@ model Conversation {
   last_inbound_at      DateTime? // most recent CUSTOMER-authored message
   last_outbound_at     DateTime? // most recent PUBLIC staff reply (a private note is inert)
 
+  // ── Feature 023 (roadmap 4.18): the human-readable title ───────────────────────────────────────
+  //
+  // Derived from the CUSTOMER's own first substantive words, then FROZEN. Their Zendesk takes the
+  // first message literally, so lists read as "привет", "???" and mid-word fragments — unscannable.
+  //
+  // `subject_source` is what makes the freeze enforceable: `manual` means a human wrote it and NO
+  // automated writer may touch it again, ever. Null means the derivation window is still open.
+  //
+  // Deliberately NOT here: `subject_set_by` / `subject_set_at`. Who set it and when are answered by
+  // the `conversation.subject_set` transition, so the hot row does not duplicate actor bookkeeping.
+  //
+  // NO INDEX ON THE TITLE, deliberately: search must never depend on the subject (R10/U19) — it is
+  // model-generated and human-editable, so navigation built on it is navigation built on a mutable,
+  // occasionally wrong string. Filtering runs on message content, labels, category and player ids.
+  //
+  // There IS an index on the WINDOW (`subject_source, created_at`, below), which is a different thing:
+  // the timeout sweep's predicate is `subject_source IS NULL AND created_at <= …`, and without it that
+  // is a sequential scan over every conversation ever created, once a minute (research R5).
+  subject              String?
+  subject_source       String? // auto | manual; null = window still open
+
   messages Message[]
   labels   ConversationLabel[]
 
@@ -59,6 +80,10 @@ model Conversation {
   @@index([account_id, player_id])
   @@index([brand_id])
   @@index([player_id])
+  // Feature 023: the title-window sweep, and ONLY that. Deliberately not account-scoped — the sweep
+  // has no caller and therefore no account (the `sla-sweep.repository.ts` reasoning applies verbatim),
+  // so leading with `account_id` would make the index unusable for the one query it exists for.
+  @@index([subject_source, created_at])
 }
 
 /// An entry within a conversation. `private` flags an internal note; realtime-scoping so it
@@ -378,4 +403,79 @@ model ExportJob {
   @@index([status, claimed_at])
   /// The ExpireDueExports predicate, same reasoning.
   @@index([status, expires_at])
+}
+
+/// One durable statement that something changed (feature 023, roadmap 4.8a — ADR 0046).
+///
+/// ── Why this exists ──────────────────────────────────────────────────────────────────────────────
+/// Every metric the support team tracks — backlog, reopened %, one-touch %, first reply time, per-agent
+/// load — is derived from TRANSITIONS, not from a conversation's current row. Store only current state
+/// and those numbers are permanently unavailable for the past; no later migration can invent them.
+///
+/// ── ⚠️ This is NOT the audit trail, and it is NOT a `DomainEvent` ────────────────────────────────
+/// `AuditEntry` (feature 015) is STRICT: if its write fails, the action is refused, and PII is
+/// structurally inexpressible there. This table is high-volume (~10-30k/day at the operator's traffic)
+/// and exists to reconstruct history.
+/// `DomainEvent` (feature 014, `src/events/`) is the opposite of both: in-process, synchronous,
+/// deliberately LOSSY (a throwing subscriber is swallowed), and it legitimately carries message text in
+/// memory. The three must never converge — `tests/transitions/no-dispatcher-crossover.spec.ts` keeps
+/// them apart, because merging this with `DomainEvent` would land customer message bodies in an
+/// append-only store.
+///
+/// ── The two halves of the guarantee (ADR 0046 §4a) ───────────────────────────────────────────────
+/// RECORDING is atomic: the row is written inside the transaction of the change it describes, so a
+/// rolled-back change leaves nothing and a recorded transition always happened.
+/// DELIVERY is asynchronous and best-effort — and today there is no consumer at all, so nothing on the
+/// customer-facing path may block on one. A later aggregator (roadmap 11.0) reads forward by watermark
+/// over (account_id, occurred_at, id); that is why no `delivered_at` column exists.
+///
+/// ── Append-only, and never trimmed ───────────────────────────────────────────────────────────────
+/// No update path, no delete path, in any service (asserted by tests/transitions/append-only.spec.ts).
+/// Retention is CONFIGURATION only and no cleanup job is built: the windows are provisional pending the
+/// operator's answer on access-record retention and SEC-25, and deleting on an unconfirmed number is
+/// exactly what feature 018 refused when it reverted `record.open`.
+model ConversationTransition {
+  id         String @id @default(uuid())
+  account_id String
+
+  /// From the closed catalogue in @crm/common — refused at write time if unknown, never free text.
+  type String
+
+  /// When it HAPPENED (millisecond precision, UTC) — the ordering key. Distinct from created_at, which
+  /// is when the row was written; they differ only under retry.
+  occurred_at DateTime
+
+  /// user | system | integration. Never blank for a system act: a timer or a rule names itself.
+  actor_kind String
+  /// The user id, or the rule/job that acted. Soft ref — never joined across a service boundary.
+  actor_ref  String?
+
+  /// What the transition is about. `conversation` today; later writers widen it.
+  subject_kind String
+  subject_id   String
+
+  /// Minimal and TYPED — ids and enums only, validated against the per-type allow-list in
+  /// @crm/common. A message body, a contact value, a file name and the SUBJECT TEXT are all
+  /// inexpressible here, not merely discouraged (Principle IV / SEC-26).
+  payload_json Json?
+
+  /// The reporting dimensions AS THEY WERE at this instant (brand, channel, assignee, submitter role).
+  /// A SNAPSHOT, not references: renaming a brand must not rewrite history. Dimensions that do not
+  /// exist yet (group → 5.3, form → 4.15) are ABSENT, not null — a null would claim the dimension
+  /// existed and was empty.
+  dims_json Json
+
+  /// Ties this to the audit entry produced by the same act, without either becoming the other's
+  /// source of truth.
+  correlation_id String
+
+  created_at DateTime @default(now())
+
+  /// Ordering + the watermark a later aggregator reads forward on. `id` breaks same-instant ties, so
+  /// two transitions in the same millisecond still page deterministically (the 015 lesson).
+  @@index([account_id, occurred_at, id])
+  /// "Reconstruct this conversation's life" — SC-001.
+  @@index([account_id, subject_id, occurred_at])
+  /// "Every status change in this range" — SC-002.
+  @@index([account_id, type, occurred_at])
 }

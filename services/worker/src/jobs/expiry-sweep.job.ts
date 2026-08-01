@@ -99,6 +99,29 @@ export class ExpirySweepJob implements OnModuleInit, OnModuleDestroy {
     }
     if (expired) this.logger.log(`exports expired=${expired}`);
 
+    // ── Feature 023 (roadmap 4.8a): is the transition stream alive? ─────────────────────────────
+    //
+    // It rides THIS tick rather than getting its own for one reason: a five-minute heartbeat is
+    // exactly the right frequency for "has recording stopped", and a second scheduler for a single
+    // counts-only call would be more moving parts than the question deserves.
+    //
+    // ⚠️ It must be reached from a job at all, or `tests/worker/maintenance-ticks.spec.ts` fails the
+    // build — the guard feature 017 added after `ExpireDueExports` shipped wired to nothing. Making
+    // the call is what turns "the rpc exists" into "the rpc runs".
+    //
+    // Logged only when the stream looks STOPPED. A line every five minutes saying everything is fine
+    // trains whoever reads the logs to ignore them, which is how the silence gets missed.
+    try {
+      const health = await this.chats.reportTransitionStreamHealth();
+      if (health.total !== '0' && health.lastHour === '0') {
+        this.logger.warn(
+          `transition stream: nothing recorded in the last hour (total=${health.total}, newest=${health.newestAt})`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`transition health check failed: ${(err as Error)?.name ?? 'error'}`);
+    }
+
     const res = await this.users.purgeExpiredArtefacts(this.batch);
     // Counts only — nothing identifying crosses this boundary, so nothing identifying can be logged.
     // `objectMissing` alone is deliberately not logged: it is the normal steady state after a partial

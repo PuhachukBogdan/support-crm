@@ -6,6 +6,7 @@ import { MessageWriteController } from './message.grpc.controller';
 import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.client';
 import type { DomainEventPublisher } from '../events/events.publisher';
 import type { FirstReplyClock } from '../sla/first-reply.clock';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 /**
  * T027 (feature 016, US1) — an attachment cannot cross an account boundary, and a refused attachment
@@ -86,6 +87,9 @@ function fakePrisma(brand: string | null = 'brand-a') {
         }),
       ),
     },
+    // Feature 023 (T019): the first public reply is recorded as a transition inside this same
+    // transaction, so the fake needs the table and a before-row read.
+    conversationTransition: { create: jest.fn().mockResolvedValue({}) },
     messageAttachment: {
       createMany: jest.fn((args: { data: Record<string, unknown>[] }) =>
         statement(() => {
@@ -167,7 +171,7 @@ function noClock() {
 
 function controller(prisma: PrismaService, uploads: UploadsClient) {
   return new MessageWriteController(
-    new MessageRepository(prisma),
+    new MessageRepository(prisma, new TransitionRecorder()),
     noEvents(),
     noClock(),
     uploads,

@@ -100,14 +100,23 @@ conversations, messages incl. protected private notes, player feed) and the **wo
   account-scoped tables — `CannedResponse` and `RoundRobinState` (rotation cursor). Feature 014 gives
   the reserved `Automation` model meaning (+ author, position, revision) and adds `AutomationRun`,
   `FirstReplySlaPolicy` and `ConversationSlaState`. Feature 016 adds `MessageAttachment`. Feature 022 adds
-  **two maintained columns on `Conversation`** — `last_inbound_at` / `last_outbound_at` — and no table. All are enrolled in
+  **two maintained columns on `Conversation`** — `last_inbound_at` / `last_outbound_at` — and no table.
+  Feature 023 adds `ConversationTransition` plus **two more columns on `Conversation`** (`subject`,
+  `subject_source`) and one index on the derivation WINDOW. All are enrolled in
   [`src/prisma.scoped-models.ts`](src/prisma.scoped-models.ts), cross-checked against the schema by
   `tests/data-model/account-scope-coverage.spec.ts`.
 - Isolation extension: [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`AUTH_GRPC_TARGET`**, **`USERS_GRPC_TARGET`**. Validated at boot
-by [`src/config.ts`](src/config.ts).
+`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`AUTH_GRPC_TARGET`**, **`USERS_GRPC_TARGET`**, and — new in 023 —
+**`TRANSITION_RETENTION_DAYS`**, **`TRANSITION_RESTRICTED_RETENTION_DAYS`**,
+**`SUBJECT_WINDOW_TIMEOUT_MINUTES`**. Validated at boot by [`src/config.ts`](src/config.ts).
+
+⚠️ **`loadConfig` treats every key in the shape as required, whatever its zod schema says** — the presence
+check runs before validation, so a `.default()` never applies. Feature 023's first draft carried defaults
+for all four of its keys and the container crash-looped on its first live boot. A new key is therefore
+always a **two-file change**: `src/config.ts` and the matching `environment:` entry in `compose.yaml`
+(compose substitutes `${VAR}` from `.env`; it does not inject it).
 
 **Cross-service dependency (new in 014):** chats → **auth** (`ResolveEffectivePermissions`) to resolve a
 rule author's live permissions. Acyclic — auth never calls chats. Without the dial target every rule
@@ -310,3 +319,95 @@ every record explicitly linked into one human (`GetPersonContactSummary`, `GetPe
 fails when any service declares an rpc nothing serves, unless the declaration itself carries
 `option deprecated = true` or an `UNSERVED:` note — and it fails again if a marked rpc gains a handler.
 Written repo-wide because running the check by hand found **two more** instances beyond this one.
+
+---
+
+## The transition stream, and what it is NOT (feature 023, roadmap 4.8a)
+
+`ConversationTransition` is **durable history**: one append-only row per thing that changed, carrying the
+reporting dimensions **as they were at that instant**. Every metric the support team lives by — backlog,
+reopened %, one-touch %, first reply time, per-agent load — is derived from transitions, not from a
+conversation's current row. Store only current state and the past becomes permanently unanswerable: no
+later migration can invent a transition that was never recorded.
+
+⚠️ **THREE THINGS WITH SIMILAR NAMES. DO NOT MERGE THEM.**
+
+| | What it records | Failure semantics | May carry customer text? |
+|---|---|---|---|
+| `AuditEntry` (015) | **sensitive actions** | **STRICT** — a failed write refuses the action | no, structurally inexpressible |
+| `DomainEvent` (014, `src/events/`) | in-process **automation trigger** | deliberately lossy, synchronous | **yes**, in memory only |
+| `ConversationTransition` (023) | **durable history** | recording **atomic**, delivery best-effort | no — ids and enums only |
+
+Merging the third with the second would land message bodies in an append-only store. The word *event* is
+avoided throughout this feature for that reason, and
+[`tests/transitions/no-dispatcher-crossover.spec.ts`](../../tests/transitions/no-dispatcher-crossover.spec.ts)
+fails the build if the two ever touch.
+
+**"Best-effort" is a property of a HOP, not of a write.** ADR 0046 originally asserted both *written in the
+same transaction* and *best-effort*, which cannot both hold. Split in §4a: **recording is atomic** (a
+rolled-back change leaves no record), **delivery to a consumer is best-effort** — and there is no consumer
+yet, so nothing is delivered at all.
+
+### Writing one
+
+The catalogue ([`libs/common/src/transitions/catalogue.ts`](../../libs/common/src/transitions/catalogue.ts))
+is **closed and additive**; the payload allow-list
+([`payload.ts`](../../libs/common/src/transitions/payload.ts)) makes a message body, a contact value, a file
+name and **the subject text** inexpressible rather than merely discouraged.
+
+`TransitionRecorder` has **two entry points, and which one you need depends on the transaction style**:
+
+- `record(tx, input)` — inside an **interactive** `$transaction(async (tx) => …)`;
+- `buildStatement(db, input)` — returns an **unexecuted** statement to append to a **batch**
+  `$transaction([…])`, whose atomicity is *by ordering* (every check precedes the batch). That form is
+  proven live 68/68 by feature 013 and was deliberately not rewritten for the sake of a uniform call style.
+
+⚠️ **Five code paths write `status` / `assignee_operator_id`, and all five must record.** The task list said
+two; reading the code by hand found four; the guard
+([`src/transition/sanctioned-writers.spec.ts`](src/transition/sanctioned-writers.spec.ts)) found **five** —
+the fifth being `assignment/round-robin-state.repository.ts` (auto-assignment), which writes the column
+directly and is invisible to a search by method name. A partial stream *looks complete and answers
+wrongly*. Adding a writer without recording fails the build.
+
+**The one read** is `ReportTransitionStreamHealth` — counts and one timestamp, system-actor only, no
+gateway route. It exists because the aggregation store (roadmap 11.0) does not: without it nothing in the
+product could notice the stream had stopped being written, which is machinery this codebase has shipped
+twice (015, 017).
+
+**Retention is configuration and NOTHING DELETES.** The windows are 🅿 provisional, revised by the
+operator's answer on access-record retention (Q1) and by SEC-25.
+
+---
+
+## The conversation title (feature 023, roadmap 4.18)
+
+Their Zendesk fills a chat's subject from the first message, literally, so lists read as *«привет»*,
+*«???»* and mid-word fragments. Here the title is derived from the customer's first **substantive** words
+and then **frozen**.
+
+- **substantive** = at least 15 characters **and** at least 2 distinct words **and** not in the filler
+  vocabulary ([`src/subject/filler.data.ts`](src/subject/filler.data.ts) — data, not code, so the support
+  team can extend it without a deploy). Matched as a **union across all languages**: this product has no
+  language signal, and a Spanish greeting filtered in a Russian conversation is harmless. That also makes
+  "produce it in the customer's language" free — the title is their own words, copied, so there is no
+  generation step and nothing to translate;
+- the **window** closes at whichever comes first: the customer's **3rd** message · the **first public staff
+  reply** · **`SUBJECT_WINDOW_TIMEOUT_MINUTES`** (closed by a sweep, not by a delayed job per
+  conversation — a lost delayed job is a window never closed, silently);
+- then `subject_source = 'auto'` and **no automated writer touches it again**. A human write sets
+  `manual`, which is permanent — and the lock is against **automation**, not against people: a person may
+  rename what another person named;
+- **the fallback stores the topic when known and NULL when not — never the `—` glyph.** The dash is a
+  *rendering* rule (ADR 0044), and storing it would put a display decision in the database and make it
+  sortable as if it were content. `subject_source = 'auto'` with a null subject already says "we looked and
+  the customer never said anything usable", which a bare null could not;
+- **search must never depend on it** (U19). It is model-generated and human-editable, so navigation built
+  on it is navigation built on a mutable, occasionally wrong string — asserted structurally by
+  [`src/conversation/subject-independent-search.spec.ts`](src/conversation/subject-independent-search.spec.ts).
+
+⚠️ **`subject_set_by` / `subject_set_at` are deliberately NOT columns.** Who named the conversation and when
+are answered by the `conversation.subject_set` transition, whose payload is `{ source }` and **never the
+title** — a title is the customer's or an agent's own words, and an append-only store is the last place for
+them. This was first drafted as an *audit* action, and the difficulty of finding an honest class for it
+among privilege / deletion / access / export / assignment / retention **was the answer**: ADR 0019 records
+sensitive actions, and a title edit exposes nothing, deletes nothing and changes no privilege.

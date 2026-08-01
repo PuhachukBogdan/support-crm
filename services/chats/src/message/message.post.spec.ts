@@ -6,6 +6,7 @@ import type { DomainEventPublisher } from '../events/events.publisher';
 import type { FirstReplyClock } from '../sla/first-reply.clock';
 import { MessageWriteController } from './message.grpc.controller';
 import type { UploadsClient } from '../uploads/uploads.client';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 function md(accountId = 'acc-1', userId = 'op-1'): Metadata {
   const m = new Metadata();
@@ -36,7 +37,14 @@ function fakePrisma(brand: string | null = 'brand-a') {
       created_at: CREATED_AT,
     }),
   );
-  const findFirst = jest.fn().mockResolvedValue(brand === null ? null : { brand_id: brand });
+  // Feature 023: the same `findFirst` answers the brand check AND the write path's before-row read.
+  // The title is returned as ALREADY FROZEN (`subject_source: 'auto'`) so these specs stay about the
+  // contact stamp: the window has its own file, `message.subject-window.spec.ts`, whose fake behaves
+  // like a database. A fake that left the window open here would make every stamp assertion also an
+  // assertion about titles, which is how a spec stops saying what its name says.
+  const findFirst = jest
+    .fn()
+    .mockResolvedValue(brand === null ? null : { brand_id: brand, subject_source: 'auto' });
   const stamps: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
   const updateMany = jest.fn(
     (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
@@ -46,8 +54,19 @@ function fakePrisma(brand: string | null = 'brand-a') {
   );
   const createMany = jest.fn(() => Promise.resolve({ count: 0 }));
   const scoped = {
-    message: { create },
+    message: {
+      create,
+      // A NAMED stub that throws, not a permissive mock: the title window is frozen above, so nothing
+      // here may count messages. If a future edit makes the frozen path count anyway, these specs fail
+      // loudly instead of passing against a fake that answered.
+      count: () => {
+        throw new Error('a frozen title window must not count messages');
+      },
+    },
     conversation: { findFirst, updateMany },
+    // Feature 023 (T019): the first public reply is recorded as a transition inside this same
+    // transaction, so the fake needs the table and a before-row read.
+    conversationTransition: { create: jest.fn().mockResolvedValue({}) },
     messageAttachment: { createMany },
   } as Record<string, unknown>;
   // The INTERACTIVE form: `post` needs the created row's own `created_at` (research R2), which the
@@ -99,7 +118,7 @@ function noUploads() {
 describe('MessageWriteController.postMessage (US2)', () => {
   it('posts a public reply authored by the acting operator', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi' },
       md('acc-1', 'op-1'),
@@ -115,7 +134,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('posts a private note and captures @mentions (R6)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'psst', mentions: ['op-2'] },
       md('acc-1', 'op-1'),
@@ -126,7 +145,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('drops mentions on a public reply (mentions belong to private notes)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi', mentions: ['op-2'] },
       md('acc-1', 'op-1'),
@@ -136,7 +155,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('rejects a non-postable kind (incoming/system/unspecified)', async () => {
     const { prisma } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await expect(
       ctrl.postMessage({ conversationId: 'c1', kind: 'MESSAGE_KIND_INCOMING_CUSTOMER', body: 'x' }, md()),
     ).rejects.toBeInstanceOf(RpcException);
@@ -144,7 +163,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('is NOT_FOUND when the conversation is absent / brand not permitted', async () => {
     const { prisma } = fakePrisma(null); // conversation not found in account
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await expect(
       ctrl.postMessage({ conversationId: 'nope', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' }, md('acc-1', 'op-1')),
     ).rejects.toBeInstanceOf(RpcException);
@@ -152,7 +171,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('RecordIncomingMessage yields an INCOMING_CUSTOMER message (FR-009)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     const res = await ctrl.recordIncomingMessage(
       { conversationId: 'c1', body: 'help', authorId: 'player-9' },
       md('acc-1', 'op-1'),
@@ -177,7 +196,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 describe('the contact stamp is written with the message (feature 022)', () => {
   it('a PUBLIC reply stamps last_outbound_at with the created message’s own timestamp', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'answered' },
       md('acc-1', 'op-1'),
@@ -191,7 +210,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
 
   it('an INBOUND customer message stamps last_inbound_at', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await ctrl.recordIncomingMessage(
       { conversationId: 'c1', body: 'help', authorId: 'player-9' },
       md('acc-1', 'op-1'),
@@ -202,7 +221,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
 
   it('a PRIVATE NOTE stamps NOTHING — no update statement is issued at all', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'internal', mentions: ['op-2'] },
       md('acc-1', 'op-1'),
@@ -216,7 +235,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
     // A "helpful" future edit that also touched the other column would make a reply look like the
     // customer wrote, which is the single most misleading thing this card can say.
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' },
       md('acc-1', 'op-1'),
@@ -226,7 +245,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
 
   it('never touches updated_at — the column this feature exists to stop trusting', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
     await ctrl.recordIncomingMessage({ conversationId: 'c1', body: 'hi' }, md('acc-1', 'op-1'));
     for (const s of stamps) {
       expect(Object.keys(s.data)).not.toContain('updated_at');

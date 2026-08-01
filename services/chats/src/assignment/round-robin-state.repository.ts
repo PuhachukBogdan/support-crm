@@ -1,5 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { TransitionRecorder } from '../transition/transition.recorder';
+import {
+  assigned,
+  type ConversationBefore,
+  systemActor,
+  TRANSITION_BEFORE_SELECT,
+} from '../transition/conversation-transitions';
 import { selectRoundRobin, type RoundRobinCandidate } from './round-robin';
 
 export interface AutoAssignOutcome {
@@ -21,7 +28,13 @@ interface WorkflowTx {
     create(args: unknown): Promise<unknown>;
   };
   conversation: {
+    // Feature 023: the transition needs the row as it was BEFORE the assignment, read inside the
+    // same transaction so `from` is the value this write actually replaced.
+    findFirst(args: unknown): Promise<ConversationBefore | null>;
     updateMany(args: unknown): Promise<unknown>;
+  };
+  conversationTransition: {
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
   };
 }
 
@@ -50,7 +63,10 @@ interface TxCapableClient {
  */
 @Injectable()
 export class RoundRobinStateRepository {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+  ) {}
 
   /** The stored cursor for a group, or -1 when the rotation has never run. */
   async readCursor(accountId: string, groupKey: string): Promise<number> {
@@ -86,10 +102,26 @@ export class RoundRobinStateRepository {
       const { operatorId, nextCursor } = selectRoundRobin(candidates, existing?.cursor ?? -1);
       if (operatorId === null) return { operatorId: null };
 
+      const before = await tx.conversation.findFirst({
+        where: { id: conversationId },
+        select: TRANSITION_BEFORE_SELECT,
+      });
+
       await tx.conversation.updateMany({
         where: { id: conversationId },
         data: { assignee_operator_id: operatorId },
       });
+
+      // Feature 023 — the FIFTH writer of this column, and the one no manual inventory found: the
+      // structural guard did. Auto-assignment is precisely the change analytics asks about, so a
+      // stream missing it would answer "how much does routing actually move?" wrongly rather than
+      // refuse to answer. The actor is the router itself, because "the system" is not an answer.
+      if (before) {
+        await this.transitions.record(
+          tx,
+          assigned(accountId, before, operatorId, systemActor('auto-assign'), new Date()),
+        );
+      }
 
       if (existing) {
         await tx.roundRobinState.updateMany({

@@ -4,6 +4,14 @@ import type { Cursor } from '../shared/cursor';
 import type { AutomationTrigger } from '../events/events.types';
 import type { MacroAction } from '../macros/macro-definition';
 import { parseDefinition, toStoredDefinition, type RuleDefinition } from './rule-definition';
+import { TransitionRecorder } from '../transition/transition.recorder';
+import {
+  assigned,
+  statusChanged,
+  systemActor,
+  TRANSITION_BEFORE_SELECT,
+  type ConversationBefore,
+} from '../transition/conversation-transitions';
 
 export interface AutomationRow {
   id: string;
@@ -82,7 +90,10 @@ const isUniqueViolation = (e: unknown): boolean =>
  */
 @Injectable()
 export class AutomationsRepository {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+  ) {}
 
   // ── Authoring ──────────────────────────────────────────────────────────────────────────────────
 
@@ -259,9 +270,32 @@ export class AutomationsRepository {
     run: RunRecord,
   ): Promise<boolean> {
     const db = this.prisma.forAccount(accountId);
+
+    // Feature 023 — the before-row, read before the batch is assembled. Same reasoning as the macro
+    // applier: this batch is all-or-nothing BY ORDERING, so reading `from` one step earlier accepts
+    // exactly the staleness the surrounding design already accepts.
+    const before = (await db.conversation.findFirst({
+      where: { id: conversationId },
+      select: TRANSITION_BEFORE_SELECT,
+    })) as ConversationBefore | null;
+
+    // The rule names itself. A status change caused by automation attributed to "the system" is the
+    // entry that makes the trail useless — "which rule did this?" is the whole question.
+    const actor = systemActor(run.automationId);
+    const now = new Date();
+    const transitionStatements: unknown[] = [];
+
     const statements: unknown[] = actions.map((a) => {
       switch (a.type) {
         case 'MACRO_ACTION_TYPE_SET_STATUS':
+          if (before) {
+            transitionStatements.push(
+              this.transitions.buildStatement(
+                db as never,
+                statusChanged(accountId, before, statusFromWire(a.value), actor, now),
+              ),
+            );
+          }
           return db.conversation.updateMany({
             where: { id: conversationId },
             data: { status: statusFromWire(a.value) },
@@ -272,6 +306,14 @@ export class AutomationsRepository {
             data: { priority: a.value },
           });
         case 'MACRO_ACTION_TYPE_ASSIGN':
+          if (before) {
+            transitionStatements.push(
+              this.transitions.buildStatement(
+                db as never,
+                assigned(accountId, before, a.value, actor, now),
+              ),
+            );
+          }
           return db.conversation.updateMany({
             where: { id: conversationId },
             data: { assignee_operator_id: a.value },
@@ -287,6 +329,10 @@ export class AutomationsRepository {
       }
     });
     statements.push(db.automationRun.create({ data: runData(accountId, run) }));
+    // Transitions ride the SAME batch. Note the ordering: they go in AFTER the run record, so the
+    // at-most-once unique index still decides whether anything lands at all — a duplicate delivery
+    // rolls back the transitions along with the actions, which is the correct outcome.
+    statements.push(...transitionStatements);
 
     try {
       await db.$transaction(statements as never);

@@ -18,7 +18,7 @@ import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
 import { callChats } from './rpc';
-import { toStatusWire, toStatusWireRequired, toSlaOutcomeWire } from './wire';
+import { toStatusWire, toStatusWireRequired, toSlaOutcomeWire, toSubjectWire } from './wire';
 
 interface ConversationPageWire {
   conversations: unknown[];
@@ -34,6 +34,11 @@ interface ChatsReadGrpc {
 interface ChatsWriteGrpc {
   setConversationStatus(
     d: { conversationId: string; status: string },
+    md?: unknown,
+  ): Observable<ConversationWire>;
+  // Feature 023 (roadmap 4.18): a person names the conversation, which locks the title.
+  setConversationSubject(
+    d: { conversationId: string; subject: string },
     md?: unknown,
   ): Observable<ConversationWire>;
 }
@@ -111,6 +116,28 @@ export class ConversationsController implements OnModuleInit {
     return callChats(
       this.write.setConversationStatus(
         { conversationId: id, status: toStatusWireRequired(body?.status) },
+        this.meta(req),
+      ),
+    );
+  }
+
+  /**
+   * Feature 023 (roadmap 4.18) — `PATCH /conversations/:id/subject`.
+   *
+   * On the EXISTING conversation route surface and behind the EXISTING permission: naming a ticket is
+   * not a new kind of authority. The over-length refusal is enforced by the owning service and mapped
+   * here by `callChats`, which turns INVALID_ARGUMENT into a 400 carrying **no downstream detail** —
+   * the value is a human's words, and a message that echoed it would put them in a client log.
+   *
+   * The 400 for a MISSING body is raised at the edge for the same reason every other fail-closed
+   * parser here does it: an absent field must never become a silently-chosen default.
+   */
+  @Patch(':id/subject')
+  @RequiresPermission('crm.conversation.reply')
+  async setSubject(@Param('id') id: string, @Body() body: { subject?: string }, @Req() req: ChatsReq) {
+    return callChats(
+      this.write.setConversationSubject(
+        { conversationId: id, subject: toSubjectWire(body?.subject) },
         this.meta(req),
       ),
     );

@@ -30,4 +30,15 @@ export const SCOPED_MODELS = [
   // the maintenance sweeps (RunDueExports / ExpireDueExports) read by status at the METHOD level, so
   // every other access to this table stays fail-closed through forAccount.
   'ExportJob',
+  // Feature 023 (roadmap 4.8a): the append-only transition stream. Scoped like every other tenant
+  // table, with the SAME method-level exception shape as ConversationSlaState and ExportJob above:
+  // `transition/transition.repository.ts` reads unscoped for the health report.
+  //
+  // ⚠️ CORRECTED 2026-08-01, same day it was written. This comment first claimed there was "no
+  // method-level exception, because nothing reads transitions across accounts" — and then the health
+  // report turned out to be exactly such a read. It is the weakest exception of the three (COUNTS and
+  // one timestamp, no ids at all, no writes follow), but it is one, and saying otherwise would have
+  // left a false statement in the place a reader checks first. The project's own rule: when a
+  // guarantee holds, check WHICH code makes it hold.
+  'ConversationTransition',
 ] as const;

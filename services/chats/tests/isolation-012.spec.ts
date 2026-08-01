@@ -6,6 +6,7 @@ import type { SlaRepository } from '../src/sla/sla.repository';
 import { ConversationReadController } from '../src/conversation/conversation.grpc.controller';
 import { FeedReadController } from '../src/feed/feed.grpc.controller';
 import type { PersonMembersClient } from '../src/person/person-members.client';
+import { TransitionRecorder } from '../src/transition/transition.recorder';
 
 /**
  * T033 (feature 012) — consolidated cross-account isolation sweep (Principle I / SC-003). A store
@@ -76,7 +77,7 @@ function noSla() {
 }
 
 describe('cross-account isolation sweep (SC-003)', () => {
-  const repo = () => new ConversationRepository(fakePrisma());
+  const repo = () => new ConversationRepository(fakePrisma(), new TransitionRecorder());
   /**
    * Feature 022's second dependency on this controller. A THROWING stub, because the player feed holds the
    * full identity and must never resolve person membership — and in an isolation file that matters twice

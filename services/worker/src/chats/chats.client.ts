@@ -33,12 +33,33 @@ export interface ExpireDueExportsResult {
   expired: number;
 }
 
+/**
+ * Feature 023 (roadmap 4.8a): is the transition stream alive? Counts and one timestamp — never a row.
+ * int64 arrives as a STRING (proto-loader longs:String), so the numbers are parsed here rather than
+ * trusted as numbers (the grpc-wire-encoding gotcha).
+ */
+export interface TransitionStreamHealth {
+  total: string;
+  lastHour: string;
+  newestAt: string;
+}
+
+/** Feature 023 (roadmap 4.18): how many title windows the tick found overdue, and how many it closed. */
+export interface SweepSubjectsResult {
+  checked: number;
+  closed: number;
+}
+
 interface MaintenanceGrpc {
   sweepFirstReplySla(data: { limit: number }, md?: Metadata): Observable<SweepResult>;
   // Feature 017 (roadmap 4.10): the export queue tick and the record-expiry tick. Same shape as the
   // sweep above — a limit in, counts out.
   runDueExports(data: { limit: number }, md?: Metadata): Observable<RunDueExportsResult>;
   expireDueExports(data: { limit: number }, md?: Metadata): Observable<ExpireDueExportsResult>;
+  // Feature 023: health only. There is deliberately no list/read counterpart to call.
+  reportTransitionStreamHealth(data: { limit: number }, md?: Metadata): Observable<TransitionStreamHealth>;
+  // Feature 023 (roadmap 4.18): close the title windows whose ten minutes have passed.
+  sweepConversationSubjects(data: { limit: number }, md?: Metadata): Observable<SweepSubjectsResult>;
 }
 
 @Injectable()
@@ -64,6 +85,28 @@ export class ChatsMaintenanceClient implements OnModuleInit {
   /** Flip `ready` exports past their expiry to `expired` (feature 017). Counts only. */
   async expireDueExports(limit: number): Promise<ExpireDueExportsResult> {
     return firstValueFrom(this.svc.expireDueExports({ limit }, systemMetadata()));
+  }
+
+  /**
+   * Feature 023: ask whether the transition stream is being written. The only call in this client that
+   * asks a question instead of doing work — and it exists because the stream has no consumer yet, so
+   * without it nothing in the product could notice it had stopped.
+   */
+  async reportTransitionStreamHealth(): Promise<TransitionStreamHealth> {
+    return firstValueFrom(
+      // `limit` is unused by this rpc; the shared SweepRequest shape carries it.
+      this.svc.reportTransitionStreamHealth({ limit: 0 }, systemMetadata()),
+    );
+  }
+
+  /**
+   * Feature 023: close the title windows whose ten minutes have passed (roadmap 4.18, FR-018).
+   *
+   * The other two arms of the window close on the write path itself; only the timeout needs a tick.
+   * Counts only — no conversation id and certainly no title crosses this boundary.
+   */
+  async sweepConversationSubjects(limit: number): Promise<SweepSubjectsResult> {
+    return firstValueFrom(this.svc.sweepConversationSubjects({ limit }, systemMetadata()));
   }
 }
 

@@ -3,6 +3,7 @@ import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { FeedReadController } from './feed.grpc.controller';
 import type { PersonMembersClient } from '../person/person-members.client';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 /**
  * ⚠️ **This spec used to certify the defect.** Its first test read *"merges a player across the brands
@@ -67,7 +68,7 @@ function noMembers() {
 }
 
 const ctrlFor = (prisma: PrismaService) =>
-  new FeedReadController(new ConversationRepository(prisma), noMembers());
+  new FeedReadController(new ConversationRepository(prisma, new TransitionRecorder()), noMembers());
 
 describe('FeedReadController.getPlayerFeed — ONE brand-scoped player (feature 020)', () => {
   it('*** the same platform id under another brand does NOT appear in this feed ***', async () => {

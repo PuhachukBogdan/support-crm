@@ -56,6 +56,11 @@ message ConversationSummary {
   string channel = 7;
   string last_activity_at = 8;        // ISO-8601 (updated_at)
   string created_at = 9;
+  // Feature 023 (roadmap 4.18) — additive, and this is the field the feature EXISTS for: their current
+  // lists read as "привет", "???" and mid-word fragments because the subject is the first message taken
+  // literally. `subject_source` is deliberately NOT here — a list does not need to know how a title was
+  // set, and the summary is the widest-fanout message in the product.
+  string subject = 10;
 }
 
 // Full conversation detail (metadata; thread via GetThread).
@@ -77,6 +82,14 @@ message Conversation {
   // Feature 014 (roadmap 4.7) — additive. The first-reply measurement rides on the detail so the UI
   // needs no second call. Absent when no clock ever started (no SLA policy applied).
   FirstReplySlaState first_reply_sla = 14;
+  // Feature 023 (roadmap 4.18) — additive. The human-readable title, derived from the customer's own
+  // first substantive words and then FROZEN; `subject_source` is `auto` | `manual` | "" (window still
+  // open). Both may legitimately be empty, and proto3 omits defaults — here "unset" and "empty" are
+  // the SAME fact for a reader, unlike the masking case of feature 019 where the distinction was
+  // load-bearing. Do NOT make these `optional`: it would add nothing and would trip `buf breaking`
+  // on a cardinality change.
+  string subject = 15;
+  string subject_source = 16;
 }
 
 // Feature 016 (roadmap 4.9) — rendering metadata for a file attached to a message. The bytes are
@@ -288,6 +301,11 @@ message ChannelContactEntry {
 service ChatsWriteService {
   rpc PostMessage(PostMessageRequest) returns (Message);
   rpc SetConversationStatus(SetConversationStatusRequest) returns (Conversation);
+  // Feature 023 (roadmap 4.18) — additive. A person names the conversation, and doing so LOCKS the
+  // title against every automated writer, permanently (FR-022 / U9). Reuses the existing
+  // conversation-write permission at both tiers: naming a ticket is not a new kind of authority, and
+  // a key that gates one field would be a key nobody assigns.
+  rpc SetConversationSubject(SetConversationSubjectRequest) returns (Conversation);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   // Internal/seed + future channel ingress (Phase 6) path for inbound customer messages:
   rpc RecordIncomingMessage(RecordIncomingMessageRequest) returns (Message);
@@ -305,6 +323,8 @@ service ChatsWriteService {
   rpc UpdateAutomation(UpdateAutomationRequest) returns (Automation);
   rpc DeleteAutomation(AutomationIdRequest) returns (Ack);
   rpc SetFirstReplySlaPolicy(SetFirstReplySlaPolicyRequest) returns (FirstReplySlaPolicy);
+  // NOTE: SetConversationSubject (roadmap 4.18) is declared by US3 alongside its handler — an rpc
+  // ships with its writer, which is the lesson every-rpc-is-served taught twice in this feature.
 }
 
 message PostMessageRequest {
@@ -322,6 +342,13 @@ message PostMessageRequest {
 message SetConversationStatusRequest {
   string conversation_id = 1;
   ConversationStatus status = 2;      // must be a valid non-UNSPECIFIED value
+}
+
+// Feature 023. `subject` is bounded at the edge and REFUSED when over-long rather than truncated: a
+// silently shortened title is a title the author did not write, and they have no way to tell.
+message SetConversationSubjectRequest {
+  string conversation_id = 1;
+  string subject = 2;
 }
 
 message CreateConversationRequest {
@@ -614,6 +641,37 @@ service ChatsMaintenanceService {
   // users.UsersMaintenanceService.PurgeExpiredArtefacts on its own predicate (research R7), so neither
   // service waits on the other: a downed peer delays nothing and loses nothing.
   rpc ExpireDueExports(MaintenanceBatchRequest) returns (ExpireDueExportsResult);
+
+  // ── Feature 023 — additive. Same fencing as every sweep above: system actor only, no gateway route,
+  // COUNTS in the response. ──
+  //
+  // Is the transition stream actually being written? The stream has NO consumer yet (the aggregation
+  // store is roadmap 11.0), so without this there is no way to notice it has stopped — and this
+  // codebase has shipped write-only machinery that rotted silently twice (a hosted package with no
+  // registered handler, feature 015; a maintenance rpc reached by no tick, feature 017). COUNTS only:
+  // returning rows would be the read surface this feature deliberately refuses.
+  rpc ReportTransitionStreamHealth(SweepRequest) returns (TransitionStreamHealth);
+
+  // Close the derivation windows whose ten minutes have passed (roadmap 4.18, FR-018). The other two
+  // arms of the window — the customer's third message and the first staff reply — close on the write
+  // path itself; only the timeout needs a tick. A sweep rather than ~3 000 delayed jobs a day
+  // (research R5): a lost delayed job is a window never closed, silently.
+  rpc SweepConversationSubjects(SweepRequest) returns (SweepSubjectsResult);
+}
+
+// Feature 023 — a COUNT, never a row.
+message TransitionStreamHealth {
+  int64 total = 1;
+  int64 last_hour = 2;
+  // Timestamp only: no payload, no dimensions, no subject id.
+  string newest_at = 3;
+}
+
+// Feature 023 — counts only. `closed` is below `checked` whenever a window closed on the write path
+// between the selection and the close, which is normal and not an error.
+message SweepSubjectsResult {
+  int32 checked = 1;
+  int32 closed = 2;
 }
 
 message SweepRequest {

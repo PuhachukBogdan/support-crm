@@ -1,6 +1,8 @@
 import type { PrismaService } from '../src/prisma.service';
 import { MessageRepository } from '../src/message/message.repository';
 import { SCOPED_MODELS } from '../src/prisma.scoped-models';
+import { TransitionRecorder } from '../src/transition/transition.recorder';
+import { userActor } from '../src/transition/conversation-transitions';
 
 /**
  * T058 (feature 016) — cross-account isolation for `MessageAttachment` (Principle I / SC-005).
@@ -70,6 +72,9 @@ function fakePrisma() {
             attachments: [],
           }),
       },
+      // Feature 023 (T019): the first public reply is recorded as a transition inside this same
+      // transaction, so the fake needs the table and a before-row read.
+      conversationTransition: { create: jest.fn().mockResolvedValue({}) },
       messageAttachment: {
         createMany: (args: { data: Record<string, unknown>[] }) => {
           writes.push({ account: acc, rows: args.data });
@@ -77,7 +82,10 @@ function fakePrisma() {
         },
       },
       conversation: {
-        findFirst: jest.fn().mockResolvedValue({ brand_id: 'brand-a' }),
+        // Feature 023: the title is returned ALREADY FROZEN, so the derivation window cannot fire and
+        // add a second `updateMany` to `stamps`. This file is about account isolation on the
+        // attachment path; the window has its own spec with a fake that behaves like a database.
+        findFirst: jest.fn().mockResolvedValue({ brand_id: 'brand-a', subject_source: 'auto' }),
         // Feature 022's contact stamp. Recorded SEPARATELY from `writes` on purpose: the assertions
         // below count attachment writes exactly, and folding a second kind of write into that array
         // would loosen an existing guarantee to make room for a new one.
@@ -108,7 +116,7 @@ describe('MessageAttachment is an account-scoped model', () => {
 describe('*** a cross-account thread read returns no attachment ids ***', () => {
   it('the neighbour’s message and its upload id are both invisible', async () => {
     const { prisma } = fakePrisma();
-    const { rows } = await new MessageRepository(prisma).thread(OURS, 'c1', 'staff', 50, null);
+    const { rows } = await new MessageRepository(prisma, new TransitionRecorder()).thread(OURS, 'c1', 'staff', 50, null);
     expect(rows.map((r) => r.id)).toEqual(['m-ours']);
     const payload = JSON.stringify(rows);
     expect(payload).not.toContain('up-theirs-secret');
@@ -117,13 +125,13 @@ describe('*** a cross-account thread read returns no attachment ids ***', () => 
 
   it('the other account sees only its own', async () => {
     const { prisma } = fakePrisma();
-    const { rows } = await new MessageRepository(prisma).thread(THEIRS, 'c1', 'staff', 50, null);
+    const { rows } = await new MessageRepository(prisma, new TransitionRecorder()).thread(THEIRS, 'c1', 'staff', 50, null);
     expect(rows.map((r) => r.id)).toEqual(['m-theirs']);
   });
 
   it('the read never scopes to another account', async () => {
     const { prisma, forAccount } = fakePrisma();
-    await new MessageRepository(prisma).thread(OURS, 'c1', 'staff', 50, null);
+    await new MessageRepository(prisma, new TransitionRecorder()).thread(OURS, 'c1', 'staff', 50, null);
     expect(forAccount).toHaveBeenCalledWith(OURS);
     expect(forAccount).not.toHaveBeenCalledWith(THEIRS);
   });
@@ -132,7 +140,7 @@ describe('*** a cross-account thread read returns no attachment ids ***', () => 
 describe('*** an attachment row is stamped with the CALLER’s account ***', () => {
   it('never with one taken from the request', async () => {
     const { prisma, writes } = fakePrisma();
-    await new MessageRepository(prisma).post(OURS, {
+    await new MessageRepository(prisma, new TransitionRecorder()).post(OURS, {
       conversationId: 'c1',
       authorType: 'operator',
       authorId: 'op-1',
@@ -140,7 +148,7 @@ describe('*** an attachment row is stamped with the CALLER’s account ***', () 
       isPrivate: false,
       mentions: [],
       uploadIds: ['up-ours'],
-    });
+    }, userActor('u1'));
     expect(writes).toHaveLength(1);
     expect(writes[0]!.account).toBe(OURS);
     expect(writes[0]!.rows.every((r) => r.account_id === OURS)).toBe(true);
@@ -155,14 +163,14 @@ describe('*** an attachment row is stamped with the CALLER’s account ***', () 
 describe('*** the contact stamp goes through the CALLER’s scoped client ***', () => {
   it('stamps the conversation for the acting account only', async () => {
     const { prisma, stamps, forAccount } = fakePrisma();
-    await new MessageRepository(prisma).post(OURS, {
+    await new MessageRepository(prisma, new TransitionRecorder()).post(OURS, {
       conversationId: 'c1',
       authorType: 'operator',
       authorId: 'op-1',
       body: 'a public reply',
       isPrivate: false,
       mentions: [],
-    });
+    }, userActor('u1'));
     expect(stamps).toHaveLength(1);
     expect(stamps[0]!.account).toBe(OURS);
     expect(forAccount).not.toHaveBeenCalledWith(THEIRS);
@@ -173,14 +181,14 @@ describe('*** the contact stamp goes through the CALLER’s scoped client ***', 
 
   it('writes NO stamp for a private note, so a note cannot touch another account’s row either', async () => {
     const { prisma, stamps } = fakePrisma();
-    await new MessageRepository(prisma).post(OURS, {
+    await new MessageRepository(prisma, new TransitionRecorder()).post(OURS, {
       conversationId: 'c1',
       authorType: 'operator',
       authorId: 'op-1',
       body: 'internal',
       isPrivate: true,
       mentions: [],
-    });
+    }, userActor('u1'));
     expect(stamps).toEqual([]);
   });
 });

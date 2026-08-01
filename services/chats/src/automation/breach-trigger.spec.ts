@@ -10,6 +10,7 @@ import { LabelsRepository } from '../labels/labels.repository';
 import type { AuthorAuthorityClient } from '../auth/auth.client';
 import type { PrismaService } from '../prisma.service';
 import type { ConversationRepository } from '../conversation/conversation.repository';
+import { TransitionRecorder } from '../transition/transition.recorder';
 
 /**
  * T048 (feature 014, US3) — **the join**: a missed first-reply target is an event, so a rule can react
@@ -69,6 +70,7 @@ function world(opts: { rules?: unknown[] } = {}) {
   };
   const runs: Record<string, unknown>[] = [];
   const conversationWrites: Record<string, unknown>[] = [];
+  const transitionWrites: Record<string, unknown>[] = [];
   const labelLinks: Record<string, unknown>[] = [];
 
   /** A deferred statement, as Prisma's PrismaPromise is for practical purposes inside $transaction. */
@@ -113,6 +115,17 @@ function world(opts: { rules?: unknown[] } = {}) {
     },
     conversation: {
       updateMany: (a: Record<string, unknown>) => defer(() => void conversationWrites.push(a)),
+      // Feature 023: awaited before assembly; the writes themselves stay in the batch.
+      findFirst: async () => ({
+        id: 'c1',
+        status: 'open',
+        brand_id: 'brand-a',
+        channel: null,
+        assignee_operator_id: null,
+      }),
+    },
+    conversationTransition: {
+      create: (a: Record<string, unknown>) => defer(() => void transitionWrites.push(a)),
     },
   } as Record<string, unknown>;
 
@@ -154,7 +167,7 @@ function world(opts: { rules?: unknown[] } = {}) {
 }
 
 function assemble(w: ReturnType<typeof world>) {
-  const automations = new AutomationsRepository(w.prisma);
+  const automations = new AutomationsRepository(w.prisma, new TransitionRecorder());
   const engine = new AutomationEngine(
     automations,
     new LabelsRepository(w.prisma),

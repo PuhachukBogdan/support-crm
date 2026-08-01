@@ -115,7 +115,7 @@ describe('*** an ABSENT effective role fails closed to the most restricted tier 
     expect(visibleTiersFor(role)).toEqual(['open']);
 
     // The consequence that matters: nothing operational, nothing portfolio-side, nothing top-tier.
-    const fields = allowedFields(role);
+    const fields = allowedFields(role, { attachedToSubject: false });
     for (const withheld of ['vip', 'segment', 'custom_attributes', 'am_notes', 'preferences', 'portfolio', 'gr8_snapshot']) {
       expect({ withheld, visible: fields.has(withheld) }).toEqual({ withheld, visible: false });
     }

@@ -2,6 +2,21 @@ import { Metadata } from '@grpc/grpc-js';
 import { PlayerReadController } from './player.grpc.controller';
 import type { PlayerRow } from './player.repository';
 
+/**
+ * ⭐ Feature 026 (roadmap 5.7): the attachment the masking rule now asks about.
+ *
+ * Defaults to NOT attached, deliberately. Every one of these tests predates the narrowing and was
+ * written when the AM tier was role-wide; defaulting to "attached" would have kept them all green
+ * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
+ * which is what the required parameter was for.
+ */
+const attachStub = (attached = false) =>
+  ({
+    isAttached: async () => attached,
+    attachedAmong: async () => new Set<string>(),
+  }) as never;
+
+
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
   return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
@@ -56,7 +71,15 @@ interface AuditCall {
   underPreview: boolean;
 }
 
-function harness(row: PlayerRow | null = ROW) {
+/**
+ * ⭐ Feature 026: the caller IS attached to this player.
+ *
+ * A named helper rather than a boolean at each call site, so that a test reads as a statement about
+ * the world ("this manager looks after this customer") rather than as a flag somebody set.
+ */
+const harnessAttached = (row: PlayerRow | null = ROW) => harness(row, true);
+
+function harness(row: PlayerRow | null = ROW, attached = false) {
   const views: AuditCall[] = [];
   const bulk: AuditCall[] = [];
   const access = {
@@ -81,7 +104,7 @@ function harness(row: PlayerRow | null = ROW) {
   };
   const operators = { getById: jest.fn(async () => null) };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub()),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub(attached)),
     players,
     access,
     views,
@@ -91,8 +114,12 @@ function harness(row: PlayerRow | null = ROW) {
 
 describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () => {
   it('each tier is a superset of the one below, by KEYS not values', async () => {
+    // ⭐ Feature 026: the caller is ATTACHED throughout this test, deliberately. The property under
+    // test is that the ROLE tiers nest — each role's field set contains the one below it — and that
+    // is a statement about clearance, not about attachment. Running it unattached would collapse the
+    // AM tier and test the narrowing instead, which has its own tests. Two properties, two tests.
     const present = async (role: string) => {
-      const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role))) as Record<string, unknown>;
+      const wire = (await harnessAttached().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role))) as Record<string, unknown>;
       // "Present" means a non-default value: a masked-away field lands as proto3's default, so the honest
       // question at the wire layer is which fields carry data.
       return new Set(
@@ -142,8 +169,29 @@ describe('*** four roles, four different field sets *** (FR-006 / SC-002)', () =
     }
   });
 
-  it('an account manager sees the portfolio', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am'))) as Record<string, unknown>;
+  it('⭐ an account manager attached to NOBODY sees no portfolio at all', async () => {
+    // The other half of the same requirement, and the one the roadmap actually names: an AM must not
+    // read a player they are not attached to. Absent, not empty (feature 011 FR-014).
+    const wire = (await harness().ctl.getPlayer(
+      { playerId: 'ply-1', brandId: 'brand-a' },
+      md('am'),
+    )) as Record<string, unknown>;
+    expect(wire.amNotes).toBeUndefined();
+    expect(wire.preferencesJson).toBeUndefined();
+    expect(wire.portfolioJson).toBeUndefined();
+    // …but they still see who the player is, which is what makes attaching them possible (FR-012).
+    expect(wire.playerId).toBe('ply-1');
+  });
+
+  it('an account manager sees the portfolio — WHEN ATTACHED', async () => {
+    // ⭐ Feature 026 (roadmap 5.7) narrowed this. Before it, the AM tier was gated by ROLE ALONE and
+    // this test passed without saying anything about attachment. It now has to say — which is the
+    // point of making the parameter required: a test that does not state its assumption was not
+    // thinking about the tier.
+    const wire = (await harnessAttached().ctl.getPlayer(
+      { playerId: 'ply-1', brandId: 'brand-a' },
+      md('am'),
+    )) as Record<string, unknown>;
     expect(wire.amNotes).toBe('prefers calls after 18:00');
     expect(wire.preferencesJson).toContain('telegram');
     expect(wire.portfolioJson).toContain('gold');

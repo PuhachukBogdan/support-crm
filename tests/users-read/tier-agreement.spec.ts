@@ -316,7 +316,10 @@ describe('*** an UNCLASSIFIED field is invisible to every role — verified by a
   };
 
   it.each([...ROLE_KEYS, 'some_new_role', ''])('%s cannot see the unclassified field', (role) => {
-    const masked = maskPlayer(row, role);
+    // ⭐ Feature 026 added a required attachment argument. `true` here, deliberately: the property
+    // under test is that an UNCLASSIFIED field is invisible to everyone, and the most demanding case
+    // is the most privileged one. If it stays hidden from an attached AM, it stays hidden.
+    const masked = maskPlayer(row, role, { attachedToSubject: true });
     expect(Object.keys(masked)).not.toContain('loyalty_rank');
     expect('loyalty_rank' in masked).toBe(false);
   });
@@ -324,19 +327,19 @@ describe('*** an UNCLASSIFIED field is invisible to every role — verified by a
   it('super_admin — the broadest clearance — cannot see it either', () => {
     // Stated separately because this is the assertion that distinguishes the real behaviour from the
     // behaviour the old comment described.
-    expect(allowedFields('super_admin').has('loyalty_rank')).toBe(false);
-    expect(Object.keys(maskPlayer(row, 'super_admin'))).not.toContain('loyalty_rank');
+    expect(allowedFields('super_admin', { attachedToSubject: true }).has('loyalty_rank')).toBe(false);
+    expect(Object.keys(maskPlayer(row, 'super_admin', { attachedToSubject: true }))).not.toContain('loyalty_rank');
   });
 
   it('…while the fields that ARE classified still come through for a cleared role', () => {
     // The counterweight: a fail-closed default is only interesting if the open path still works, else the
     // test above would pass on a masking function that returns nothing at all.
-    const masked = maskPlayer(row, 'super_admin');
+    const masked = maskPlayer(row, 'super_admin', { attachedToSubject: true });
     expect(Object.keys(masked).sort()).toEqual(['am_notes', 'gr8_snapshot', 'player_id', 'vip']);
   });
 
   it('a linear role sees only the open tier, and withheld fields are ABSENT not null', () => {
-    const masked = maskPlayer(row, 'support_agent');
+    const masked = maskPlayer(row, 'support_agent', { attachedToSubject: true });
     expect(Object.keys(masked)).toEqual(['player_id']);
     expect('am_notes' in masked).toBe(false);
     expect('gr8_snapshot' in masked).toBe(false);

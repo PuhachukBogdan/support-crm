@@ -325,6 +325,51 @@ while a conversation's assignee is an operator profile, and the two live in diff
   answers "who can take this work?" completely**, and splitting the two conditions across layers is how
   a caller ends up applying one and forgetting the other.
 
+## Player ↔ account-manager assignment (feature 026, roadmap 5.7)
+
+Which player is looked after by which manager — the entity replacing the Excel portfolio, and the
+prerequisite for the 4.14 ticket scope and the 9.10 "my players" list.
+
+**⚠️ ATTACHMENT GRANTS ACCESS.** A row hands the manager the player's portfolio, preferences and AM
+notes. Not a "mine" marker: a grant of access to data about a real human being. Everything below
+follows from that.
+
+**⚠️ THIS POINT NARROWED SOMETHING ALREADY SHIPPED, and that is its real content.** Before it, the
+`am_only` tier was gated **by role alone** — any AM-role caller read every player's portfolio. Now:
+
+```
+sees am_only  ⟺  role has am_only  AND  ( role has masked_pii  OR  attached to this player )
+```
+
+The rule is **derived from the tier map**, not from a list of role names: `masked_pii` *is* the
+administrative clearance, so administrators stay exempt and a future role added to either tier is
+handled correctly without anybody remembering. Two boundaries keep it coherent: administrators are
+exempt (their reads are already audited), and **only `am_only` narrows** — `open` and `operational`
+stay role-gated, or an AM could not see enough of an unattached player to attach them.
+
+**The five readers of the tier, and what each does** (`tests/users-read/am-tier-requires-attachment.spec.ts`
+pins the list, so a sixth has to argue for itself):
+
+| Reader | Narrows | Why |
+|---|---|---|
+| `GetPlayer`, `ListPlayersByBrand` | yes | they name a record |
+| `contact-view-audit` `recordView` | **yes** | names one player — an entry claiming an unattached AM surfaced the tier would **overstate** the trail whose job is detecting over-reach |
+| `contact-view-audit` `recordBulkRead` | **no** | names a **brand**, so there is no single attachment to ask about; narrowing would **understate** |
+| `canMassExportContacts` | no | a role-level gate with no record in view |
+
+**Storage.** `PlayerAssignment`, keyed on the player's full `(account, brand, player_id)` identity and
+on the manager's **auth identity** (not the operator profile id — the narrowing asks *"is the CALLER
+attached?"* on every masked read, and the caller is an auth identity; the profile is validated at
+write time instead). A **partial unique index** filtered to `ended_at IS NULL` gives one active
+manager per player *and* additive history at once — widening later is `DROP INDEX`, not a reshape.
+
+**⚠️ Self-assignment is an intended route to the AM tier**: attach, read, detach. The operator asked
+for self-service explicitly, so the control is the **audit** rather than a refusal — every attach and
+detach writes exactly one entry, with `selfAssigned` and `managerRef`, and the third index exists
+only so *"who attached how many, and when"* needs no scan. There is **no alerting surface** (none
+exists yet — 7.1/7.3), no bulk-assign verb (that would be the harvesting vector), and no
+`TransferPlayer` (a move is two audited acts, and Q3.1 is still open).
+
 ## Agent presence (feature 025, roadmap 5.9) — for ROUTING only
 
 Four states — `online` · `transfers_only` · `away` · `offline` — narrowable per channel, lowered

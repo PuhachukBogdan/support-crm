@@ -4,6 +4,7 @@ import {
   FIELD_TIERS,
   ROLE_VISIBLE_TIERS,
   surfacedMaskableTiers,
+  surfacedMaskableTiersForRole,
   visibleTiersFor,
 } from './field-tiers';
 
@@ -15,7 +16,7 @@ import {
 describe('field-tiers policy', () => {
   it('gives a linear role (support_agent) the open tier ONLY', () => {
     expect(visibleTiersFor('support_agent')).toEqual(['open']);
-    const fields = allowedFields('support_agent');
+    const fields = allowedFields('support_agent', { attachedToSubject: false });
     expect(fields.has('player_id')).toBe(true);
     // masked / operational / am_only fields are NOT visible to a linear role.
     for (const hidden of ['vip', 'segment', 'am_notes', 'preferences', 'portfolio', 'gr8_snapshot']) {
@@ -24,7 +25,7 @@ describe('field-tiers policy', () => {
   });
 
   it('gives VIP Support operational but NOT am_only or masked_pii', () => {
-    const fields = allowedFields('vip_support');
+    const fields = allowedFields('vip_support', { attachedToSubject: false });
     expect(fields.has('segment')).toBe(true);
     expect(fields.has('vip')).toBe(true);
     expect(fields.has('am_notes')).toBe(false);
@@ -32,7 +33,7 @@ describe('field-tiers policy', () => {
   });
 
   it('gives AM the am_only fields (portfolio replaces the Excel)', () => {
-    const fields = allowedFields('am');
+    const fields = allowedFields('am', { attachedToSubject: true });
     expect(fields.has('am_notes')).toBe(true);
     expect(fields.has('preferences')).toBe(true);
     expect(fields.has('portfolio')).toBe(true);
@@ -41,7 +42,7 @@ describe('field-tiers policy', () => {
   });
 
   it('gives super_admin the masked_pii tier', () => {
-    expect(allowedFields('super_admin').has('gr8_snapshot')).toBe(true);
+    expect(allowedFields('super_admin', { attachedToSubject: false }).has('gr8_snapshot')).toBe(true);
   });
 
   it('treats an unknown role as linear (open-only, fail-closed)', () => {
@@ -49,8 +50,17 @@ describe('field-tiers policy', () => {
   });
 
   it('reports the maskable tiers a read surfaces (audit driver)', () => {
-    expect(surfacedMaskableTiers('support_agent')).toEqual([]); // open only → nothing to audit
-    expect(surfacedMaskableTiers('am')).toEqual(['operational', 'am_only']);
+    expect(surfacedMaskableTiers('support_agent', { attachedToSubject: false })).toEqual([]); // open only → nothing to audit
+    // ⭐ Feature 026: the tier an entry records now depends on the RECORD, not only the role. An
+    // ATTACHED AM surfaces the portfolio…
+    expect(surfacedMaskableTiers('am', { attachedToSubject: true })).toEqual(['operational', 'am_only']);
+    // …and an UNATTACHED one does not, so the entry must not claim they did. A trail that overstates
+    // is worse than one that understates: its false entries look exactly like its true ones.
+    expect(surfacedMaskableTiers('am', { attachedToSubject: false })).toEqual(['operational']);
+    // The BULK read keeps the role-level answer, because its entry names a brand rather than a
+    // record — there is no single attachment to ask about, and the clearance genuinely can surface
+    // the tier for some of the page.
+    expect(surfacedMaskableTiersForRole('am')).toEqual(['operational', 'am_only']);
   });
 
   /**
@@ -70,10 +80,10 @@ describe('field-tiers policy', () => {
    */
   it('classifies person_id as open — visible to a linear role, and invisible to the audit driver', () => {
     expect(FIELD_TIERS.person_id).toBe('open');
-    expect(allowedFields('support_agent').has('person_id')).toBe(true);
+    expect(allowedFields('support_agent', { attachedToSubject: false }).has('person_id')).toBe(true);
     for (const role of Object.keys(ROLE_VISIBLE_TIERS)) {
       // `open` is never a maskable tier, so no role's read is upgraded to an audited reveal by it.
-      expect(surfacedMaskableTiers(role)).not.toContain('open');
+      expect(surfacedMaskableTiers(role, { attachedToSubject: false })).not.toContain('open');
     }
   });
 

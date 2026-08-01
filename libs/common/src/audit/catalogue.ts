@@ -191,16 +191,26 @@ export const AUDIT_ACTIONS = {
   },
 
   // ── assignment (roadmap 5.7 / SEC-AP3) ──
+  // ── Feature 026 (roadmap 5.7): promoted from `no-writer-yet` to `live`. ──
+  //
+  // Reserved by feature 015 for exactly this moment, so that the feature which needed them would
+  // write HERE rather than invent a second store. That is the mechanism working.
+  //
+  // ⚠️ These two carry more weight than their class name suggests. ATTACHMENT GRANTS ACCESS: a
+  // manager can attach a player to themselves without an administrator, read the portfolio, and
+  // detach. No rule is broken and the data is gone. The audit is not a nicety here — it is the
+  // stated PRICE of the self-service capability the operator asked for, and the trail has to make
+  // abnormal volume computable (which is why `assigned_by` is stored separately from the manager).
   'player.assign': {
     class: 'assignment',
     writer: 'users',
-    status: 'no-writer-yet',
+    status: 'live',
     label: 'Player attached to an account manager',
   },
   'player.unassign': {
     class: 'assignment',
     writer: 'users',
-    status: 'no-writer-yet',
+    status: 'live',
     label: 'Player detached from an account manager',
   },
 

@@ -5,6 +5,21 @@ import { PlayerRepository } from './player.repository';
 import { PlayerReadController } from './player.grpc.controller';
 import type { PrismaService } from '../prisma.service';
 
+/**
+ * ⭐ Feature 026 (roadmap 5.7): the attachment the masking rule now asks about.
+ *
+ * Defaults to NOT attached, deliberately. Every one of these tests predates the narrowing and was
+ * written when the AM tier was role-wide; defaulting to "attached" would have kept them all green
+ * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
+ * which is what the required parameter was for.
+ */
+const attachStub = (attached = false) =>
+  ({
+    isAttached: async () => attached,
+    attachedAmong: async () => new Set<string>(),
+  }) as never;
+
+
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
   return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
@@ -177,6 +192,7 @@ describe('*** page tokens: malformed is refused, FOREIGN is accepted and still f
       { getById: jest.fn() } as never,
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
       personsStub(),
+      attachStub(),
     );
     const res = await failure(
       ctl.listPlayersByBrand({ brandId: 'brand-a', pageToken: 'not-a-token!!' }, md()),
@@ -217,7 +233,7 @@ describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any 
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub()),
       players,
       access,
       role,
@@ -284,7 +300,7 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub()),
       players,
       access,
     };
@@ -348,7 +364,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub()),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub()),
       access,
       bulk,
       role,
@@ -403,6 +419,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       { getById: jest.fn() } as never,
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
       personsStub(),
+      attachStub(),
     );
     const page = (await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'))) as {
       nextPageToken: string;
@@ -436,6 +453,7 @@ describe('T050 — one membership lookup per PAGE (never per row)', () => {
       { getById: jest.fn() } as never,
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
       personsStub(),
+      attachStub(),
     );
     return { ctl, personIdsFor, personIdOf };
   }

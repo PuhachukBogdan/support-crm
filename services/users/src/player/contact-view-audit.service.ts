@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { surfacedMaskableTiers, type FieldTier } from '@crm/common';
+import { surfacedMaskableTiers, surfacedMaskableTiersForRole, type FieldTier } from '@crm/common';
 import { AuditRepository } from '../audit/audit.repository';
 
 /** Sensitivity order — the audit row records the MOST sensitive tier a read surfaced. */
@@ -62,8 +62,19 @@ export class ContactViewAuditService {
     subject: { brandId: string; playerId: string },
     roleKey: string,
     underPreview = false,
+    /**
+     * ⭐ Feature 026 (roadmap 5.7). Whether the caller is attached to THIS player.
+     *
+     * The note below used to say the recorded tier follows the caller's CLEARANCE rather than which
+     * fields held a value — right while clearance was a property of the role alone. It is now a
+     * property of the role AND this record, and an entry claiming an unattached AM surfaced
+     * `am_only` would OVERSTATE a trail whose whole purpose is detecting over-reach. A trail that
+     * overstates is worse than one that understates: its false entries look exactly like its true
+     * ones.
+     */
+    attachedToSubject = false,
   ): Promise<void> {
-    const surfaced = surfacedMaskableTiers(roleKey);
+    const surfaced = surfacedMaskableTiers(roleKey, { attachedToSubject });
 
     if (surfaced.length === 0) {
       /**
@@ -119,7 +130,11 @@ export class ContactViewAuditService {
     filterFields: string[],
     underPreview = false,
   ): Promise<void> {
-    const surfaced = surfacedMaskableTiers(roleKey);
+    // ⚠️ The ROLE-level answer, deliberately (feature 026). This entry names a BRAND, not a record,
+    // so there is no single attachment to ask about — and the caller's clearance genuinely can
+    // surface `am_only` for whichever rows in the page they are attached to. Narrowing here would
+    // understate the trail, which is the opposite mistake and just as wrong.
+    const surfaced = surfacedMaskableTiersForRole(roleKey);
     if (surfaced.length === 0) return; // unreachable: the guard refuses an open-only role first.
 
     const topTier = surfaced.reduce((a, b) => (TIER_RANK[b] > TIER_RANK[a] ? b : a));

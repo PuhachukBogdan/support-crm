@@ -5,6 +5,21 @@ import { encodeCursor } from '@crm/common';
 import { PlayerReadController } from './player.grpc.controller';
 import type { PlayerRow } from './player.repository';
 
+/**
+ * ⭐ Feature 026 (roadmap 5.7): the attachment the masking rule now asks about.
+ *
+ * Defaults to NOT attached, deliberately. Every one of these tests predates the narrowing and was
+ * written when the AM tier was role-wide; defaulting to "attached" would have kept them all green
+ * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
+ * which is what the required parameter was for.
+ */
+const attachStub = (attached = false) =>
+  ({
+    isAttached: async () => attached,
+    attachedAmong: async () => new Set<string>(),
+  }) as never;
+
+
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
   return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
@@ -87,7 +102,7 @@ function harness(opts: { row?: PlayerRow | null; auditThrows?: boolean } = {}) {
     })),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub()),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub()),
     players,
     operators,
     access,

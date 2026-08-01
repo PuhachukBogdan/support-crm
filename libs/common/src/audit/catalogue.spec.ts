@@ -66,6 +66,11 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // entry, deliberately, and `presence.override` is therefore the whole of this feature's
     // footprint in this catalogue.
     'presence.override',
+    // Feature 026 (roadmap 5.7). Reserved by 015 for exactly this feature; the writer is `users`.
+    // ⚠️ Weightier than the class name suggests: ATTACHMENT GRANTS ACCESS, and self-assignment makes
+    // these entries the stated price of the capability rather than a record of it.
+    'player.assign',
+    'player.unassign',
   ];
 
   it('every action resolves to a class and a writer', () => {
@@ -106,8 +111,10 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
       // with writer `chats`, and the assertion that it is live lives above with the other live rows.
       // This row is left as a comment on purpose: the point of this test is that a status change is a
       // visible edit, and deleting the line without trace would defeat it.
-      ['player.assign', 'no-writer-yet'], // roadmap 5.7
-      ['player.unassign', 'no-writer-yet'], // roadmap 5.7
+      // ['player.assign' / 'player.unassign', 'no-writer-yet'] — CLAIMED by feature 026 (roadmap
+      // 5.7). Both are now `live` with writer `users`. Left as a comment for the same reason
+      // `export.create` above is: the point of this test is that a status change is a VISIBLE edit,
+      // and deleting the line without trace would defeat it.
       ['account.delete', 'no-writer-yet'], // SEC-41
       ['audit.trim', 'no-writer-yet'], // 7.3 + ADR 0015
       ['record.open', 'deferred'], // Q1 — ships WITH retention, not before
@@ -129,8 +136,8 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
         // `export.create` LEFT this list in feature 017 (roadmap 4.10) — it now has a live writer,
         // `chats`, which is also a correction of 015's guess (`worker`, a service with no database).
         // The move belongs in the same change as the catalogue edit, which is what this line is.
-        'player.assign',
-        'player.unassign',
+        // `player.assign` / `player.unassign` LEFT this list in feature 026 (roadmap 5.7) — the two
+        // actions feature 015 reserved for exactly that feature now have their writer.
         'account.delete',
         'audit.trim',
         'record.open',

@@ -26,7 +26,10 @@ describe('ContactViewAuditService', () => {
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
 
-    await svc.recordView('acc1', 'god-or-am', { brandId: 'brand-a', playerId: 'player-9' }, 'am');
+    // ⭐ Feature 026: `true` = the caller is ATTACHED to this player. The tier an entry records is
+    // now a property of the role AND this record, not of the role alone — an entry claiming an
+    // unattached AM surfaced `am_only` would OVERSTATE a trail whose purpose is detecting over-reach.
+    await svc.recordView('acc1', 'god-or-am', { brandId: 'brand-a', playerId: 'player-9' }, 'am', false, true);
 
     expect(create).toHaveBeenCalledTimes(1);
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
@@ -78,7 +81,7 @@ describe('ContactViewAuditService', () => {
     // edit would "fix" it toward the record's contents.
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
-    await svc.recordView('acc1', 'am-1', { brandId: 'brand-a', playerId: 'player-empty' }, 'am');
+    await svc.recordView('acc1', 'am-1', { brandId: 'brand-a', playerId: 'player-empty' }, 'am', false, true);
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(arg.data.detail_json).toEqual({ tier: 'am_only' });
   });
@@ -114,6 +117,8 @@ describe('ContactViewAuditService', () => {
       throw new Error('db down');
     });
     const svc = new ContactViewAuditService(repo);
-    await expect(svc.recordView('acc1', 'am1', { brandId: 'brand-a', playerId: 'player-9' }, 'am')).rejects.toThrow('db down');
+    await expect(
+      svc.recordView('acc1', 'am1', { brandId: 'brand-a', playerId: 'player-9' }, 'am', false, true),
+    ).rejects.toThrow('db down');
   });
 });

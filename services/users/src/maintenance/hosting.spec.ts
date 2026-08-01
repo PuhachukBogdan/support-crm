@@ -11,6 +11,7 @@ import { UiPreferencesModule } from '../preferences/ui-preferences.module';
 import { UiPreferencesController } from '../preferences/ui-preferences.grpc.controller';
 // Feature 025 (roadmap 5.9): presence — a THIRD controller on UsersReadService plus a new service.
 import { PresenceModule } from '../presence/presence.module';
+import { AssignmentModule } from '../assignment/assignment.module';
 
 const ROOT = resolve(__dirname, '..', '..', '..', '..');
 
@@ -82,10 +83,10 @@ describe('*** UsersMaintenanceService is hosted, not merely written ***', () => 
  * that shape one level up (a hosted package whose handler was never wired), and feature 018's own analysis
  * pass found its mirror image (a wired handler with no caller).
  */
-describe('*** UsersReadService is served across three controllers, completely ***', () => {
+describe('*** UsersReadService is served across four controllers, completely ***', () => {
   const proto = readFileSync(USERS_PROTO, 'utf8');
 
-  it('the contract declares exactly eight methods on it', () => {
+  it('the contract declares exactly ten methods on it', () => {
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
     expect(rpcs.sort()).toEqual([
@@ -95,6 +96,10 @@ describe('*** UsersReadService is served across three controllers, completely **
       // WRITES live on their own service rather than here.
       'GetOperatorPresence',
       'GetPlayer',
+      // Feature 026 (roadmap 5.7): who looks after which player. Read-shaped for the same reason,
+      // which is why the assignment WRITES live on their own service too.
+      'GetPlayerAssignment',
+      'ListAssignedPlayers',
       'ListAuditEntries',
       'ListOperatorPresence',
       // Feature 020 (roadmap 5.2): which brand-scoped records make up one human. Chats needs it to
@@ -121,6 +126,8 @@ describe('*** UsersReadService is served across three controllers, completely **
       // Feature 025 (roadmap 5.9): a third controller on the same service, split by SUBJECT rather
       // than by transport — the shape `AuditReadController` already established.
       readFileSync(join(dir, 'presence', 'presence.read.controller.ts'), 'utf8'),
+      // Feature 026 (roadmap 5.7): a FOURTH controller on the same service, split by subject again.
+      readFileSync(join(dir, 'assignment', 'assignment.read.controller.ts'), 'utf8'),
     ].join('\n');
 
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
@@ -144,6 +151,18 @@ describe('*** UsersReadService is served across three controllers, completely **
     const names = controllers.map((c) => (c as { name?: string })?.name ?? '');
     expect(names).toContain('PlayerReadController');
     expect(names).toContain('AuditReadController');
+  });
+
+  it('the assignment controllers reach the graph through their module', () => {
+    // Same link, same reason: a module nobody imports contributes no handlers, and the service
+    // answers UNIMPLEMENTED while looking perfectly healthy (feature 015's live-only defect).
+    const imports = Reflect.getMetadata('imports', AppModule) as unknown[];
+    expect(imports).toContain(AssignmentModule);
+    const names = (Reflect.getMetadata('controllers', AssignmentModule) as unknown[]).map(
+      (c) => (c as { name?: string })?.name ?? '',
+    );
+    expect(names).toContain('AssignmentReadController');
+    expect(names).toContain('AssignmentController');
   });
 
   it('the presence controllers reach the graph through their module', () => {

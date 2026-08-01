@@ -83,22 +83,91 @@ export const ROLE_VISIBLE_TIERS: Readonly<Record<string, readonly FieldTier[]>> 
   super_admin: ['open', 'operational', 'am_only', 'masked_pii'],
 } as const;
 
-/** The tiers visible to a role (linear/open-only fallback for an unknown role). */
+/**
+ * The tiers visible to a role, **as a property of the role alone**.
+ *
+ * ⚠️ Since feature 026 this is the answer to *"what could this role EVER see?"*, which is NOT the
+ * same question as *"what may this role see about THIS record?"* — see `visibleTiersForSubject`
+ * below. Two questions, two names, deliberately: the bulk-export gate and the bulk-read audit
+ * legitimately ask the first, and giving them one function that silently answered the second is how
+ * a per-record rule leaks into a place that has no record.
+ */
 export function visibleTiersFor(roleKey: string): readonly FieldTier[] {
   return ROLE_VISIBLE_TIERS[roleKey] ?? ['open'];
 }
 
-/** The set of `Player` field names a role may see (allow-list source for masking). */
-export function allowedFields(roleKey: string): Set<string> {
-  const tiers = new Set(visibleTiersFor(roleKey));
+/**
+ * ⭐ Feature 026 (roadmap 5.7) — the tiers visible to a role **about one particular player**.
+ *
+ * ── What changed, and why it is not additive ────────────────────────────────────────────────────
+ * Before this, the `am_only` tier (`am_notes`, `preferences`, `portfolio`) was gated BY ROLE ALONE:
+ * anybody with the AM role read the portfolio of EVERY player in the account. Roadmap 5.7 requires
+ * that an AM cannot read a player they are not attached to, so this narrows a **shipped** capability.
+ *
+ * ── The rule, DERIVED from the map above rather than from a list of role names ──────────────────
+ *
+ *     sees am_only  ⟺  role has am_only  AND  ( role has masked_pii  OR  attached )
+ *
+ * `masked_pii` **is** the administrative clearance — `admin` and `super_admin` are the only roles
+ * that hold it. So administrators keep the tier by role (making an administrator attach themselves
+ * to read a record would be theatre, and their reads are already audited), while `am`/`shift_am`
+ * are narrowed.
+ *
+ * A hardcoded `['am','shift_am']` would drift the first time a role is added, and drift silently.
+ * This derivation self-maintains, and in the safe direction both ways: a future role given
+ * `masked_pii` is administrative by definition; a future role given `am_only` alone is narrowed
+ * automatically.
+ *
+ * ⚠️ **Only `am_only` narrows.** `open` and `operational` stay role-gated — otherwise an AM could
+ * not see enough of an unattached player to attach them, and self-assignment would be unreachable.
+ * That clause is what makes the narrowing coherent rather than a deadlock.
+ */
+export function visibleTiersForSubject(
+  roleKey: string,
+  opts: { attachedToSubject: boolean },
+): readonly FieldTier[] {
+  const tiers = visibleTiersFor(roleKey);
+  if (!tiers.includes('am_only')) return tiers;
+  if (tiers.includes('masked_pii') || opts.attachedToSubject) return tiers;
+  return tiers.filter((t) => t !== 'am_only');
+}
+
+/**
+ * The set of `Player` field names a role may see about ONE player (allow-list source for masking).
+ *
+ * ⚠️ `opts` is REQUIRED, and that is the enforcement rather than a style choice: making the
+ * parameter mandatory turns *"did every call site consider the attachment?"* into a question the
+ * compiler answers. An optional flag would have produced zero errors and changed nothing.
+ */
+export function allowedFields(roleKey: string, opts: { attachedToSubject: boolean }): Set<string> {
+  const tiers = new Set(visibleTiersForSubject(roleKey, opts));
   return new Set(Object.entries(FIELD_TIERS).filter(([, t]) => tiers.has(t)).map(([f]) => f));
 }
 
 /**
- * The maskable tiers a read actually surfaces for a role (anything beyond `open`) — drives the
- * contact-view audit (SEC-AP3): a read that exposes operational/am_only/masked_pii is recorded.
+ * The maskable tiers a read of ONE record actually surfaces (anything beyond `open`) — drives the
+ * contact-view audit (SEC-AP3).
+ *
+ * ⭐ **Feature 026 gave this the attachment too, and that is not tidiness.** Its call site used to
+ * say the recorded tier *"follows the caller's CLEARANCE, not which fields held a value"* — exactly
+ * right while clearance was a property of the role alone. It is now a property of the role **and
+ * this record**: an entry claiming an unattached AM surfaced `am_only` would OVERSTATE a trail whose
+ * entire purpose is detecting over-reach. And a trail that overstates is worse than one that
+ * understates, because its false entries are indistinguishable from its true ones.
+ *
+ * ⚠️ The BULK read keeps the role-level answer (`visibleTiersFor`) on purpose — its entry names a
+ * BRAND, not a record, so there is no single attachment to ask about, and the caller's clearance
+ * genuinely can surface the tier for some of the rows.
  */
-export function surfacedMaskableTiers(roleKey: string): FieldTier[] {
+export function surfacedMaskableTiers(
+  roleKey: string,
+  opts: { attachedToSubject: boolean },
+): FieldTier[] {
+  return visibleTiersForSubject(roleKey, opts).filter((t) => t !== 'open');
+}
+
+/** The role-level equivalent, for a bulk read whose entry names a brand rather than a record. */
+export function surfacedMaskableTiersForRole(roleKey: string): FieldTier[] {
   return visibleTiersFor(roleKey).filter((t) => t !== 'open');
 }
 

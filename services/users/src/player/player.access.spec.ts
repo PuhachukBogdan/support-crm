@@ -4,6 +4,21 @@ import { Metadata, status as GrpcStatus } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import { PlayerReadController } from './player.grpc.controller';
 
+/**
+ * ⭐ Feature 026 (roadmap 5.7): the attachment the masking rule now asks about.
+ *
+ * Defaults to NOT attached, deliberately. Every one of these tests predates the narrowing and was
+ * written when the AM tier was role-wide; defaulting to "attached" would have kept them all green
+ * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
+ * which is what the required parameter was for.
+ */
+const attachStub = (attached = false) =>
+  ({
+    isAttached: async () => attached,
+    attachedAmong: async () => new Set<string>(),
+  }) as never;
+
+
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
   return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
@@ -69,7 +84,7 @@ function harness() {
     ),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub()),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub()),
     players,
     operators,
     access,
@@ -266,7 +281,7 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
       }),
       recordBulkRead: jest.fn(),
     };
-    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub());
+    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub());
 
     await expect(ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())).rejects.toThrow('audit table unavailable');
     // The record WAS read — the refusal is about recording, not about access — and nothing was returned.

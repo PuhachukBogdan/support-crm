@@ -160,7 +160,20 @@ const toJson = (p?: PresenceWire) =>
       }
     : null;
 
-@Controller('api')
+/**
+ * ⚠️ NO `api` PREFIX, and this is a CORRECTION.
+ *
+ * Feature 025 shipped `@Controller('api')` on the presence edge, and feature 026 copied it. Every
+ * other controller in this gateway — 25 of them — mounts at the bare path: `/auth/…`, `/players/…`,
+ * `/conversations/…`, `/admin/access/…`. Two prefixes on one REST surface is the kind of split that
+ * looks like a convention to whoever meets it second and is a coin-flip to everybody else.
+ *
+ * Found on the live run of 026, and only there: every unit test constructs the controller directly
+ * and never sees a URL, so the routing table is invisible to Track A by construction. Corrected in
+ * both places at once rather than leaving one wrong — nothing consumes either surface yet (the
+ * frontend is Phase 9), so the cost of fixing it now is zero and it only rises.
+ */
+@Controller()
 export class PresenceController implements OnModuleInit {
   private presence!: PresenceGrpc;
   private read!: PresenceReadGrpc;

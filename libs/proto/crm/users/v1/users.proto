@@ -53,6 +53,14 @@ service UsersReadService {
   // (`ResolveOperators`). The presence WRITES therefore live on `OperatorPresenceService` below.
   rpc GetOperatorPresence(GetOperatorPresenceRequest) returns (OperatorPresence);
   rpc ListOperatorPresence(ListOperatorPresenceRequest) returns (OperatorPresenceList);
+
+  // ── Feature 026 (roadmap 5.7) — additive. Which player is looked after by which manager.
+  //
+  // READS only, for the reason every read on this service is: `tests/users-read/no-outbound.spec.ts`
+  // requires every rpc here to be `Get*`/`List*`. The assignment WRITES live on
+  // `PlayerAssignmentService` below.
+  rpc GetPlayerAssignment(GetPlayerAssignmentRequest) returns (PlayerAssignment);
+  rpc ListAssignedPlayers(ListAssignedPlayersRequest) returns (AssignedPlayerPage);
 }
 
 message GetPlayerRequest {
@@ -620,4 +628,121 @@ message DeletePresenceLabelRequest {
 message PresenceLabelResponse {
   PresenceStatus status = 1;
   PresenceLabel label = 2;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Feature 026 — PLAYER ↔ ACCOUNT-MANAGER ASSIGNMENT (roadmap 5.7, scope brief §4A / ADR 0032 §4).
+//
+// ADDITIVE ONLY: two read rpcs, one new service, new messages. Nothing renamed, so `buf breaking`
+// stays clean.
+//
+// ⚠️ ATTACHMENT GRANTS ACCESS. Attaching a player to a manager hands that manager the player's
+// portfolio, preferences and AM notes. This is not a "mine" marker; it is a grant of access to data
+// about a real human being, and every field below is shaped by that.
+//
+// ⚠️ AND IT NARROWS SOMETHING ALREADY SHIPPED. Before this feature the `am_only` field tier was
+// gated BY ROLE ALONE — any AM-role caller read every player's portfolio. From here, an AM sees the
+// tier only for players they are attached to. The risk in this contract is therefore not "the new
+// call fails" but "a call that worked yesterday returns less", which is the intent.
+//
+// ⚠️ IT IS NOT A GROUP (ADR 0039 §10). Attachment is per-player and deliberately narrower than
+// membership of a unit; expressing it as a group would widen a manager's reach from "my portfolio"
+// to "every VIP" — the exact opposite of the point.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+message PlayerAssignment {
+  // A player is (account, brand, player_id) since feature 020. A bare platform id names two people:
+  // the same value under two brands is routinely two different human beings.
+  string brand_id = 1;
+  string player_id = 2;
+  // ⚠️ The AUTH identity, NOT the operator profile id (research R1). The narrowing asks "is the
+  // CALLER attached to this player?" on every masked read, and the caller is an auth identity —
+  // storing anything else would put a translation on the hottest read path in the product. The
+  // operator profile is still VALIDATED at write time; it is simply not the key.
+  string am_auth_user_id = 3;
+  // WHO DECIDED, which is not the same as who looks after the player. Self-assignment makes the two
+  // equal most of the time, and that is precisely why they are separate fields: the abnormal-volume
+  // signal is computed from THIS one, and it matters most in the case where they ARE equal.
+  string assigned_by = 4;
+  string started_at = 5; // RFC3339
+  string ended_at = 6;   // empty = ACTIVE. A closed period is never deleted.
+}
+
+message GetPlayerAssignmentRequest {
+  string brand_id = 1;
+  string player_id = 2;
+}
+
+message ListAssignedPlayersRequest {
+  // Empty = the CALLING manager's own portfolio. Naming somebody else requires `users.list.view` —
+  // "show me another manager's book of business" is a supervisory question, not a self-service one.
+  string am_auth_user_id = 1;
+  int32 page_size = 2;   // clamped server-side
+  string page_token = 3; // opaque cursor, never an offset (Principle VII)
+}
+
+message AssignedPlayerPage {
+  repeated PlayerAssignment assignments = 1;
+  string next_page_token = 2; // empty when no more pages
+}
+
+// One value per distinguishable outcome. Collapsing any two of these into a flat refusal sends an
+// administrator hunting in the wrong place.
+enum AssignmentStatus {
+  ASSIGNMENT_STATUS_UNSPECIFIED = 0;
+  ASSIGNMENT_STATUS_OK = 1;
+  // The act changed nothing: already attached to that manager, or already unattached. ZERO audit
+  // entries. A distinct value because the difference must be observable from outside — otherwise
+  // "exactly one entry per change" quietly becomes "usually one".
+  ASSIGNMENT_STATUS_UNCHANGED = 2;
+  ASSIGNMENT_STATUS_FORBIDDEN = 3;
+  ASSIGNMENT_STATUS_NO_SUCH_PLAYER = 4;
+  // The named manager has no ACTIVE operator profile. Separate from NO_SUCH_PLAYER: an attachment to
+  // somebody who has left the company would be a portfolio nobody is looking after, while the record
+  // claims otherwise.
+  ASSIGNMENT_STATUS_NO_SUCH_MANAGER = 5;
+  // ⭐ Already attached to SOMEBODY ELSE. Refused rather than silently replacing — the 🅿 one-active-
+  // manager constraint is only visible if breaking it says so. A caller who means to move the player
+  // unassigns first, deliberately.
+  ASSIGNMENT_STATUS_ALREADY_ASSIGNED = 6;
+}
+
+message AssignPlayerRequest {
+  string brand_id = 1;
+  string player_id = 2;
+  // Empty = attach to MYSELF. Self-assignment is a requirement rather than a tolerated case, and an
+  // empty field is the shape that makes the common act the easy one.
+  string am_auth_user_id = 3;
+}
+
+message UnassignPlayerRequest {
+  string brand_id = 1;
+  string player_id = 2;
+}
+
+message AssignmentResponse {
+  AssignmentStatus status = 1;
+  PlayerAssignment assignment = 2; // the state AFTER the call
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// PlayerAssignmentService — the WRITES.
+//
+// A separate service from `UsersReadService` because a write on a service named *Read* is a lie in
+// the contract, and a guard enforces it. Third time this package gains a new service (021, 025);
+// "no new hosting entry is needed" is true and is exactly the kind of true statement that stops
+// anybody checking the other three links, so `hosting.spec.ts` asserts them.
+//
+// ⚠️ NO `TransferPlayer` VERB, deliberately. A move is unassign + assign: two acts, two audit
+// entries. One combined verb would be a single entry describing two facts — and Q3.1 (who may take
+// a player away from a manager) is still open, so a combined verb would bake in an answer nobody
+// has given.
+//
+// ⚠️ NO BULK ASSIGN, deliberately. Attaching many players quickly IS the harvesting pattern the
+// audit exists to detect; shipping a verb that does it in one call would be building the vector and
+// the detector in the same feature.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service PlayerAssignmentService {
+  rpc AssignPlayer(AssignPlayerRequest) returns (AssignmentResponse);
+  rpc UnassignPlayer(UnassignPlayerRequest) returns (AssignmentResponse);
 }

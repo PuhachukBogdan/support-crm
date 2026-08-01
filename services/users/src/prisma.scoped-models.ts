@@ -40,4 +40,8 @@ export const SCOPED_MODELS = [
   'OperatorChannelBlock',
   'PresenceLabel',
   'OperatorTransition',
+  // Feature 026 (roadmap 5.7): who looks after which player. Tenant data, and an ACCESS INPUT —
+  // a row here decides what a manager may read, so a leak across the tenancy wall would not merely
+  // show the wrong data, it would grant the wrong access. Same reasoning as the group tables.
+  'PlayerAssignment',
 ] as const;

@@ -298,6 +298,74 @@ model OperatorUiPreference {
 }
 
 /// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// Feature 026 — PLAYER ↔ ACCOUNT-MANAGER ASSIGNMENT (roadmap 5.7, scope brief §4A / ADR 0032 §4).
+///
+/// ⚠️ ATTACHMENT GRANTS ACCESS. A row here hands a manager the player's portfolio, preferences and
+/// AM notes. It is not a "mine" marker; it is a grant of access to data about a real human being.
+///
+/// ⚠️ THE MANAGER IS AN **AUTH IDENTITY**, NOT AN `Operator.id` (research R1), and the READ path is
+/// what decides it. The narrowing this feature introduces asks *"is the CALLER attached to this
+/// player?"* on every masked player read, and the caller is identified by `x-actor-user-id` — an
+/// auth identity. Storing the operator profile id would put an `auth → operator` translation on the
+/// hottest read surface in the product, to answer a question that could have been answered
+/// directly. The profile is still VALIDATED at write time; it is simply not the key.
+///
+/// This also keeps the identifier consistent with group membership, presence and every `actor_ref`
+/// in the transition stream. `Conversation.assignee_operator_id` is the one outlier that nothing
+/// validates (feature 024 recorded it); adding a second person-identifier here would spread exactly
+/// the inconsistency that feature declined to spread.
+///
+/// ⚠️ NOT A GROUP (ADR 0039 §10). Per-player, deliberately narrower than membership of a unit.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+model PlayerAssignment {
+  id         String @id @default(uuid())
+  account_id String
+
+  /// The player, by the FULL identity feature 020 established. A bare `player_id` names two people:
+  /// the same platform id under two brands is routinely two different human beings.
+  brand_id  String
+  player_id String
+
+  /// Soft ref to auth.User.id — the manager. Never joined across a service boundary.
+  am_auth_user_id String
+
+  /// ⚠️ WHO DECIDED, which is NOT the same as who looks after the player. Self-assignment makes the
+  /// two equal most of the time, and that is exactly why they are separate columns: the
+  /// abnormal-volume signal (FR-016) is computed from THIS one, and it matters most in precisely the
+  /// case where they are equal — somebody attaching a hundred players to themselves.
+  assigned_by String
+
+  started_at DateTime  @default(now())
+  /// NULL = ACTIVE. Detaching CLOSES a period; it never deletes one.
+  ended_at   DateTime?
+  ended_by   String?
+
+  /// ⭐ THE UNIQUE INDEX IS **PARTIAL**, filtered to `ended_at IS NULL` — written by hand in the
+  /// migration, because Prisma has no first-class partial unique index. `@@unique` here would be
+  /// wrong: it would forbid a player from EVER having had a second manager, which is the opposite of
+  /// FR-003's additive history.
+  ///
+  /// The filtered index is what lets two requirements that look opposed both hold: the database
+  /// refuses a second ACTIVE manager (🅿 FR-002) while every closed period stays exactly where it
+  /// was (FR-003). And it is what makes the operator's *"one per player is a leaning, not a lock"*
+  /// real — widening later is `DROP INDEX`, a dropped constraint rather than a reshape.
+  ///
+  /// `tests/data-model/assignment-history-is-additive.spec.ts` asserts the filter exists in the SQL,
+  /// because a schema comment is not an index.
+  ///
+  /// ⚠️ There is deliberately no `active` BOOLEAN. `ended_at IS NULL` already says it, and a flag
+  /// beside a timestamp is two facts that can disagree.
+  /// "Who looks after this player?" — the read the narrowing performs.
+  @@index([account_id, brand_id, player_id, ended_at])
+  /// "My players" — the 9.10 portfolio list, keyset-paged.
+  @@index([account_id, am_auth_user_id, ended_at])
+  /// "Who attached how many, and when?" — this index exists ONLY for the abnormal-volume question
+  /// (FR-016). Without it the answer needs a scan, which is how a monitoring signal quietly becomes
+  /// something nobody ever runs.
+  @@index([account_id, assigned_by, started_at])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
 /// Feature 025 — AGENT PRESENCE, FOR ROUTING ONLY (roadmap 5.9, ADR 0042 §7 / U4).
 ///
 /// Keyed on `auth_user_id`, NOT on `Operator.id`, and that is a decision rather than a convenience

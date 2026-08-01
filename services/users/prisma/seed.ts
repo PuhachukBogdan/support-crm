@@ -1,8 +1,16 @@
 import {
   withAccountScope,
   SEED_ACCOUNT_ID,
+  SEED_AUTH_USER_ID,
+  SEED_BRAND_ID,
+  SEED_PLAYER_ID,
   SEED_PRESENCE_ONLINE_USER_IDS,
+  SEED_ROUTING_USER_IDS,
 } from '@crm/common';
+import { AssignmentRepository } from '../src/assignment/assignment.repository';
+import { AssignmentService } from '../src/assignment/assignment.service';
+import { PlayerRepository } from '../src/player/player.repository';
+import { OperatorRepository } from '../src/operator/operator.repository';
 import { PresenceRepository } from '../src/presence/presence.repository';
 import { PresenceService } from '../src/presence/presence.service';
 import { OperatorTransitionRecorder } from '../src/transition/transition.recorder';
@@ -133,11 +141,37 @@ async function run(): Promise<void> {
       if (out.status === 'ok') onlined += 1;
     }
 
+    /**
+     * ── Feature 026 (roadmap 5.7): ONE attachment, through the product's own write path ──────────
+     *
+     * ⭐ Its purpose is to make the NARROWING exercisable rather than hidden. With no attachment at
+     * all, every AM read in a seeded database returns the narrowed answer and a live run cannot tell
+     * "the narrowing works" from "the portfolio is empty". One attached player and one unattached is
+     * the smallest fixture that distinguishes them.
+     *
+     * Through `AssignmentService`, never a direct insert: the seed then inherits the audit entry, the
+     * refusals and the idempotence for free — a no-op re-seed writes nothing (FR-015). Writing the
+     * row directly would be the feature-025 bug pre-installed: a state with no record of how it came
+     * to be.
+     */
+    const assignments = new AssignmentService(
+      new AssignmentRepository(scoped as never),
+      new PlayerRepository(scoped as never),
+      new OperatorRepository(scoped as never),
+    );
+    const assigned = await assignments.assign(
+      SEED_ACCOUNT_ID,
+      { brandId: SEED_BRAND_ID, playerId: SEED_PLAYER_ID },
+      SEED_ROUTING_USER_IDS[0]!,
+      SEED_AUTH_USER_ID,
+    );
+
     console.log(
       `users seed: ok (${seed.players.length} players, incl. the cross-brand id collision; ` +
         `${seed.persons.length} person linking ${seed.personMembers.length} records; ` +
         `${seed.presenceLabels.length} presence labels; ${onlined} agents brought online, ` +
-        `${SEED_PRESENCE_ONLINE_USER_IDS.length - onlined} already online)`,
+        `${SEED_PRESENCE_ONLINE_USER_IDS.length - onlined} already online; ` +
+        `player↔AM attachment ${assigned.status})`,
     );
   } finally {
     await base.$disconnect();

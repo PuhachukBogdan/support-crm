@@ -12,6 +12,7 @@ import { PlayerRepository, type PlayerRow } from './player.repository';
 import { readPlayerActor, resolveListBrand, type PlayerActor } from './actor';
 import { playerIdentity } from './player.identity';
 import { PersonService } from './person.service';
+import { AssignmentRepository } from '../assignment/assignment.repository';
 import type { PresenceState } from '@crm/common';
 
 /**
@@ -62,6 +63,14 @@ export class PlayerReadController {
     @Inject(OperatorRepository) private readonly operators: OperatorRepository,
     @Inject(ContactViewAuditService) private readonly access: ContactViewAuditService,
     @Inject(PersonService) private readonly persons: PersonService,
+    /**
+     * ⭐ Feature 026 (roadmap 5.7). The narrowing asks the attachment a question on every masked
+     * read, so this controller depends on it — and the dependency is deliberate rather than
+     * regrettable: adding a required constructor argument is what made the compiler enumerate every
+     * test that constructs this controller, forcing each to state whether the caller is attached.
+     * A test that does not say is a test that was not thinking about the tier (FR-014).
+     */
+    @Inject(AssignmentRepository) private readonly assignments: AssignmentRepository,
   ) {}
 
   /**
@@ -115,8 +124,22 @@ export class PlayerReadController {
      */
     const personId = await this.players.personIdOf(identity);
 
+    /**
+     * ⭐ Feature 026 (roadmap 5.7): is the caller attached to THIS player?
+     *
+     * Resolved before masking, because it is now an input to the tier decision. One indexed lookup
+     * on the index that exists for it. ⚠️ Note whose attachment is asked about — the CALLER's, not
+     * the player's: "who looks after this customer" is a different question from "may I see their
+     * portfolio", and only the second one masks.
+     */
+    const attachedToSubject = await this.assignments.isAttached(
+      actor.accountId,
+      { brandId: identity.brandId, playerId: identity.playerId },
+      actor.userId,
+    );
+
     const subject = { ...(row as unknown as Record<string, unknown>), person_id: personId };
-    const masked = maskPlayer(subject, actor.effectiveRole);
+    const masked = maskPlayer(subject, actor.effectiveRole, { attachedToSubject });
 
     /**
      * STRICT, and awaited before anything is returned (FR-016).
@@ -136,6 +159,10 @@ export class PlayerReadController {
       { brandId: row.brand_id, playerId: row.player_id },
       actor.effectiveRole,
       actor.underPreview,
+      // ⭐ Feature 026: the SAME attachment the masking used, so the entry records what was actually
+      // surfaced. Passing the role alone here would file an entry claiming an unattached AM read the
+      // portfolio — overstating the one trail whose job is detecting over-reach.
+      attachedToSubject,
     );
 
     return toPlayerWire(masked, row, actor);
@@ -206,6 +233,15 @@ export class PlayerReadController {
     // Feature 022: ONE membership lookup for the WHOLE page. A lookup per row would be a textbook N+1
     // (Principle VII) — and the kind that only shows up as a slow screen once a brand has thousands of
     // customers. `player.list.spec.ts` counts the queries rather than trusting this comment.
+    // ⭐ Feature 026: the attachments for the WHOLE page, in ONE query — beside the membership
+    // lookup, for the same reason. A call per row would be a textbook N+1 on a screen that grows
+    // with the customer base (Principle VII), and `player.list.spec.ts` counts the queries.
+    const attached = await this.assignments.attachedAmong(
+      actor.accountId,
+      page.rows.map((r) => ({ brandId: r.brand_id, playerId: r.player_id })),
+      actor.userId,
+    );
+
     const personIds = await this.players.personIdsFor(
       actor.accountId,
       brandId,
@@ -222,7 +258,12 @@ export class PlayerReadController {
           ...(row as unknown as Record<string, unknown>),
           person_id: personIds.get(row.player_id) ?? null,
         };
-        return toPlayerWire(maskPlayer(subject, actor.effectiveRole), row, actor);
+        // Computed on its own line for the same reason `subject` is: `single-policy-path.spec.ts`
+        // parses the masking call's arguments AS TEXT and refuses any quote or backtick in them, so
+        // that a literal role can never be smuggled in. A template literal inline would trip a guard
+        // that is right to be strict — the key belongs here, not in the call.
+        const attachedToSubject = attached.has(`${row.brand_id}|${row.player_id}`);
+        return toPlayerWire(maskPlayer(subject, actor.effectiveRole, { attachedToSubject }), row, actor);
       }),
       nextPageToken: page.nextCursor ? encodeCursor(page.nextCursor) : '',
     };

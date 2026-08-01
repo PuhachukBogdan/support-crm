@@ -28,7 +28,7 @@ describe('masking + contact-view audit leak no PII value (FR-014/016/023)', () =
   ];
 
   it('a linear-role mask omits the sensitive fields (structurally absent, not nulled)', () => {
-    const masked = maskPlayer(player, 'support_agent');
+    const masked = maskPlayer(player, 'support_agent', { attachedToSubject: false });
     expect(masked).not.toHaveProperty('am_notes');
     expect(masked).not.toHaveProperty('preferences');
     expect(masked).not.toHaveProperty('gr8_snapshot');
@@ -60,7 +60,8 @@ describe('masking + contact-view audit leak no PII value (FR-014/016/023)', () =
       }),
     );
     try {
-      await svc.recordView('acct-A', 'am-1', { brandId: 'brand-a', playerId: 'p-9' }, 'am');
+      // Feature 026: attached, so the AM tier really is surfaced and there is something to leak.
+      await svc.recordView('acct-A', 'am-1', { brandId: 'brand-a', playerId: 'p-9' }, 'am', false, true);
     } finally {
       spies.forEach((s) => s.mockRestore());
     }

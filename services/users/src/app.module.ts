@@ -32,6 +32,9 @@ import { UiPreferencesModule } from './preferences/ui-preferences.module';
 // writes are a new service in the same package, which is why no new hosting entry is needed — a
 // claim `hosting.spec.ts` verifies rather than accepts.
 import { PresenceModule } from './presence/presence.module';
+// Feature 026 (roadmap 5.7): player ↔ AM attachment. Its repository is exported because the PLAYER
+// read path needs it — the narrowing asks the attachment a question on every masked read.
+import { AssignmentModule } from './assignment/assignment.module';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
@@ -43,7 +46,13 @@ import { PresenceModule } from './presence/presence.module';
 // that call them land here, closing the "arrive in Phase 5" note this comment has carried since Phase 2.
 // The player controller registers itself alongside; this list holds the repositories it depends on.
 @Module({
-  imports: [UploadsModule, MaintenanceModule, UiPreferencesModule, PresenceModule],
+  imports: [
+    UploadsModule,
+    MaintenanceModule,
+    UiPreferencesModule,
+    PresenceModule,
+    AssignmentModule,
+  ],
   controllers: [HealthGrpcController, PingGrpcController, AuditReadController, PlayerReadController],
   providers: [
     PersonService,

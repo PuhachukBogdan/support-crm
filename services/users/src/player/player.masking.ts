@@ -15,8 +15,19 @@ import { allowedFields, canMassExportContacts } from '@crm/common';
 export function maskPlayer<T extends Record<string, unknown>>(
   player: T,
   roleKey: string,
+  /**
+   * ⭐ Feature 026 (roadmap 5.7). REQUIRED, and required is the point: the `am_only` tier is no
+   * longer a property of the role alone but of the role AND this record, so every call site has to
+   * answer *"is this caller attached to this player?"*. Making the parameter mandatory turns that
+   * into a question the compiler asks — an optional flag would have produced zero errors and
+   * narrowed nothing.
+   *
+   * Named rather than a bare boolean: `maskPlayer(subject, role, true)` is the kind of literal that
+   * gets flipped by mistake and reads as nothing at the call site.
+   */
+  opts: { attachedToSubject: boolean },
 ): Partial<T> {
-  const allowed = allowedFields(roleKey);
+  const allowed = allowedFields(roleKey, opts);
   const out: Partial<T> = {};
   for (const key of Object.keys(player) as (keyof T & string)[]) {
     if (allowed.has(key)) out[key] = player[key];

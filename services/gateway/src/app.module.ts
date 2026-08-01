@@ -21,6 +21,9 @@ import { UiPreferencesEdgeModule } from './preferences/ui-preferences.module';
 import { GroupsEdgeModule } from './groups/groups.module';
 // Feature 025 (roadmap 5.9): the presence edge. Caches NOTHING, deliberately — see its module.
 import { PresenceEdgeModule } from './presence/presence.module';
+// Feature 026 (roadmap 5.7): the player↔AM assignment edge. Also caches nothing, and for a sharper
+// reason — an attachment decides what somebody may READ.
+import { AssignmentEdgeModule } from './assignment/assignment.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -48,6 +51,7 @@ import { PresenceEdgeModule } from './presence/presence.module';
     UiPreferencesEdgeModule,
     GroupsEdgeModule,
     PresenceEdgeModule,
+    AssignmentEdgeModule,
   ],
 })
 export class AppModule {}

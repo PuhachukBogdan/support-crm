@@ -58,6 +58,26 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // READING a colleague's presence reuses `users.list.view`, because it is the same fact class as
   // seeing the staff list at all, and a second read key is one nobody would think to grant.
   { category: 'users', key: 'users.presence.manage', label: "Set another operator's presence" },
+  // Feature 026 (roadmap 5.7). Changing WHO LOOKS AFTER WHOM.
+  //
+  // Named for the audit actions it produces (`player.assign` / `player.unassign`) rather than for
+  // the portfolio: the thing being assigned is a PLAYER, and a key whose name matches its trail
+  // entries is one fewer translation for whoever reads the log.
+  //
+  // ⚠️ NOT a reuse of `users.portfolio.view`. That key answers "may you see portfolio data at all";
+  // this one answers "may you change who is attached to whom", which is strictly more consequential
+  // — one key per scope, the precedent 017 set and 024/025 applied.
+  //
+  // ⚠️ AND IT IS AN INTENDED ROUTE TO THE `am_only` TIER: attach yourself, read, detach. That is the
+  // same transitive-grant shape feature 024 found in groups — where it was a DEFECT and was closed.
+  // Here it is the REQUESTED capability: the operator asked for self-service explicitly, and the
+  // control is the audit rather than a refusal. The difference is real and worth keeping straight:
+  // 024's escalation reached a key the role was deliberately DENIED (`platform.role.manage`), while
+  // this reaches a tier the AM roles ALREADY HOLD and only decides *for which records*.
+  //
+  // In NO operational role template, so it is off for every existing agent until granted (the 011
+  // R-2 corollary); `admin`/`super_admin` receive it through the computed ALL_KEYS.
+  { category: 'users', key: 'users.player.assign', label: 'Attach players to account managers' },
   // Reports
   { category: 'reports', key: 'reports.export', label: 'Export reports' },
   // Platform

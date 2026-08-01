@@ -64,6 +64,28 @@ describe('the transition stream is append-only and never trimmed', () => {
     expect(offenders).toEqual([]);
   });
 
+  // ── Feature 025 (roadmap 5.9): the stream gained a SECOND writer, so the guard gains a second
+  // table. Append-only was never a property of one table; it is a property of the stream, and a
+  // guard that only knew about `chats` would have quietly stopped covering half of it.
+  it('no code updates or deletes an OPERATOR transition either', () => {
+    const banned = /operatorTransition\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\s*\(/;
+    const offenders = sources.filter((f) => banned.test(read(f))).map(rel);
+    expect(offenders).toEqual([]);
+  });
+
+  it('no raw-SQL escape hatch touches the operator table either', () => {
+    const offenders = sources
+      .filter((f) => /\$executeRaw|\$queryRaw/.test(read(f)) && /OperatorTransition/i.test(read(f)))
+      .map(rel);
+    expect(offenders).toEqual([]);
+  });
+
+  it('the operator detector works on planted samples too', () => {
+    const banned = /operatorTransition\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\s*\(/;
+    expect(banned.test('await tx.operatorTransition.deleteMany({ where: {} })')).toBe(true);
+    expect(banned.test('await tx.operatorTransition.create({ data })')).toBe(false);
+  });
+
   it('its own detector works on planted samples', () => {
     const banned = /conversationTransition\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\s*\(/;
     expect(banned.test('await tx.conversationTransition.deleteMany({ where: {} })')).toBe(true);

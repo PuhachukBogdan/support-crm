@@ -27,6 +27,11 @@ import { PersonService } from './player/person.service';
 // no permission, written to no audit trail. Its own module because every neighbouring surface here is
 // the opposite on all four counts. NOT `Player.preferences_json`, which is the customer's data.
 import { UiPreferencesModule } from './preferences/ui-preferences.module';
+// Feature 025 (roadmap 5.9): agent presence. Its READ handlers ride the existing player controller's
+// service (`UsersReadService`), because a guard requires every rpc there to be read-shaped; the
+// writes are a new service in the same package, which is why no new hosting entry is needed — a
+// claim `hosting.spec.ts` verifies rather than accepts.
+import { PresenceModule } from './presence/presence.module';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
@@ -38,7 +43,7 @@ import { UiPreferencesModule } from './preferences/ui-preferences.module';
 // that call them land here, closing the "arrive in Phase 5" note this comment has carried since Phase 2.
 // The player controller registers itself alongside; this list holds the repositories it depends on.
 @Module({
-  imports: [UploadsModule, MaintenanceModule, UiPreferencesModule],
+  imports: [UploadsModule, MaintenanceModule, UiPreferencesModule, PresenceModule],
   controllers: [HealthGrpcController, PingGrpcController, AuditReadController, PlayerReadController],
   providers: [
     PersonService,

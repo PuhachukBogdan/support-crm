@@ -44,6 +44,20 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   { category: 'users', key: 'users.list.view', label: 'View user list' },
   { category: 'users', key: 'users.portfolio.view', label: 'View VIP portfolio' },
   { category: 'users', key: 'users.am_notes.edit', label: 'Edit AM notes' },
+  // Feature 025 (roadmap 5.9). Setting SOMEBODY ELSE's presence — a genuinely different act from
+  // setting one's own, which needs no key at all because a statement about oneself is not a
+  // sensitive action.
+  //
+  // Category `users` and not `platform`: this is an act on a PERSON, alongside the three keys above.
+  // `platform.*` is configuration, and filing it there would be the first step toward "the admin
+  // bundle" that one-key-per-scope exists to prevent (feature 017's precedent, and 024's refusal to
+  // fold group management into `platform.role.manage`).
+  //
+  // Listed in NO operational role template: `admin`/`super_admin` receive it through the computed
+  // ALL_KEYS, every agent role does not (the 011 R-2 corollary). ⚠️ Note what is NOT gated by it —
+  // READING a colleague's presence reuses `users.list.view`, because it is the same fact class as
+  // seeing the staff list at all, and a second read key is one nobody would think to grant.
+  { category: 'users', key: 'users.presence.manage', label: "Set another operator's presence" },
   // Reports
   { category: 'reports', key: 'reports.export', label: 'Export reports' },
   // Platform

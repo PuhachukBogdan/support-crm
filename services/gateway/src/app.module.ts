@@ -19,6 +19,8 @@ import { UiPreferencesEdgeModule } from './preferences/ui-preferences.module';
 // Feature 024 (roadmap 5.3): the groups edge — a thin proxy plus the cache invalidation that
 // makes a revoked group grant take effect on the very next request.
 import { GroupsEdgeModule } from './groups/groups.module';
+// Feature 025 (roadmap 5.9): the presence edge. Caches NOTHING, deliberately — see its module.
+import { PresenceEdgeModule } from './presence/presence.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -45,6 +47,7 @@ import { GroupsEdgeModule } from './groups/groups.module';
     PlayersEdgeModule,
     UiPreferencesEdgeModule,
     GroupsEdgeModule,
+    PresenceEdgeModule,
   ],
 })
 export class AppModule {}

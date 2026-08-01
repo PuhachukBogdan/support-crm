@@ -93,6 +93,11 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       'ChatsMaintenanceService.SweepConversationSubjects',
       'ChatsMaintenanceService.SweepFirstReplySla',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
+      // Feature 025 (roadmap 5.9). Third time, and the answer to "what calls it?" is a tick of its
+      // OWN — the interval is added directly to the away threshold as lag, so a five-minute
+      // heartbeat would make a ten-minute threshold mean "ten to fifteen". A separate queue also
+      // stops a stuck presence pass from delaying artefact deletion, or the reverse.
+      'UsersMaintenanceService.SweepIdlePresence',
     ]);
   });
 

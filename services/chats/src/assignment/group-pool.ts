@@ -3,6 +3,7 @@ import type { Metadata } from '@grpc/grpc-js';
 import { PrismaService } from '../prisma.service';
 import { AuthorAuthorityClient } from '../auth/auth.client';
 import { PersonMembersClient } from '../person/person-members.client';
+import { isAvailableFor } from '@crm/common';
 import type { RoundRobinCandidate } from './round-robin';
 
 /**
@@ -71,11 +72,39 @@ export class GroupPoolService {
     accountId: string,
     groupId: string,
     metadata: Metadata,
+    channel: string | null = null,
   ): Promise<RoundRobinCandidate[]> {
     const memberUserIds = await this.auth.listGroupMembers(accountId, groupId);
     if (memberUserIds.length === 0) return [];
 
-    const operators = await this.users.resolveOperators(accountId, memberUserIds, metadata);
+    const resolved = await this.users.resolveOperators(accountId, memberUserIds, metadata);
+    if (resolved.length === 0) return [];
+
+    // ── Feature 025 (roadmap 5.9): availability, and where the two "no"s differ ──────────────────
+    //
+    // `users` already dropped anyone whose staff account is deactivated — they have LEFT. This drops
+    // anyone who is not at their desk right now. Both produce a smaller pool and they are different
+    // facts; the distinction is why they are applied in two places rather than folded into one flag.
+    //
+    // The ask is `new_push`: this is the ROUTER handing out work nobody asked for. A human handing a
+    // conversation to a colleague asks the other question, and `transfers_only` is precisely the
+    // state where the two answers differ — see `stateAllows` in @crm/common.
+    //
+    // ⚠️ An empty result here still means "this desk has nobody available", never "I could not find
+    // out". The clients above RAISE when they cannot establish an answer, so unavailability is always
+    // a fact rather than a silence — the property this file's header has guaranteed since 024, now
+    // extended rather than weakened.
+    const operators = resolved.filter((o) =>
+      isAvailableFor({
+        ask: 'new_push',
+        // Already true by construction: `users` returns active profiles only. Passed explicitly so
+        // the predicate reads the same here as everywhere else it is used.
+        operatorActive: true,
+        state: o.state,
+        channel,
+        blockedChannels: o.blockedChannels,
+      }),
+    );
     if (operators.length === 0) return [];
 
     const load = await this.currentLoad(

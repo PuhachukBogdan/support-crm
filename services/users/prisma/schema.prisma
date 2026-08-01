@@ -296,3 +296,167 @@ model OperatorUiPreference {
   // serves both; a second index here would be cargo.
   @@id([account_id, auth_user_id, key])
 }
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// Feature 025 — AGENT PRESENCE, FOR ROUTING ONLY (roadmap 5.9, ADR 0042 §7 / U4).
+///
+/// Keyed on `auth_user_id`, NOT on `Operator.id`, and that is a decision rather than a convenience
+/// (research R3). Group membership keys on the auth identity; every actor reference in the
+/// transition stream is an auth user id; and feature 024 recorded `Conversation.assignee_operator_id`
+/// as the ONE outlier that nothing validates and that may be misnamed. Minting a second
+/// person-identifier into the analytics stream now would double down on the identifier already
+/// flagged as suspect. `OperatorUiPreference` above keys the same way, for the same reason.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/// One row per person. Absence of a row means `offline` — see FR-011: presence is a statement about
+/// a LIVE SESSION, and absent a session `offline` is the only honest answer. A read never
+/// materialises a row (the feature-021 rule: absence is answered, not written).
+model OperatorPresence {
+  account_id   String
+  auth_user_id String // soft ref to auth.User.id — resolved from the session, never joined
+
+  /// online | transfers_only | away | offline. Validated against @crm/common/presence at write time.
+  state String
+
+  /// ⚠️ WHY the current state was set: manual | auto_inactivity | admin. NULL = never set.
+  ///
+  /// This lives on the ROW and not only in the history, and it is the one place this feature pays
+  /// for storing the same fact twice. FR-016 says a heartbeat may raise availability ONLY from a
+  /// state the sweep itself set — otherwise a browser left open would undo a person's own "Lunch",
+  /// and worse, would undo a supervisor's correction using the very stale session that made the
+  /// correction necessary. Answering "how did this state come to be?" from the append-only stream on
+  /// every heartbeat would be a scan on the hottest write path in the feature.
+  ///
+  /// The history says what HAPPENED; this column says what is TRUE NOW. Different questions.
+  last_cause String?
+
+  /// Last heartbeat. NULL = never active. The sweep's predicate reads this and nothing else.
+  last_seen_at DateTime?
+
+  /// Soft ref to PresenceLabel.id. Cleared on delete, never cascaded: removing a decoration must
+  /// never change who receives work (FR-028).
+  label_id String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  /// ⚠️ THERE IS DELIBERATELY NO `available` BOOLEAN HERE.
+  /// Availability is DERIVED — `operator.active AND stateAllows(ask) AND NOT blocked` — and there are
+  /// TWO asks (a new push from the router versus a transfer handed over by a human), which
+  /// `transfers_only` answers differently. One stored boolean could not be correct for both, and it
+  /// would be the copy that goes stale.
+  @@id([account_id, auth_user_id])
+  /// The sweep's query: "who has been quiet longer than the threshold?" (Principle VII).
+  @@index([account_id, last_seen_at])
+}
+
+/// A channel the operator has switched OFF.
+///
+/// ⚠️ THERE IS DELIBERATELY NO `available` COLUMN HERE — **a row's existence IS the block**, and
+/// switching a channel back on DELETES the row.
+///
+/// The name says it too: `OperatorChannelBlock`, not `…Availability`. A table able to store
+/// `available: true` immediately raises "does an explicit true beat the presence state?", and the
+/// answer must be no, because a channel switch may only ever subtract (FR-019). Rather than write
+/// that rule down and hope, the column that could express the violation does not exist.
+///
+/// This is the same technique as `GroupPermission` in feature 024, applied to the mirror-image
+/// problem: there a group may only ever GRANT, so there is no `granted` column to write `false` into;
+/// here a switch may only ever DENY, so there is no `available` column to write `true` into. Both
+/// tables lean opposite ways for reasons that are opposite in exactly the same way, and
+/// `tests/data-model/channel-block-is-negative-only.spec.ts` asserts BOTH absences together — so the
+/// day somebody copies one model to make the other, it fails.
+///
+/// `channel` is an OPAQUE key. This feature deliberately introduces no channel vocabulary
+/// (research R8): `Conversation.channel` is still a nullable open string, and roadmap 4.17 / Phase 6
+/// own settling it. A mistyped key therefore switches off a channel nobody routes to, and a channel
+/// invented later becomes switchable with no migration.
+model OperatorChannelBlock {
+  account_id   String
+  auth_user_id String
+  channel      String
+  created_at   DateTime @default(now())
+
+  @@id([account_id, auth_user_id, channel])
+}
+
+/// An administrator-editable word displayed beside a state (`Break`, `Lunch`, `Meeting`, `VIP task`).
+///
+/// A TABLE and not a closed catalogue, for two reasons pointing the same way: ADR 0042 §7 requires
+/// administrators to edit the set, which a compile-time catalogue cannot allow; and every closed
+/// catalogue in this product is closed because a new member CHANGES BEHAVIOUR, while a new label must
+/// change none. Routing never sees a label — proven by
+/// `tests/contracts/presence-label-never-branched-on.spec.ts`.
+model PresenceLabel {
+  id         String   @id @default(uuid())
+  account_id String
+  /// Operator-authored. No code branches on it, ever.
+  name       String
+  /// Exactly one of the four states.
+  state      String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  /// Two labels are always distinguishable — the same guarantee `Group` carries in auth_db.
+  @@unique([account_id, name])
+  @@index([account_id])
+}
+
+/// ── The SECOND writer of the durable transition stream, and the first outside `chats` ────────────
+///
+/// Column-for-column identical to `chats.ConversationTransition`. That is a REQUIREMENT (FR-004),
+/// not a coincidence: the B2 aggregate store reads *one logical stream*, and two shapes would mean it
+/// must know both, permanently. `tests/data-model/one-transition-envelope.spec.ts` compares the two
+/// models directly rather than trusting two hand-written schemas to agree.
+///
+/// It is a SEPARATE TABLE and not a shared one because U7 forbids a shared cross-service table and
+/// Principle VIII makes it impossible — a cross-service table is a cross-service join by another
+/// name. "One logical stream" is achieved downstream, in B2.
+///
+/// Append-only, and never trimmed: no update path and no delete path in any service
+/// (`tests/transitions/append-only.spec.ts`).
+model OperatorTransition {
+  id         String @id @default(uuid())
+  account_id String
+
+  /// From the closed catalogue in @crm/common — refused at write time if unknown, never free text.
+  type String
+
+  /// When it HAPPENED (millisecond precision, UTC) — the ordering key. Distinct from created_at,
+  /// which is when the row was written; they differ only under retry.
+  occurred_at DateTime
+
+  /// user | system | integration. Never blank for a system act: the sweep names itself.
+  actor_kind String
+  /// The auth user id, or the job that acted. Soft ref — never joined across a service boundary.
+  actor_ref  String?
+
+  /// `operator` here. The KIND of subject, not the table it was read from — `subject_id` is the AUTH
+  /// USER ID (research R3), the same identifier `actor_ref` uses everywhere in this stream.
+  subject_kind String
+  subject_id   String
+
+  /// Minimal and TYPED — ids and enums only, validated against the per-type allow-list in
+  /// @crm/common. A label's TEXT, a session id and any screen/panel detail are all inexpressible
+  /// here, not merely discouraged (Principle IV / SEC-26 / FR-037).
+  payload_json Json?
+
+  /// The reporting dimensions AS THEY WERE at this instant. An operator transition has no brand and
+  /// no assignee, so those are ABSENT rather than null — a null would claim the dimension existed and
+  /// was empty, and a later feature must be able to start writing one going forward with no backfill.
+  dims_json Json
+
+  /// Ties this to the audit entry produced by the same act (the supervisor override is the one
+  /// presence act that produces both), without either becoming the other's source of truth.
+  correlation_id String
+
+  created_at DateTime @default(now())
+
+  /// Ordering + the watermark a later aggregator reads forward on. `id` breaks same-instant ties, so
+  /// two transitions in the same millisecond still page deterministically (the 015 lesson).
+  @@index([account_id, occurred_at, id])
+  /// "Reconstruct this person's day" — the operator-shaped equivalent of the conversation index.
+  @@index([account_id, subject_id, occurred_at])
+  /// "Every presence change in this range".
+  @@index([account_id, type, occurred_at])
+}

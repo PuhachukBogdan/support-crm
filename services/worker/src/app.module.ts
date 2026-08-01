@@ -6,6 +6,9 @@ import { WorkerUsersModule } from './users/users.client';
 import { SlaSweepJob } from './jobs/sla-sweep.job';
 import { ExportRunJob } from './jobs/export-run.job';
 import { ExpirySweepJob } from './jobs/expiry-sweep.job';
+// Feature 025 (roadmap 5.9): the auto-away tick. Its own queue rather than a passenger on the
+// five-minute expiry sweep — the tick interval is added to the away threshold as lag.
+import { PresenceSweepJob } from './jobs/presence-sweep.job';
 
 // Phase 1 (spec 003): the worker is a gRPC microservice exposing HealthService.Check over
 // its Redis connection (via BullMQ).
@@ -25,6 +28,6 @@ import { ExpirySweepJob } from './jobs/expiry-sweep.job';
 @Module({
   imports: [WorkerChatsModule, WorkerUsersModule],
   controllers: [HealthGrpcController],
-  providers: [RedisService, SlaSweepJob, ExportRunJob, ExpirySweepJob],
+  providers: [RedisService, SlaSweepJob, ExportRunJob, ExpirySweepJob, PresenceSweepJob],
 })
 export class AppModule {}

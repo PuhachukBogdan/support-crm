@@ -28,4 +28,16 @@ export const SCOPED_MODELS = [
   // data — a person belongs to an account, and `forAccount` is what makes "not yours" and "does not
   // exist" the same query result rather than two branches a later edit could separate.
   'OperatorUiPreference',
+  // Feature 025 (roadmap 5.9): presence and everything that narrows it. All four carry `account_id`
+  // and are all four tenant data.
+  //
+  // ⚠️ Note the contrast with feature 024's `GroupMember` / `GroupPermission`, which deliberately
+  // carry NO `account_id` and scope through a parent row so there is only ever one answer to "which
+  // account is this in?". There is no parent row here: `auth_user_id` is a soft ref that cannot be a
+  // foreign key across a service boundary, so each table carries the account itself. Different
+  // shapes, same guarantee.
+  'OperatorPresence',
+  'OperatorChannelBlock',
+  'PresenceLabel',
+  'OperatorTransition',
 ] as const;

@@ -123,11 +123,33 @@ export const TRANSITION_TYPES = {
     status: 'no-writer-yet',
     label: 'Escalation started or stopped waiting on a third party (roadmap E2)',
   },
+  // ── Feature 025 (roadmap 5.9): promoted from `no-writer-yet` to `live`. ──
+  //
+  // This is the mechanism working exactly as its header describes. Feature 023 defined the type with
+  // no writer so that the feature which eventually needed it would write HERE rather than invent a
+  // second store — and the payload allow-list (`from`/`to`/`cause`) was defined at the same time, so
+  // 025 inherited the SHAPE of a presence transition rather than choosing one.
+  //
+  // `catalogue.spec.ts` pins the exact membership of both status lists, so this promotion is an edit
+  // somebody had to make on purpose.
   'operator.presence_changed': {
     subject: 'operator',
     writer: 'users',
-    status: 'no-writer-yet',
+    status: 'live',
     label: 'Operator presence changed (roadmap 5.9)',
+  },
+  // Feature 025. A per-channel switch is NOT expressible as `operator.presence_changed` — that
+  // type's allow-list is `from`/`to`/`cause`, and widening it to carry a channel would blur two
+  // different facts into one type. That refusal is the catalogue doing its job, not an obstacle.
+  //
+  // Recorded rather than skipped because without it, *"they were shown as available all afternoon
+  // and received nothing"* is unanswerable later — precisely the retrofit that recording transitions
+  // from day one exists to prevent (U4).
+  'operator.channel_availability_changed': {
+    subject: 'operator',
+    writer: 'users',
+    status: 'live',
+    label: 'Operator switched a channel on or off (roadmap 5.9)',
   },
   'staff.provisioning_requested': {
     subject: 'staff',

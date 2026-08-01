@@ -12,6 +12,21 @@ import { PlayerRepository, type PlayerRow } from './player.repository';
 import { readPlayerActor, resolveListBrand, type PlayerActor } from './actor';
 import { playerIdentity } from './player.identity';
 import { PersonService } from './person.service';
+import type { PresenceState } from '@crm/common';
+
+/**
+ * Domain state → wire enum for `ResolvedOperator.state` (feature 025).
+ *
+ * Local to this file rather than shared: the wire numbering belongs to the contract, and the two
+ * other surfaces that encode it own their own. A shared encoder would be a third place to change
+ * when the proto changes, and the proto is the source of truth for all three.
+ */
+const PRESENCE_STATE_WIRE: Readonly<Record<PresenceState, number>> = {
+  online: 1,
+  transfers_only: 2,
+  away: 3,
+  offline: 4,
+};
 
 interface GetPlayerWire {
   /** Required since feature 020 — a platform id alone names two customers, not one. */
@@ -273,12 +288,26 @@ export class PlayerReadController {
   @RequiresPlayerPermission('crm.conversation.assign')
   async listOperatorsByAuthUsers(req: { authUserIds?: string[] }, metadata: Metadata) {
     const actor = readPlayerActor(metadata);
-    const resolved = await this.operators.resolveByAuthUserIds(
-      actor.accountId,
-      Array.isArray(req?.authUserIds) ? req.authUserIds.map((id) => String(id ?? '')) : [],
-    );
+    const asked = Array.isArray(req?.authUserIds) ? req.authUserIds.map((id) => String(id ?? '')) : [];
+    const resolved = await this.operators.resolveByAuthUserIds(actor.accountId, asked);
+
+    // ── Feature 025 (roadmap 5.9): availability rides this answer ────────────────────────────────
+    //
+    // The repository does the enrichment, not this handler, and that placement is deliberate: ONE
+    // method answers "who can take this work?" completely — the `Operator.active` filter (roadmap
+    // 3.16, the staff account is not deactivated) and the presence state (is this person at their
+    // desk right now) belong beside each other. They are separate FACTS and must never be merged,
+    // but they are answers to the same question, and splitting the query across two layers is how a
+    // caller ends up applying one and forgetting the other.
     return {
-      operators: resolved.map((r) => ({ operatorId: r.operatorId, authUserId: r.authUserId })),
+      operators: resolved.map((r) => ({
+        operatorId: r.operatorId,
+        authUserId: r.authUserId,
+        state: PRESENCE_STATE_WIRE[r.state] ?? 4,
+        // ONLY the switched-off channels. Absence means available, so an empty list is the normal
+        // and most common answer (FR-019).
+        blockedChannels: r.blockedChannels,
+      })),
     };
   }
 }

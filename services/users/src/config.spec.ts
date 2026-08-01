@@ -34,6 +34,8 @@ const COMPLETE: NodeJS.ProcessEnv = {
   S3_SECRET_ACCESS_KEY: 'r34l-l00king-but-synthetic-secret',
   S3_FORCE_PATH_STYLE: 'true',
   CONTACT_HASH_SALT: 'synthetic-salt-for-tests-0123456789abcdef',
+  PRESENCE_AWAY_AFTER_SECONDS: '600',
+  PRESENCE_OFFLINE_AFTER_SECONDS: '3600',
 };
 
 describe('users config: the object store is a boot requirement (feature 016)', () => {
@@ -123,5 +125,51 @@ describe('users config: the contact-hash salt is a boot requirement (feature 020
 
   it('a sufficiently long salt loads', () => {
     expect(loadUsersConfig({ ...COMPLETE }).CONTACT_HASH_SALT).toHaveLength(41);
+  });
+});
+
+/**
+ * T003 (feature 025, roadmap 5.9) — the presence thresholds are a BOOT requirement.
+ *
+ * A service that started without them would run the auto-away sweep against a made-up number: it
+ * would either put nobody away or put everybody away, and every unit test would stay green because a
+ * unit test constructs the config directly and never boots. Refusing to start is the honest failure
+ * (SEC-6), and it is the same reasoning the S3 block and the contact salt above are held to.
+ */
+describe('users config: the presence thresholds are a boot requirement (feature 025)', () => {
+  it.each(['PRESENCE_AWAY_AFTER_SECONDS', 'PRESENCE_OFFLINE_AFTER_SECONDS'])(
+    'refuses to start without %s',
+    (key) => {
+      const without = { ...COMPLETE };
+      delete without[key];
+      expect(() => loadUsersConfig(without)).toThrow(ConfigError);
+    },
+  );
+
+  it('the refusal names the KEY', () => {
+    const without = { ...COMPLETE };
+    delete without.PRESENCE_AWAY_AFTER_SECONDS;
+    try {
+      loadUsersConfig(without);
+      throw new Error('expected a refusal');
+    } catch (err) {
+      expect(String((err as Error).message)).toContain('PRESENCE_AWAY_AFTER_SECONDS');
+    }
+  });
+
+  it.each(['0', '-1', 'soon', ''])('refuses the non-positive or non-numeric value %p', (bad) => {
+    // A zero threshold would sweep everybody away on the first tick; a negative one is nonsense that
+    // `Number()` happily produces. Both are caught here rather than discovered in a live run.
+    expect(() =>
+      loadUsersConfig({ ...COMPLETE, PRESENCE_AWAY_AFTER_SECONDS: bad }),
+    ).toThrow(ConfigError);
+  });
+
+  it('a complete environment yields NUMBERS, not strings', () => {
+    // `z.coerce` is what makes the comparison in the sweep an arithmetic one. Without it,
+    // `'600' > 3600` is a string comparison that silently answers the wrong question.
+    const cfg = loadUsersConfig({ ...COMPLETE });
+    expect(cfg.PRESENCE_AWAY_AFTER_SECONDS).toBe(600);
+    expect(cfg.PRESENCE_OFFLINE_AFTER_SECONDS).toBe(3600);
   });
 });

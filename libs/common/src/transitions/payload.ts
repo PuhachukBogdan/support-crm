@@ -41,7 +41,16 @@ const ALLOWED_KEYS: Partial<Record<TransitionType, readonly string[]>> = {
   'conversation.player_detached': ['playerId'],
   'escalation.status_changed': ['from', 'to'],
   'escalation.waiting_changed': ['from', 'to'],
+  // ⚠️ Declared by feature 023 BEFORE any writer existed, and feature 025 deliberately did not
+  // change it: the shape of a presence transition was already specified, so the writer inherited it
+  // rather than choosing one. `cause` (manual | auto_inactivity | admin) is what makes an automatic
+  // change explainable after the fact — and note what is NOT here: no session id, no device, no
+  // screen or panel detail. The employee-surveillance question is separate and undecided, and this
+  // allow-list is the enforcement, not an intention to be careful (FR-037).
   'operator.presence_changed': ['from', 'to', 'cause'],
+  // Feature 025. `available` is the resulting boolean; `channel` is an opaque key — this product
+  // still has no channel vocabulary, and 5.9 deliberately did not invent one (research R8).
+  'operator.channel_availability_changed': ['channel', 'available', 'cause'],
   'staff.provisioning_requested': ['hrEmployeeId', 'outcome'],
   'staff.provisioning_rejected': ['reasonCode'],
   // The SEC-26 exception: a one-way hash plus the KIND of value searched. Never the value.

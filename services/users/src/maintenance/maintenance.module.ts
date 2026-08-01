@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { UploadsModule } from '../uploads/uploads.module';
 import { MaintenanceController } from './maintenance.controller';
 import { MaintenanceService } from './maintenance.service';
+import { PresenceModule } from '../presence/presence.module';
+import { PresenceSweepService } from '../presence/presence-sweep.service';
 
 /**
  * The maintenance surface (feature 017, US3).
@@ -12,8 +14,8 @@ import { MaintenanceService } from './maintenance.service';
  * credential holder, which `tests/uploads/single-ingest-path.spec.ts` exists to prevent.
  */
 @Module({
-  imports: [UploadsModule],
+  imports: [UploadsModule, PresenceModule],
   controllers: [MaintenanceController],
-  providers: [MaintenanceService],
+  providers: [MaintenanceService, PresenceSweepService],
 })
 export class MaintenanceModule {}

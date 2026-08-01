@@ -9,6 +9,8 @@ import { MaintenanceController } from './maintenance.controller';
 // package, which is the case most likely to be assumed rather than checked.
 import { UiPreferencesModule } from '../preferences/ui-preferences.module';
 import { UiPreferencesController } from '../preferences/ui-preferences.grpc.controller';
+// Feature 025 (roadmap 5.9): presence — a THIRD controller on UsersReadService plus a new service.
+import { PresenceModule } from '../presence/presence.module';
 
 const ROOT = resolve(__dirname, '..', '..', '..', '..');
 
@@ -80,16 +82,21 @@ describe('*** UsersMaintenanceService is hosted, not merely written ***', () => 
  * that shape one level up (a hosted package whose handler was never wired), and feature 018's own analysis
  * pass found its mirror image (a wired handler with no caller).
  */
-describe('*** UsersReadService is served across two controllers, completely ***', () => {
+describe('*** UsersReadService is served across three controllers, completely ***', () => {
   const proto = readFileSync(USERS_PROTO, 'utf8');
 
-  it('the contract declares exactly six methods on it', () => {
+  it('the contract declares exactly eight methods on it', () => {
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
     expect(rpcs.sort()).toEqual([
       'GetOperator',
+      // Feature 025 (roadmap 5.9): who is at their desk right now. READ-shaped by necessity — the
+      // sibling guard in tests/users-read/no-outbound.spec.ts requires it, which is why the presence
+      // WRITES live on their own service rather than here.
+      'GetOperatorPresence',
       'GetPlayer',
       'ListAuditEntries',
+      'ListOperatorPresence',
       // Feature 020 (roadmap 5.2): which brand-scoped records make up one human. Chats needs it to
       // answer a person's feed and cannot join across services, so identity crosses as an explicit
       // call. Editing this list is the visible act the guard exists to force.
@@ -111,6 +118,9 @@ describe('*** UsersReadService is served across two controllers, completely ***'
     const sources = [
       readFileSync(join(dir, 'player', 'player.grpc.controller.ts'), 'utf8'),
       readFileSync(join(dir, 'audit', 'audit.grpc.controller.ts'), 'utf8'),
+      // Feature 025 (roadmap 5.9): a third controller on the same service, split by SUBJECT rather
+      // than by transport — the shape `AuditReadController` already established.
+      readFileSync(join(dir, 'presence', 'presence.read.controller.ts'), 'utf8'),
     ].join('\n');
 
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
@@ -134,6 +144,63 @@ describe('*** UsersReadService is served across two controllers, completely ***'
     const names = controllers.map((c) => (c as { name?: string })?.name ?? '');
     expect(names).toContain('PlayerReadController');
     expect(names).toContain('AuditReadController');
+  });
+
+  it('the presence controllers reach the graph through their module', () => {
+    // The third controller is registered by PresenceModule rather than listed here directly — so the
+    // link that must exist is the module IMPORT, which is precisely the link feature 015 was missing.
+    const imports = Reflect.getMetadata('imports', AppModule) as unknown[];
+    expect(imports).toContain(PresenceModule);
+    const controllers = Reflect.getMetadata('controllers', PresenceModule) as unknown[];
+    const names = controllers.map((c) => (c as { name?: string })?.name ?? '');
+    expect(names).toContain('PresenceReadController');
+    expect(names).toContain('PresenceController');
+  });
+});
+
+/**
+ * T028/T032 (feature 025, roadmap 5.9) — **`OperatorPresenceService` is hosted, not merely written.**
+ *
+ * The third time this product adds a new gRPC service to an existing package, and the third time it
+ * is asserted rather than assumed. "No new package entry is needed" is true and is exactly the kind
+ * of true statement that stops anyone checking the other three links.
+ */
+describe('*** OperatorPresenceService is hosted, not merely written ***', () => {
+  const proto = readFileSync(USERS_PROTO, 'utf8');
+
+  it('the service is declared in the proto the users server loads', () => {
+    expect(proto).toMatch(/service\s+OperatorPresenceService\s*\{/);
+  });
+
+  it('its package is the one already hosted — verified, not assumed', () => {
+    const declared = /^\s*package\s+([\w.]+)\s*;/m.exec(proto)?.[1];
+    expect(declared).toBe(USERS_PACKAGE);
+  });
+
+  it('every declared rpc has a handler', () => {
+    const src = readFileSync(
+      join(ROOT, 'services', 'users', 'src', 'presence', 'presence.grpc.controller.ts'),
+      'utf8',
+    ).replace(/\s+/g, ' ');
+    const block = /service\s+OperatorPresenceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const declared = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
+
+    expect(declared.length).toBe(7); // the pattern found the block, and the surface is pinned
+    const unhandled = declared.filter(
+      (rpc) => !src.includes(`@GrpcMethod('OperatorPresenceService', '${rpc}')`),
+    );
+    expect(unhandled).toEqual([]);
+  });
+
+  it('the sweep rpc is on the MAINTENANCE service, not the presence one', () => {
+    // Placement is the security property, not a filing preference: `UsersMaintenanceService` is
+    // system-actor-only with no gateway route, so a sweep there cannot be invoked by a session. On
+    // the presence service it would be a way to put a colleague offline without holding the key that
+    // governs exactly that.
+    const maintenance = /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const presence = /service\s+OperatorPresenceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    expect(maintenance).toMatch(/rpc\s+SweepIdlePresence\s*\(/);
+    expect(presence).not.toMatch(/SweepIdlePresence/);
   });
 });
 

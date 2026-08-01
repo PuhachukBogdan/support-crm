@@ -103,6 +103,25 @@ export const AUDIT_ACTIONS = {
     status: 'live',
     label: 'Permission revoked from a group',
   },
+  // ── Feature 025 (roadmap 5.9): setting SOMEBODY ELSE's presence. ──
+  //
+  // ⚠️ Changing one's OWN presence is deliberately NOT here and never will be. A statement about
+  // oneself is history (a transition), not a sensitive action — and ~58 agents toggling several
+  // times a day would bury the entries that matter, which is the same reasoning that keeps the UI
+  // preference toggle out of this catalogue.
+  //
+  // Class `privilege` is a REUSE and it is worth being honest about the fit: this changes no
+  // permission. What it does is override a person's own statement about themselves and redirect the
+  // work the system gives them, without their involvement — the accountability need the class exists
+  // for. A dedicated class for *acts performed on a colleague* would be better, and it earns its
+  // existence at roadmap 3.15/3.16, when provisioning and deactivation give it three tenants.
+  // Recorded here so that stays a decision rather than becoming an accident.
+  'presence.override': {
+    class: 'privilege',
+    writer: 'users',
+    status: 'live',
+    label: "Another operator's presence was set by an administrator",
+  },
 
   // ── deletion ──
   'automation.delete': {

@@ -26,6 +26,10 @@ export * from './testing';
 // Feature 021 (roadmap 5.6): the operator UI-preference catalogue — the OPERATOR's appearance
 // settings, never `Player.preferences_json` (the customer's VIP portfolio data, tier `am_only`).
 export * from './preferences';
+// Feature 025 (roadmap 5.9): the presence vocabulary and the availability matrix — shared by users
+// (which owns the state) and chats (which asks the question). ⚠️ "presence STATE", never "status",
+// and never `Operator.active`, which means something else entirely (roadmap 3.16).
+export * from './presence';
 // Feature 018 (roadmap 5.1): keyset paging primitives. ⚠️ `services/chats/src/shared/cursor.ts` is a
 // second, service-local copy of the same shape that predates this one and was deliberately not
 // migrated (research R6) — a pointer sits in both files.

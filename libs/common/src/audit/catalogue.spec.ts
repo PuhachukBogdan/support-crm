@@ -62,6 +62,10 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'group_member.remove',
     'group_permission.grant',
     'group_permission.revoke',
+    // Feature 025 (roadmap 5.9). Only the OVERRIDE — changing one's own presence writes no audit
+    // entry, deliberately, and `presence.override` is therefore the whole of this feature's
+    // footprint in this catalogue.
+    'presence.override',
   ];
 
   it('every action resolves to a class and a writer', () => {
@@ -187,6 +191,7 @@ describe('actionsOfClass', () => {
         'group_member.remove',
         'group_permission.grant',
         'group_permission.revoke',
+        'presence.override',
       ].sort(),
     );
   });

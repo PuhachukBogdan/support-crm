@@ -3,7 +3,13 @@ import { ClientsModule, RpcException, type ClientGrpc } from '@nestjs/microservi
 import { firstValueFrom, type Observable } from 'rxjs';
 import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
-import { grpcClientOptions, USERS_PACKAGE, USERS_PROTO } from '@crm/common';
+import {
+  decodeWireState,
+  grpcClientOptions,
+  USERS_PACKAGE,
+  USERS_PROTO,
+  type PresenceState,
+} from '@crm/common';
 
 /**
  * chats → users: **which brand-scoped records make up one human** (feature 022, roadmap 4.13).
@@ -86,12 +92,34 @@ interface PlayerRefWire {
 export interface AssignableOperator {
   operatorId: string;
   authUserId: string;
+  /**
+   * Feature 025 (roadmap 5.9). `online` | `transfers_only` | `away` | `offline`.
+   *
+   * ⚠️ NOT the same fact as having an active profile. `users` already excluded deactivated staff
+   * before answering — that person has LEFT. This says whether the person who is still employed is
+   * at their desk right now. Both make somebody unavailable and they are not interchangeable.
+   */
+  state: PresenceState;
+  /** ONLY the channels switched OFF. Absence means available (FR-019). */
+  blockedChannels: string[];
 }
 
 interface ResolvedOperatorWire {
   operatorId?: string;
   authUserId?: string;
+  state?: number | string;
+  blockedChannels?: string[];
 }
+
+/**
+ * Wire enum → domain state, fail-closed.
+ *
+ * ⚠️ An unreadable value becomes `offline`, NOT `online`. The two wrong answers are not symmetric:
+ * defaulting to available pushes a live customer at somebody who may be asleep, while defaulting to
+ * unavailable merely declines to route to one person. When a decoder cannot tell, it must pick the
+ * direction that fails safely — the same rule the REST edge applies to unknown enum values.
+ */
+const decodeState = (raw: unknown): PresenceState => decodeWireState(raw) ?? 'offline';
 
 interface UsersReadGrpc {
   listPersonMembers(
@@ -198,8 +226,13 @@ export class PersonMembersClient implements OnModuleInit {
     if (!Array.isArray(rows)) throw new MembershipUnavailableError('unreadable response');
 
     return rows
-      .filter((o): o is Required<ResolvedOperatorWire> => !!o?.operatorId && !!o?.authUserId)
-      .map((o) => ({ operatorId: o.operatorId, authUserId: o.authUserId }));
+      .filter((o): o is ResolvedOperatorWire => !!o?.operatorId && !!o?.authUserId)
+      .map((o) => ({
+        operatorId: o.operatorId as string,
+        authUserId: o.authUserId as string,
+        state: decodeState(o.state),
+        blockedChannels: Array.isArray(o.blockedChannels) ? o.blockedChannels.map(String) : [],
+      }));
   }
 }
 

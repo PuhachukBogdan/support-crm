@@ -72,7 +72,11 @@ export class AutoAssignController {
     // Feature 024: a named group wins outright. `candidates` is not merged in — see the header.
     const groupId = (req.groupId ?? '').trim();
     const candidates: RoundRobinCandidate[] = groupId
-      ? await this.pool.candidatesFor(ctx.accountId, groupId, metadata)
+      ? // Feature 025 (roadmap 5.9): the conversation's own channel decides whether a per-channel
+        // switch applies. `null` when it was never recorded — feature 022 keeps that case distinct
+        // from every channel NAME, and the availability predicate answers it at state level alone
+        // rather than matching it against a switch.
+        await this.pool.candidatesFor(ctx.accountId, groupId, metadata, conversation.channel ?? null)
       : (req.candidates ?? [])
           .map((c) => ({
             operatorId: (c?.operatorId ?? '').trim(),

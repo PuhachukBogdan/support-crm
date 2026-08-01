@@ -65,6 +65,38 @@ export const SEED_ROUTING_OPERATOR_IDS = [
   'seed-operator-0000-0000-000000000004',
 ] as const;
 
+/**
+ * Feature 025 (roadmap 5.9) — the seeded presence labels.
+ *
+ * Fixed ids so re-seeding is idempotent. The NAMES are data: nothing in the product branches on one,
+ * and `tests/contracts/presence-label-never-branched-on.spec.ts` fails the build if anything starts.
+ */
+export const SEED_PRESENCE_LABEL_IDS = [
+  'seed-plabel-0000-0000-000000000001',
+  'seed-plabel-0000-0000-000000000002',
+  'seed-plabel-0000-0000-000000000003',
+  'seed-plabel-0000-0000-000000000004',
+] as const;
+
+/**
+ * ⚠️ **Feature 025 CHANGED THE MEANING OF THE SEEDED STATE, and this constant is where that is
+ * handled.**
+ *
+ * Before 5.9, a seeded agent with an active operator profile was a routing candidate. After it, an
+ * operator with no presence is `offline` and therefore **not** a candidate — so feature 024's group
+ * routing would resolve to an empty pool and its live assertions would go red for a CORRECT reason.
+ *
+ * The seed therefore puts the demo desk online. Two properties of how it does that matter:
+ *
+ *   • it is written through the product's own presence path, never by inserting rows behind its back
+ *     — the rule three separate live-run defects in feature 024 came from breaking;
+ *   • it is an explicit STATEMENT ("these demo agents are at their desks"), not a default. The
+ *     default stays `offline`, because presence is a claim about a live session and a default of
+ *     "available" would be the same class of untruth as the attendance data this team already
+ *     distrusts (FR-011).
+ */
+export const SEED_PRESENCE_ONLINE_USER_IDS = SEED_ROUTING_USER_IDS;
+
 // brands_db
 export const SEED_BRAND_ACCESS_RULE_ID = 'seed-bar-0000-0000-000000000001';
 

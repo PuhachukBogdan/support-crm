@@ -7,3 +7,7 @@
  */
 export * from './catalogue';
 export * from './payload';
+// Feature 025 (roadmap 5.9): the row SHAPE, shared once `users` became the second writer. The
+// vocabulary was always shared; now the envelope is too, because "identical" written twice by hand
+// is "identical until somebody edits one of them" (FR-004).
+export * from './row';

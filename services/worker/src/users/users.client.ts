@@ -28,8 +28,16 @@ export interface PurgeResult {
   failed: number;
 }
 
+/** Counts only, like every maintenance answer (feature 025, roadmap 5.9). */
+export interface SweepPresenceResult {
+  toAway: number;
+  toOffline: number;
+  failed: number;
+}
+
 interface UsersMaintenanceGrpc {
   purgeExpiredArtefacts(data: { limit: number }, md?: Metadata): Observable<PurgeResult>;
+  sweepIdlePresence(data: { limit: number }, md?: Metadata): Observable<SweepPresenceResult>;
 }
 
 @Injectable()
@@ -47,6 +55,23 @@ export class UsersMaintenanceClient implements OnModuleInit {
     const md = new Metadata();
     md.set('x-actor-kind', 'system');
     return firstValueFrom(this.svc.purgeExpiredArtefacts({ limit }, md));
+  }
+
+  /**
+   * Lower the availability of operators whose session has gone quiet (feature 025, roadmap 5.9).
+   *
+   * The worker's role is the same as everywhere else here: a **tick**. It holds no thresholds, no
+   * presence state and no clock authority — `users` owns all three, reads them from its own
+   * refuse-to-start config, and decides. The worker only says "now".
+   *
+   * `x-actor-kind: system` is the whole authorization: the rpc refuses anything else and the gateway
+   * exposes no route to it. That matters more here than for the purge — a sweep reachable from a
+   * session would be a way to put a colleague offline without holding `users.presence.manage`.
+   */
+  async sweepIdlePresence(limit: number): Promise<SweepPresenceResult> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    return firstValueFrom(this.svc.sweepIdlePresence({ limit }, md));
   }
 }
 

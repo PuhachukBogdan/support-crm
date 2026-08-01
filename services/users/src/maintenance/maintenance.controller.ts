@@ -3,6 +3,8 @@ import { GrpcMethod, RpcException } from '@nestjs/microservices';
 import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata, MetadataValue } from '@grpc/grpc-js';
 import { MaintenanceService } from './maintenance.service';
+import { PresenceSweepService } from '../presence/presence-sweep.service';
+import { loadUsersConfig } from '../config';
 
 interface BatchWire {
   limit?: number;
@@ -39,7 +41,13 @@ function readMeta(md: Metadata | undefined, key: string): string {
  */
 @Controller()
 export class MaintenanceController {
-  constructor(@Inject(MaintenanceService) private readonly maintenance: MaintenanceService) {}
+  constructor(
+    @Inject(MaintenanceService) private readonly maintenance: MaintenanceService,
+    // Feature 025 (roadmap 5.9): the auto-away sweep. Same three properties as the purge above —
+    // system actor only, no gateway route, counts in the response — which is why it lives here and
+    // not on the presence service.
+    @Inject(PresenceSweepService) private readonly sweep: PresenceSweepService,
+  ) {}
 
   @GrpcMethod('UsersMaintenanceService', 'PurgeExpiredArtefacts')
   async purgeExpiredArtefacts(req: BatchWire, metadata: Metadata) {
@@ -53,5 +61,26 @@ export class MaintenanceController {
       objectMissing: counts.objectMissing,
       failed: counts.failed,
     };
+  }
+
+  /**
+   * Lower the availability of operators whose session has gone quiet (feature 025, roadmap 5.9).
+   *
+   * Here rather than on `OperatorPresenceService`, and for the three properties that make this
+   * service what it is. The middle one is the security argument: a sweep reachable from a session
+   * would be a way to put a colleague offline without holding `users.presence.manage`, which is the
+   * key that governs exactly that.
+   */
+  @GrpcMethod('UsersMaintenanceService', 'SweepIdlePresence')
+  async sweepIdlePresence(req: BatchWire, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const cfg = loadUsersConfig();
+    const counts = await this.sweep.sweepIdle(Number(req?.limit ?? 0), new Date(), {
+      awayAfterSeconds: cfg.PRESENCE_AWAY_AFTER_SECONDS,
+      offlineAfterSeconds: cfg.PRESENCE_OFFLINE_AFTER_SECONDS,
+    });
+    return { toAway: counts.toAway, toOffline: counts.toOffline, failed: counts.failed };
   }
 }

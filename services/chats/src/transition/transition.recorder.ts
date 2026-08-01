@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { assertTransitionPayload, isTransitionType, type TransitionType } from '@crm/common';
+import { buildTransitionRow, TransitionTypeError, type TransitionType } from '@crm/common';
 import type { TransitionDims } from './transition.dims';
 
 /**
@@ -73,18 +72,18 @@ export interface RecordTransitionInput {
   correlationId: string;
 }
 
-export class TransitionTypeError extends Error {
-  constructor(type: unknown) {
-    // The type is a catalogue literal when valid; when invalid it is caller input, so it is described
-    // rather than echoed (the feature 021 lesson — an unknown key reflected into a log).
-    super(
-      typeof type === 'string'
-        ? `unknown transition type: <${type.length} chars>`
-        : `unknown transition type: <${typeof type}>`,
-    );
-    this.name = 'TransitionTypeError';
-  }
-}
+/**
+ * ⚠️ `TransitionTypeError` now lives in `@crm/common` and is RE-EXPORTED here.
+ *
+ * Feature 025 made `users` the second writer of this stream, so the row shaping moved to
+ * `libs/common/src/transitions/row.ts` — see FR-004: two writers must produce structurally identical
+ * rows, and "identical" written twice by hand is "identical until somebody edits one of them".
+ *
+ * The re-export is deliberate rather than lazy: several chats specs import this symbol from here,
+ * and changing where they import an error class from is churn that proves nothing. What matters is
+ * that there is one class, not two with the same name.
+ */
+export { TransitionTypeError };
 
 @Injectable()
 export class TransitionRecorder {
@@ -109,29 +108,25 @@ export class TransitionRecorder {
     return db.conversationTransition.create({ data: this.toRow(input) });
   }
 
-  /** The one place a transition row is shaped, so the two entry points cannot drift apart. */
+  /**
+   * The one place a transition row is shaped, so the two entry points cannot drift apart.
+   *
+   * ── Feature 025: the shaping now lives in `@crm/common` ─────────────────────────────────────
+   * It used to be implemented here, and moving it is the whole of what feature 025 changed in this
+   * file. `users` became the second writer of this stream, and the B2 aggregate store downstream
+   * reads *one logical stream* — which is only achievable if both writers emit the same envelope.
+   * Sharing the function is how that stops being a promise (FR-004).
+   *
+   * The three refusals travelled with it verbatim: an unknown type, a payload the allow-list rejects,
+   * and a system actor that does not name itself. They still throw BEFORE the insert and still ride
+   * the caller's transaction, so a transition we cannot describe correctly still rolls the whole act
+   * back.
+   *
+   * What deliberately did NOT move: this class. The atomicity rule is expressed in the type
+   * signatures below — the recorder takes a transaction and cannot open one — and those signatures
+   * are service-specific because the Prisma delegate is.
+   */
   private toRow(input: RecordTransitionInput): Record<string, unknown> {
-    if (!isTransitionType(input.type)) throw new TransitionTypeError(input.type);
-    assertTransitionPayload(input.type, input.payload);
-
-    if (input.actorKind === 'system' && !input.actorRef) {
-      // A timer or a rule names itself. "Something happened, by nobody" is the entry that makes a
-      // trail useless six months later.
-      throw new Error(`transition ${input.type}: a system actor must name itself`);
-    }
-
-    return {
-      id: randomUUID(),
-      account_id: input.accountId,
-      type: input.type,
-      occurred_at: input.occurredAt,
-      actor_kind: input.actorKind,
-      actor_ref: input.actorRef ?? null,
-      subject_kind: input.subjectKind,
-      subject_id: input.subjectId,
-      payload_json: input.payload ?? null,
-      dims_json: input.dims,
-      correlation_id: input.correlationId,
-    };
+    return buildTransitionRow(input);
   }
 }

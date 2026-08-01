@@ -11,6 +11,7 @@ import {
   SEED_PERSON_ID,
   SEED_PERSON_LINKED_ON,
   SEED_ROUTING_OPERATOR_IDS,
+  SEED_PRESENCE_LABEL_IDS,
   SEED_ROUTING_USER_IDS,
 } from '@crm/common';
 
@@ -52,6 +53,27 @@ export function buildSeed() {
         display_name: `Seed Agent ${i + 1}`,
         active: true,
       })),
+    ],
+    // ── Feature 025 (roadmap 5.9): the label set ────────────────────────────────────────────────
+    //
+    // The four the operator named, each pointing at exactly ONE state. Ids are fixed so re-seeding is
+    // idempotent; NAMES are data and nothing in the product branches on one
+    // (`tests/contracts/presence-label-never-branched-on.spec.ts`).
+    presenceLabels: [
+      { id: SEED_PRESENCE_LABEL_IDS[0]!, account_id: SEED_ACCOUNT_ID, name: 'Break', state: 'away' },
+      { id: SEED_PRESENCE_LABEL_IDS[1]!, account_id: SEED_ACCOUNT_ID, name: 'Lunch', state: 'away' },
+      {
+        id: SEED_PRESENCE_LABEL_IDS[2]!,
+        account_id: SEED_ACCOUNT_ID,
+        name: 'Meeting',
+        state: 'transfers_only',
+      },
+      {
+        id: SEED_PRESENCE_LABEL_IDS[3]!,
+        account_id: SEED_ACCOUNT_ID,
+        name: 'VIP task',
+        state: 'transfers_only',
+      },
     ],
     players: [
       {

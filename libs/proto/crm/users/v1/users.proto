@@ -45,6 +45,14 @@ service UsersReadService {
   // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
   // exists anywhere — append-only means there is no mutation path to expose.
   rpc ListAuditEntries(crm.audit.v1.ListAuditEntriesRequest) returns (crm.audit.v1.AuditEntryPage);
+
+  // ── Feature 025 (roadmap 5.9) — additive. Who is available to take work right now.
+  //
+  // READS only, and that is not a style choice: `tests/users-read/no-outbound.spec.ts` requires every
+  // rpc on this service to be `Get*`/`List*`, and it already rejected feature 024's first draft
+  // (`ResolveOperators`). The presence WRITES therefore live on `OperatorPresenceService` below.
+  rpc GetOperatorPresence(GetOperatorPresenceRequest) returns (OperatorPresence);
+  rpc ListOperatorPresence(ListOperatorPresenceRequest) returns (OperatorPresenceList);
 }
 
 message GetPlayerRequest {
@@ -173,6 +181,18 @@ message ListOperatorsByAuthUsersRequest {
 message ResolvedOperator {
   string operator_id = 1;
   string auth_user_id = 2;
+
+  // ── Feature 025 (roadmap 5.9) — additive, and this is WHY presence lives in this service.
+  //
+  // Routing already calls this rpc to turn a desk's membership into candidates. Availability rides
+  // the answer, so the hot path gains a FACT and not a HOP (research R5). Anywhere else, chats would
+  // need a third call — or a second place that answers "can this person take work?".
+  //
+  // `blocked_channels` lists ONLY the channels switched OFF. Absence means available: a channel this
+  // product has never heard of is available by construction, which is what lets Phase 6 introduce one
+  // without a migration here (research R8).
+  PresenceState state = 3;
+  repeated string blocked_channels = 4;
 }
 
 message ListOperatorsByAuthUsersResponse {
@@ -324,6 +344,23 @@ service UsersMaintenanceService {
   // Delete the bytes of ephemeral artefacts past their expiry, then their rows. Idempotent by
   // predicate: a purged row leaves the predicate because the row is gone. Counts only in the response.
   rpc PurgeExpiredArtefacts(MaintenanceBatchRequest) returns (PurgeResult);
+
+  // ── Feature 025 (roadmap 5.9). Lower the availability of operators whose session has gone quiet.
+  //
+  // Here rather than on the presence service, and for the three reasons this service exists at all:
+  // it is SYSTEM-ACTOR ONLY, it has NO gateway route, and it answers in COUNTS. A sweep that any
+  // session could invoke would be a way to put a colleague offline without holding the key that
+  // governs exactly that (FR-022).
+  //
+  // Idempotent by predicate: a row the sweep has already lowered no longer matches the threshold it
+  // was lowered for, so a second tick with no activity in between writes nothing.
+  rpc SweepIdlePresence(MaintenanceBatchRequest) returns (SweepPresenceResult);
+}
+
+message SweepPresenceResult {
+  int32 to_away = 1;
+  int32 to_offline = 2;
+  int32 failed = 3;
 }
 
 message MaintenanceBatchRequest {
@@ -395,4 +432,192 @@ message OperatorUiPreferences {
   // No masking here and therefore no absent-vs-blank distinction to preserve: every key is present
   // with a real value, and an empty string is not a member of any key's allowed set.
   map<string, string> values = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Feature 025 — AGENT PRESENCE, FOR ROUTING ONLY (roadmap 5.9, ADR 0042 §7 / U4).
+//
+// ADDITIVE ONLY: a new service, new messages, new enums, and two new fields on `ResolvedOperator`.
+// Nothing above is renumbered, renamed or removed, so `buf breaking` stays clean — the wall
+// `CheckBrandAccess` hit in feature 020 and `PersonalizeGroup` hit in 024.
+//
+// ⚠️ THE LINE THIS CONTRACT MUST NOT CROSS. Analytics and WFM are deferred by the operator, twice.
+// The line is drawn at EVENTS vs AGGREGATES: presence transitions are recorded from day one, and
+// WFM later READS THAT STREAM. So there is deliberately no count-by-state, no "who was online when",
+// no adherence and no occupancy anywhere in this contract — `tests/presence/no-aggregates.spec.ts`
+// asserts it, because the roadmap requires the absence not be "added quietly".
+//
+// ⚠️ NO SESSION OR DEVICE IDENTIFIER APPEARS HERE, and none may be added. Presence is per PERSON.
+// A session id is the first step onto the employee-surveillance question, which is separate and
+// undecided; a heartbeat states that a session is alive, never what the person is looking at.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+enum PresenceState {
+  // Refused on input, never coerced. An unknown value mapped to a default WIDENS availability, and
+  // the widening direction is the one that pushes live customers at absent agents — the same
+  // fail-closed rule the REST edge applies in `services/gateway/src/chats/wire.ts`.
+  PRESENCE_STATE_UNSPECIFIED = 0;
+  PRESENCE_STATE_ONLINE = 1;
+  // Not available for a NEW PUSH; available for a transfer handed over by a human. This is the only
+  // state where the two asks disagree, and it is the whole reason presence is a state and not a
+  // label — a label carries one value and could not express a two-valued answer (FR-010).
+  PRESENCE_STATE_TRANSFERS_ONLY = 2;
+  PRESENCE_STATE_AWAY = 3;
+  PRESENCE_STATE_OFFLINE = 4;
+}
+
+// WHY a state was set. Not decoration: it is the difference between "the system decided you were
+// away" and "you told us you were away" — two facts a future WFM report must never merge — and it is
+// what makes the monotonicity rule decidable (FR-016: a heartbeat may raise availability only from a
+// state the sweep itself set).
+enum PresenceCause {
+  PRESENCE_CAUSE_UNSPECIFIED = 0;     // never set — the default a first heartbeat may raise from
+  PRESENCE_CAUSE_MANUAL = 1;          // the person said so
+  PRESENCE_CAUSE_AUTO_INACTIVITY = 2; // the sweep
+  PRESENCE_CAUSE_ADMIN = 3;           // somebody else said so
+}
+
+// The two kinds of ask, as separate values rather than one boolean, because `transfers_only` answers
+// them differently and a single `is_available` could not be correct for both.
+enum AvailabilityAsk {
+  AVAILABILITY_ASK_UNSPECIFIED = 0;
+  AVAILABILITY_ASK_NEW_PUSH = 1;
+  AVAILABILITY_ASK_HUMAN_TRANSFER = 2;
+}
+
+// One outcome per distinguishable answer. `UNCHANGED` is NOT a second `OK`: FR-015 makes the
+// difference observable — one path writes exactly one history record and the other must write none —
+// and collapsing them would make "exactly one event" untestable from outside, which is how it
+// quietly becomes "usually one".
+enum PresenceStatus {
+  PRESENCE_STATUS_UNSPECIFIED = 0;
+  PRESENCE_STATUS_OK = 1;
+  PRESENCE_STATUS_UNCHANGED = 2;
+  // Caller lacks `users.presence.manage`. Separate from NO_SUCH_OPERATOR for the reason feature 024
+  // gave for GROUP_STATUS_ESCALATION: "you may not" and "there is nobody here" send an administrator
+  // looking for different things. ⚠️ This never becomes a cross-account probe — a caller from another
+  // account never gets a row back at all, so from outside the two are indistinguishable.
+  PRESENCE_STATUS_FORBIDDEN = 3;
+  PRESENCE_STATUS_NO_SUCH_OPERATOR = 4;
+  PRESENCE_STATUS_UNKNOWN_LABEL = 5;
+  PRESENCE_STATUS_NAME_TAKEN = 6;
+}
+
+message OperatorPresence {
+  string auth_user_id = 1;
+  PresenceState state = 2;
+  PresenceCause last_cause = 3;
+  string last_seen_at = 4;              // RFC3339; empty = never active
+  string label_id = 5;                  // empty = nothing displayed
+  repeated string blocked_channels = 6; // ONLY the switched-off ones
+  // ⚠️ The staff account is not deactivated (roadmap 3.16). A SEPARATE FACT from presence, carried
+  // separately on purpose: conflating them would make a person at lunch indistinguishable from a
+  // person who left the company, and this is the exact query where the two meet (FR-034).
+  bool operator_active = 7;
+}
+
+message GetOperatorPresenceRequest {
+  // Empty = the calling operator's own presence, which needs no permission. Naming somebody else
+  // requires `users.list.view` — the same fact class as seeing the staff list at all.
+  string auth_user_id = 1;
+}
+
+message ListOperatorPresenceRequest {
+  repeated string auth_user_ids = 1;
+}
+
+message OperatorPresenceList {
+  // An operator with no presence row is returned as OFFLINE; an auth id with no operator PROFILE is
+  // simply ABSENT. Different answers to different questions, and not merged: the first is somebody
+  // who has not started work, the second is not a member of staff.
+  repeated OperatorPresence presence = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// OperatorPresenceService — the WRITES.
+//
+// A separate service from `UsersReadService` because a write on a service named *Read* is a lie in
+// the contract, and a guard already enforces it. New service, EXISTING package — additive, and no
+// new hosting entry is needed. "No new entry needed" is precisely what feature 015 got wrong live,
+// so `hosting.spec.ts` asserts the links rather than reasoning about them.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service OperatorPresenceService {
+  // Own presence. NO permission key: a statement about oneself is history, not a sensitive action,
+  // so it writes a transition and NO audit entry (FR-021).
+  rpc SetOwnPresence(SetOwnPresenceRequest) returns (SetPresenceResponse);
+
+  // The activity signal. ⚠️ Presence is NOT inferred from ordinary authenticated traffic — a
+  // background poll would keep a closed laptop "online" all night, rebuilding the very
+  // untrustworthiness this feature exists to replace (FR-013).
+  rpc Heartbeat(HeartbeatRequest) returns (SetPresenceResponse);
+
+  rpc SetChannelAvailability(SetChannelAvailabilityRequest) returns (SetPresenceResponse);
+
+  // Somebody ELSE's presence. Requires `users.presence.manage`, is AUDITED, and records
+  // `PRESENCE_CAUSE_ADMIN`. The one presence act that is both a sensitive action and history.
+  rpc SetOperatorPresence(SetOperatorPresenceRequest) returns (SetPresenceResponse);
+
+  rpc ListPresenceLabels(ListPresenceLabelsRequest) returns (PresenceLabelList);
+  rpc UpsertPresenceLabel(UpsertPresenceLabelRequest) returns (PresenceLabelResponse);
+  rpc DeletePresenceLabel(DeletePresenceLabelRequest) returns (PresenceLabelResponse);
+}
+
+message SetOwnPresenceRequest {
+  PresenceState state = 1;
+  string label_id = 2; // empty clears the displayed label; it never changes the STATE
+}
+
+message HeartbeatRequest {}
+
+message SetChannelAvailabilityRequest {
+  string channel = 1;
+  // false inserts the block, true removes it. There is no stored `true`: a row's EXISTENCE is the
+  // block, which is what makes "a channel switch may only ever subtract" unrepresentable to violate
+  // rather than merely forbidden (data-model, mirroring `GroupPermission`'s missing `granted`).
+  bool available = 2;
+}
+
+message SetOperatorPresenceRequest {
+  string auth_user_id = 1;
+  PresenceState state = 2;
+}
+
+message SetPresenceResponse {
+  PresenceStatus status = 1;
+  // The state AFTER the call, so no caller has to re-read to find out what happened.
+  OperatorPresence presence = 2;
+}
+
+// ── Labels: a display layer over availability, never an input to it ─────────────────────────────
+//
+// A TABLE and not a closed catalogue, for two reasons pointing the same way: ADR 0042 §7 requires
+// administrators to edit the set, which a compile-time catalogue cannot allow; and every closed
+// catalogue in this product is closed because a new member CHANGES BEHAVIOUR, while a new label must
+// change none — proven by `tests/contracts/presence-label-never-branched-on.spec.ts`.
+
+message PresenceLabel {
+  string id = 1;
+  string name = 2;         // operator-authored; no code branches on it
+  PresenceState state = 3; // exactly one
+}
+
+message ListPresenceLabelsRequest {}
+
+message PresenceLabelList {
+  repeated PresenceLabel labels = 1;
+}
+
+message UpsertPresenceLabelRequest {
+  string id = 1; // empty = create
+  string name = 2;
+  PresenceState state = 3;
+}
+
+message DeletePresenceLabelRequest {
+  string id = 1;
+}
+
+message PresenceLabelResponse {
+  PresenceStatus status = 1;
+  PresenceLabel label = 2;
 }

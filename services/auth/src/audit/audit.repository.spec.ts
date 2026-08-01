@@ -140,6 +140,10 @@ describe('list — ordering, paging, and pushed-down filters', () => {
         'group_member.remove',
         'group_permission.grant',
         'group_permission.revoke',
+        // Feature 025 (roadmap 5.9): an administrator overriding somebody else's presence. It grants
+        // no permission, but it redirects the work the system gives a named person without their
+        // involvement — so "show me every privilege change" must surface it too.
+        'presence.override',
       ].sort(),
     );
   });

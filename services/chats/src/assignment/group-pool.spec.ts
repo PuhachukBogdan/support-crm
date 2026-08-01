@@ -4,7 +4,7 @@ import { AuthorityUnavailableError } from '../auth/auth.client';
 import { MembershipUnavailableError } from '../person/person-members.client';
 import type { PrismaService } from '../prisma.service';
 import type { AuthorAuthorityClient } from '../auth/auth.client';
-import type { PersonMembersClient } from '../person/person-members.client';
+import type { AssignableOperator, PersonMembersClient } from '../person/person-members.client';
 
 /**
  * US3 (feature 024, roadmap 5.3) — turning a GROUP into a routing candidate pool.
@@ -22,7 +22,7 @@ const ENV = { ROUTING_DEFAULT_CAPACITY: '6' } as NodeJS.ProcessEnv;
 
 function make(opts: {
   members?: string[] | Error;
-  operators?: { operatorId: string; authUserId: string }[] | Error;
+  operators?: AssignableOperator[] | Error;
   load?: { assignee_operator_id: string | null; _count: { _all: number } }[];
 }) {
   const groupBy = jest.fn(async () => opts.load ?? []);
@@ -57,9 +57,9 @@ describe('GroupPoolService — assembling the pool', () => {
     const { pool } = make({
       members: ['u-c', 'u-a', 'u-b'],
       operators: [
-        { operatorId: 'op-c', authUserId: 'u-c' },
-        { operatorId: 'op-a', authUserId: 'u-a' },
-        { operatorId: 'op-b', authUserId: 'u-b' },
+        { operatorId: 'op-c', authUserId: 'u-c', state: 'online', blockedChannels: [] },
+        { operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] },
+        { operatorId: 'op-b', authUserId: 'u-b', state: 'online', blockedChannels: [] },
       ],
     });
     const candidates = await pool.candidatesFor('acc-1', 'g-1', md());
@@ -75,8 +75,8 @@ describe('GroupPoolService — assembling the pool', () => {
     const { pool, groupBy } = make({
       members: ['u-a', 'u-b'],
       operators: [
-        { operatorId: 'op-a', authUserId: 'u-a' },
-        { operatorId: 'op-b', authUserId: 'u-b' },
+        { operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] },
+        { operatorId: 'op-b', authUserId: 'u-b', state: 'online', blockedChannels: [] },
       ],
       load: [{ assignee_operator_id: 'op-a', _count: { _all: 4 } }],
     });
@@ -92,7 +92,7 @@ describe('GroupPoolService — assembling the pool', () => {
   it('a member with no ACTIVE operator profile is simply not a candidate', async () => {
     const { pool } = make({
       members: ['u-a', 'u-ghost'],
-      operators: [{ operatorId: 'op-a', authUserId: 'u-a' }],
+      operators: [{ operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] }],
     });
     const candidates = await pool.candidatesFor('acc-1', 'g-1', md());
     // Fail-closed: an identity that cannot be resolved to someone who can hold work is not offered
@@ -116,7 +116,7 @@ describe('GroupPoolService — assembling the pool', () => {
   it('every query is scoped to the caller’s account (Principle I)', async () => {
     const { pool, forAccount, listGroupMembers } = make({
       members: ['u-a'],
-      operators: [{ operatorId: 'op-a', authUserId: 'u-a' }],
+      operators: [{ operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] }],
     });
     await pool.candidatesFor('acc-42', 'g-1', md());
     expect(listGroupMembers).toHaveBeenCalledWith('acc-42', 'g-1');

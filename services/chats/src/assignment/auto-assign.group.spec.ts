@@ -106,7 +106,11 @@ describe('AutoAssignConversation — the pool comes from a group', () => {
 
     expect(res.assigned).toBe(true);
     expect(['op-a', 'op-b']).toContain(res.operatorId);
-    expect(candidatesFor).toHaveBeenCalledWith('acc-1', 'grp-payments', expect.anything());
+    // Feature 025 (roadmap 5.9) added a fourth argument: the conversation's own channel, which is
+    // what a per-channel availability switch is matched against. `null` here because this fixture's
+    // conversation has no channel recorded — the case feature 022 keeps distinct from every channel
+    // NAME, and which the availability predicate answers at state level alone.
+    expect(candidatesFor).toHaveBeenCalledWith('acc-1', 'grp-payments', expect.anything(), null);
     // The desk is recorded in the SAME write as the assignee, so the two can never disagree.
     expect(conversation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({

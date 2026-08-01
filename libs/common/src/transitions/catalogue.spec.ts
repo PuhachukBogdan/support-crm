@@ -23,6 +23,12 @@ describe('transition catalogue — membership is asserted, not assumed', () => {
         'conversation.first_public_reply',
         'conversation.status_changed',
         'conversation.subject_set',
+        // Feature 025 (roadmap 5.9) — `users` becomes the SECOND writer of this stream and the first
+        // outside chats. `operator.presence_changed` was defined by feature 023 with no writer, for
+        // exactly this moment; `operator.channel_availability_changed` is new, because a per-channel
+        // switch is not expressible under the presence payload's allow-list.
+        'operator.presence_changed',
+        'operator.channel_availability_changed',
       ].sort(),
     );
   });
@@ -35,7 +41,7 @@ describe('transition catalogue — membership is asserted, not assumed', () => {
         'conversation.player_detached',
         'escalation.status_changed',
         'escalation.waiting_changed',
-        'operator.presence_changed',
+        // `operator.presence_changed` left this list at feature 025 — see the LIVE list above.
         'staff.provisioning_requested',
         'staff.provisioning_rejected',
         'contact.lookup_performed',

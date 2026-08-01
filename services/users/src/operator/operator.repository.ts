@@ -1,5 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { isPresenceState, type PresenceState } from '@crm/common';
 import { PrismaService } from '../prisma.service';
+
+/**
+ * A member of staff who can be handed work, and everything needed to decide whether they can be
+ * handed it right now (feature 024 → 025).
+ *
+ * ⚠️ `active` is NOT part of this shape and never will be: this list contains only active operators
+ * by construction, so a field saying so would be a constant that a future edit could make lie.
+ */
+export interface ResolvedOperator {
+  operatorId: string;
+  authUserId: string;
+  state: PresenceState;
+  /** ONLY the switched-off channels. Absence means available (FR-019). */
+  blockedChannels: string[];
+}
 
 /**
  * Read path for the Operator entity (feature 018, roadmap 5.1).
@@ -72,13 +88,60 @@ export class OperatorRepository {
   async resolveByAuthUserIds(
     accountId: string,
     authUserIds: readonly string[],
-  ): Promise<{ operatorId: string; authUserId: string }[]> {
+  ): Promise<ResolvedOperator[]> {
     const ids = [...new Set(authUserIds.filter((id) => id))];
     if (ids.length === 0) return [];
-    const rows = (await this.prisma.forAccount(accountId).operator.findMany({
+    const db = this.prisma.forAccount(accountId);
+
+    const rows = (await db.operator.findMany({
       where: { auth_user_id: { in: ids }, active: true },
       select: { id: true, auth_user_id: true },
     })) as { id: string; auth_user_id: string }[];
-    return rows.map((r) => ({ operatorId: r.id, authUserId: r.auth_user_id }));
+    if (rows.length === 0) return [];
+
+    // ── Feature 025 (roadmap 5.9): the same question, answered completely ────────────────────────
+    //
+    // ⚠️ `active` above and `state` below are DIFFERENT FACTS and must never be merged. `active`
+    // means the staff account is not deactivated (roadmap 3.16) — that person has left. `state`
+    // means they are not at their desk right now — that person is at lunch. Reporting one as the
+    // other is the collision this feature was warned about (FR-034), and this method is where the
+    // two meet.
+    //
+    // They are read together because they answer the same QUESTION: who can take this work? A caller
+    // that had to fetch presence separately is a caller that can forget to.
+    //
+    // Two queries for the whole set, never one per candidate — this sits on the auto-assignment path
+    // (Principle VII).
+    const present = rows.map((r) => r.auth_user_id);
+    const [presence, blocks] = await Promise.all([
+      db.operatorPresence.findMany({
+        where: { auth_user_id: { in: present } },
+        select: { auth_user_id: true, state: true },
+      }) as Promise<Array<{ auth_user_id: string; state: string }>>,
+      db.operatorChannelBlock.findMany({
+        where: { auth_user_id: { in: present } },
+        select: { auth_user_id: true, channel: true },
+      }) as Promise<Array<{ auth_user_id: string; channel: string }>>,
+    ]);
+
+    const stateOf = new Map(presence.map((p) => [p.auth_user_id, p.state]));
+    const blockedOf = new Map<string, string[]>();
+    for (const b of blocks) {
+      const list = blockedOf.get(b.auth_user_id);
+      if (list) list.push(b.channel);
+      else blockedOf.set(b.auth_user_id, [b.channel]);
+    }
+
+    return rows.map((r) => ({
+      operatorId: r.id,
+      authUserId: r.auth_user_id,
+      // Absent row ⇒ `offline` (FR-011). Presence is a statement about a LIVE SESSION; somebody who
+      // has never started a shift is honestly reported as not at their desk, and no caller needs a
+      // special case for it.
+      state: (isPresenceState(stateOf.get(r.auth_user_id))
+        ? (stateOf.get(r.auth_user_id) as PresenceState)
+        : 'offline'),
+      blockedChannels: blockedOf.get(r.auth_user_id) ?? [],
+    }));
   }
 }

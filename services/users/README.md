@@ -43,8 +43,10 @@ reader, the upload store and artefact expiry, plus `HealthService.Check` and `Pi
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `users_db`.
 
 ## Config (refuse-to-start, SEC-6)
-`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, the six `S3_*` keys (feature 016 — see below), and
-`CONTACT_HASH_SALT` (feature 020, min 32 chars).
+`NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, the six `S3_*` keys (feature 016 — see below),
+`CONTACT_HASH_SALT` (feature 020, min 32 chars), and the two presence thresholds
+`PRESENCE_AWAY_AFTER_SECONDS` / `PRESENCE_OFFLINE_AFTER_SECONDS` (feature 025 — 🅿 **PROVISIONAL**,
+revised by ops).
 Validated at boot by [`src/config.ts`](src/config.ts); the error names the KEY, never the value.
 
 The salt has **no default on purpose**. An unsalted hash of an email is a dictionary lookup away from
@@ -317,3 +319,55 @@ while a conversation's assignee is an operator profile, and the two live in diff
   not a routing candidate (fail-closed). The gap between what was asked for and what came back is what makes
   a thin pool explainable.
 - Carries no customer data at all, so nothing to mask and nothing to audit as an access.
+- **Since feature 025 it also answers with AVAILABILITY** (`state` + `blockedChannels`), because this is
+  the rpc the routing pool already calls — so the hot path gained a *fact* rather than a *hop*. The
+  enrichment lives in `OperatorRepository.resolveByAuthUserIds`, not in the controller: **one method
+  answers "who can take this work?" completely**, and splitting the two conditions across layers is how
+  a caller ends up applying one and forgetting the other.
+
+## Agent presence (feature 025, roadmap 5.9) — for ROUTING only
+
+Four states — `online` · `transfers_only` · `away` · `offline` — narrowable per channel, lowered
+automatically when a session goes quiet, and recorded as durable history on every real change.
+
+**⚠️ Presence is not `Operator.active`.** `active` means the staff account is not deactivated (roadmap
+3.16): that person has **left**. Presence means they are not at their desk **right now**. Both make
+somebody unavailable and they are not interchangeable — `resolveByAuthUserIds` is the one query where
+they meet, and `tests/naming/presence-is-not-active-nor-status.spec.ts` keeps them apart. The word is
+**state**, never "status", which is already taken three times over.
+
+**⚠️ This service is the SECOND writer of the durable transition stream, and the first outside chats.**
+U7 forbids a shared cross-service table, so `OperatorTransition` is its own table — but it is
+**column-for-column identical** to `chats.ConversationTransition`, because the B2 aggregate store reads
+one logical stream. The row BUILDER is shared
+([`libs/common/src/transitions/row.ts`](../../libs/common/src/transitions/row.ts)) so identical rows are
+true by construction; `tests/data-model/one-transition-envelope.spec.ts` compares the two *tables*,
+which is the half a shared function cannot cover.
+
+**Surfaces.** Reads on `UsersReadService` (`GetOperatorPresence`, `ListOperatorPresence` — a THIRD
+controller on that service). Writes on `OperatorPresenceService`, a new service in the existing package,
+because a guard requires every rpc on a service named *Read* to be read-shaped. The sweep is on
+`UsersMaintenanceService`: system-actor-only, no gateway route, counts in the response — placement is
+the security property, since a sweep reachable from a session would put a colleague offline without the
+key that governs exactly that.
+
+**Two rules worth knowing before editing anything here:**
+- **A no-op writes nothing.** Setting a state to the value already held returns `unchanged` and records
+  zero transitions. A no-op that recorded would inflate every future WFM figure at the source, and each
+  individual row would still look correct.
+- **The sweep only LOWERS; a heartbeat raises only what the sweep set.** That is why `last_cause` is a
+  stored column and not derived from the history: answering *"how did this state come to be?"* on the
+  hottest write path must not be a scan. Without it, an open browser would undo a person's own "Lunch"
+  and — worse — undo a supervisor's correction with the very stale session that made it necessary.
+
+**Audited exactly once, and only one act.** Changing one's own presence writes a transition and **no**
+audit entry (a statement about oneself is not a sensitive action; ~58 agents toggling several times a
+day would bury the entries that matter). Setting *somebody else's* requires `users.presence.manage`, is
+audited as `presence.override`, and records `cause: admin`. ⚠️ That entry carries **no detail**: the
+`privilege` class's allow-list is about permissions, and an override changes none — the transition
+written in the same transaction already says from/to/why.
+
+**Deliberately NOT here** (asserted by `tests/presence/no-aggregates.spec.ts`, because the roadmap
+requires the absence not be added quietly): no aggregate, dashboard, adherence, occupancy or attendance
+calculation — WFM later *reads the stream*; and no session id, device id or screen/panel telemetry —
+the employee-surveillance question is separate and undecided.

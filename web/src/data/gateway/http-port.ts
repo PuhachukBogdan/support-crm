@@ -26,6 +26,19 @@ export interface HttpRequest {
   path: string;
   /** Already-validated query parameters. The port does not decide what is allowed. */
   query?: Record<string, string>;
+  /**
+   * Defaults to `'GET'` — every call site written before feature 027 is unchanged by its absence.
+   * The default is what keeps widening this port from being a refactor of the data layer.
+   */
+  method?: 'GET' | 'POST';
+  /**
+   * JSON-serialised by the adapter.
+   *
+   * ⚠️ **Never encoded into `query`.** A password or a one-time code in a URL is written to every
+   * proxy log between the browser and the service, and to the browser's own history (FR-015,
+   * Principle IV). `no-query-secrets.test.ts` asserts no auth call passes a `query` at all.
+   */
+  body?: unknown;
 }
 
 export interface HttpResponse {
@@ -48,14 +61,21 @@ export type HttpPort = (req: HttpRequest) => Promise<HttpResponse>;
  * has exactly one place that turns a status into a failure class — see `../errors.ts`.
  */
 export function createFetchPort(prefix: string = API_PREFIX): HttpPort {
-  return async ({ path, query }: HttpRequest): Promise<HttpResponse> => {
+  return async ({ path, query, method = 'GET', body }: HttpRequest): Promise<HttpResponse> => {
     const qs = query && Object.keys(query).length > 0 ? `?${new URLSearchParams(query)}` : '';
+    // The body is serialised into the REQUEST, never into the URL. Separated from the query
+    // construction above by intent, not by accident: these are the two lines a future edit could
+    // merge, and merging them is the one mistake this port must never make.
+    const hasBody = body !== undefined;
     let res: Response;
     try {
       res = await fetch(`${prefix}${path}${qs}`, {
-        method: 'GET',
+        method,
         credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
+        headers: hasBody
+          ? { Accept: 'application/json', 'content-type': 'application/json' }
+          : { Accept: 'application/json' },
+        ...(hasBody ? { body: JSON.stringify(body) } : {}),
       });
     } catch {
       // The reason is deliberately dropped: it can carry the full URL, and the caller only needs

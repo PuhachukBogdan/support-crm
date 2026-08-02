@@ -24,6 +24,25 @@ The bodies contain seeded synthetic records from `beton-test`. No real customer 
 this system (constitution Principle V), and recording is done **only** against the prepared test host —
 never against a production target. That constraint outlives the security gate; it is in the script.
 
+## The `auth-*` files (feature 027)
+
+Recorded on 2026-08-02 off `crm-gateway-1` on `beton-test` while building feature 027, and
+re-recorded by `specs/027-auth-flow-ui/track-b.sh` thereafter. They cover the **refusal** side of
+the auth surface, which is the side reachable without a credential.
+
+⭐ **`auth-me-unauthenticated.json` is the reason this set exists.** Every other auth route answers
+`{"status": …}`; `GET /auth/me` refused by the global guard answers Nest's default
+`{"message":"Unauthorized","statusCode":401}` — a **different body shape on the one route the
+session polls most**. Nothing hand-written would have contained that, and any code that reads the
+body to decide "am I signed in?" is wrong in a way no unit test built on an invented body could
+show. The session reads the **status**, never the body, and this file is the evidence for why.
+
+⚠️ The **success** responses (`code_sent`, `ok`) are recorded by the Track-B script, because they
+require a real credential and a real emailed code. `codeExpiresAt` is **UNIX seconds** — from
+`otp.service.ts` (`Math.floor(expiresAt.getTime() / 1000)`), carried over gRPC as a string and
+`Number()`-ed at the gateway. `Date.now()` is milliseconds; comparing the two directly is how
+FR-012's expired-versus-wrong distinction silently becomes "always" or "never".
+
 ## Refreshing them
 
 ```bash

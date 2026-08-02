@@ -1,12 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { MockSession } from './mock-session';
+import { useContext } from 'react';
+import { GatewaySession } from './gateway-session';
+import { SessionContext, type SessionContextValue } from './session-context';
 import type { Session } from './session';
 
-// Module-level instance = the single swap point (mirrors getDataAccess()). Real Auth later
-// replaces this binding behind the Session interface.
-let current: Session = new MockSession();
+/**
+ * T018 [027] — the session binding and the hook screens read.
+ *
+ * ── One resolution per navigation, SHARED — and therefore no cache ──────────────────────────────
+ * The resolution happens once in `SessionProvider` and every consumer reads the same context value
+ * (Principle VII). That is deliberately not a cache with a TTL: there is no stored answer to go
+ * stale, because there is only ever one answer per mounted provider. A per-component `useEffect`
+ * would ask the gateway once per rendered component, which is the shape this replaces.
+ */
+
+// Module-level instance = the single swap point, mirroring `getDataAccess()` in `data/provider`.
+// It is the real gateway session now: the mock is gone, and `no-mock-session.test.ts` keeps it gone.
+let current: Session = new GatewaySession();
+
 export function getSession(): Session {
   return current;
 }
@@ -15,27 +27,14 @@ export function setSession(impl: Session): void {
 }
 
 /**
- * Reactive session hook for screens + the route guard. `ready` stays false until the client
- * has read storage on mount, so the guard never flashes protected content during hydration.
+ * The session as screens see it: the current state, the boundary's verbs, and a way to ask again.
+ *
+ * ⚠️ Throws outside a `SessionProvider` rather than inventing a default. A hook that quietly
+ * answered `anonymous` when it had never asked anything would make a missing provider look exactly
+ * like a signed-out person — and the bug would present as "sometimes it logs me out".
  */
-export function useSession() {
-  const [ready, setReady] = useState(false);
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    setAuthed(current.isAuthenticated());
-    setReady(true);
-  }, []);
-
-  const login = useCallback(() => {
-    current.login();
-    setAuthed(true);
-  }, []);
-
-  const logout = useCallback(() => {
-    current.logout();
-    setAuthed(false);
-  }, []);
-
-  return { authed, ready, login, logout };
+export function useSession(): SessionContextValue {
+  const value = useContext(SessionContext);
+  if (!value) throw new Error('useSession() requires a <SessionProvider> above it');
+  return value;
 }

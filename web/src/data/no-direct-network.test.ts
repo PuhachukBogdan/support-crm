@@ -23,9 +23,29 @@ import { join } from 'node:path';
  *      matches nothing — which is precisely how this test spent its whole life green.
  */
 
+/**
+ * T008 [027] — `session/` joins the scanned roots.
+ *
+ * The auth pages under `app/` were already covered (the whole App Router is a root), so the
+ * genuine extension is the layer this feature adds beneath them: the session boundary talks to the
+ * gateway, and it must do so through the INJECTED port like everything else. If it reached for
+ * `fetch` directly it would be a second network path — and the whole argument for widening one
+ * port instead of adding a second (research §1) is that this guard keeps covering every path.
+ *
+ * `src/data/gateway/http-port.ts` is deliberately NOT a root: it is the one adapter that may call
+ * `fetch`, which is the entire reason it exists.
+ */
 const UI_ROOTS = [
   join(__dirname, '..', 'components'),
+  join(__dirname, '..', 'session'),
   join(__dirname, '..', '..', 'app'),
+];
+
+/** Pages whose coverage is asserted by name — a renamed folder must not silently unguard them. */
+const MUST_BE_COVERED = [
+  join('app', '(auth)', 'login', 'page.tsx'),
+  join('app', '(auth)', 'register', 'page.tsx'),
+  join('src', 'session', 'gateway-session.ts'),
 ];
 
 /** Direct network primitives. Word-anchored, so `prefetch`/`refetch` are not false positives. */
@@ -70,6 +90,14 @@ describe('structure guard — UI never reaches the network directly (SC-006)', (
   it('actually scanned the UI tree', () => {
     // Without this, emptying or renaming a folder turns the guard off silently.
     expect(files.length).toBeGreaterThan(10);
+  });
+
+  it('covers the auth pages and the session boundary by name', () => {
+    // "The guard covers them" is a claim about a file list, so it is asserted against the file
+    // list. A route group renamed from `(auth)` to something else would otherwise drop the two
+    // pages that handle a password out of the scan, with every test still green.
+    const missing = MUST_BE_COVERED.filter((suffix) => !files.some((f) => f.endsWith(suffix)));
+    expect(missing).toEqual([]);
   });
 
   it('no UI file calls fetch / WebSocket / XHR / axios directly', () => {

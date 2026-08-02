@@ -1,0 +1,5 @@
+{
+  "status": 200,
+  "path": "/auth/login",
+  "body": {"status":"code_sent","challengeId":"15a19c87-ef62-41ba-b657-2670368934bc","codeExpiresAt":1785672074}
+}

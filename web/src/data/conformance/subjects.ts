@@ -93,5 +93,40 @@ const gatewaySubject: Subject = {
 
 export const SUBJECTS: readonly Subject[] = [mockSubject, gatewaySubject];
 
+/**
+ * T009 [027] — the POST side of the transport, driven by the SAME recorded-response mechanism.
+ *
+ * ── Why these are listed here and not written inline in a session test ──────────────────────────
+ * The reads got recordings for a reason (`../gateway/fixtures/README.md`): a hand-written body
+ * verifies that the transport agrees with somebody's belief about the API. The auth calls are the
+ * last place that should be exempt from that, because their bodies are the ones a screen makes a
+ * security decision on.
+ *
+ * The success responses needed a real credential and a real emailed code, so they come from the same
+ * script's live round-trip rather than from anybody's idea of what the API returns.
+ *
+ * ⭐ `auth-me-unauthenticated` is the one that earns the whole list: it is the only auth route whose
+ * refusal body has a DIFFERENT SHAPE (Nest's `{message, statusCode}` rather than `{status}`),
+ * because it is refused by the global guard rather than by the controller. The session therefore
+ * reads the status and never the body.
+ */
+export interface AuthRecording {
+  name: string;
+  path: string;
+  method: 'GET' | 'POST';
+  /** Refusals must carry nothing; successes are checked field by field where they carry something. */
+  refusal: boolean;
+}
+
+export const AUTH_RECORDINGS: readonly AuthRecording[] = [
+  { name: 'auth-login-invalid', path: '/auth/login', method: 'POST', refusal: true },
+  { name: 'auth-verify-invalid', path: '/auth/verify', method: 'POST', refusal: true },
+  { name: 'auth-register-start-invalid', path: '/auth/register/start', method: 'POST', refusal: true },
+  { name: 'auth-refresh-unauthorized', path: '/auth/refresh', method: 'POST', refusal: true },
+  { name: 'auth-me-unauthenticated', path: '/auth/me', method: 'GET', refusal: true },
+  { name: 'auth-login-code-sent', path: '/auth/login', method: 'POST', refusal: false },
+  { name: 'auth-verify-ok', path: '/auth/verify', method: 'POST', refusal: false },
+];
+
 /** The id used by the "missing" expectation. Neither subject has a record under it. */
 export const ABSENT_ID = 'no-such-record-019';

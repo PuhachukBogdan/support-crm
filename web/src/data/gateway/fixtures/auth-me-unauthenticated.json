@@ -1,0 +1,5 @@
+{
+  "status": 401,
+  "path": "/auth/me",
+  "body": {"message":"Unauthorized","statusCode":401}
+}

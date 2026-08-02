@@ -15,7 +15,17 @@ export function Topbar({
   onOpenCommand: () => void;
 }) {
   const router = useRouter();
-  const { logout } = useSession();
+  const { session, refresh } = useSession();
+
+  // T027 [027] — signing out ends the session ON THE SERVER (FR-005). The old handler flipped a
+  // local flag, which is not a sign-out at all: the cookie would have kept working everywhere it
+  // had been sent. `refresh()` then re-asks the gateway rather than assuming the answer — the
+  // browser does not decide when a session is over (Principle II).
+  const signOut = async () => {
+    await session.signOut();
+    await refresh();
+    router.push('/login');
+  };
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
       <Button
@@ -49,10 +59,7 @@ export function Topbar({
         variant="ghost"
         size="icon"
         aria-label="Log out"
-        onClick={() => {
-          logout();
-          router.push('/login');
-        }}
+        onClick={() => void signOut()}
       >
         <LogOut className="h-4 w-4" />
       </Button>

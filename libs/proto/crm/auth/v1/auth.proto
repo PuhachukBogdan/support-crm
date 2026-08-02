@@ -118,6 +118,19 @@ service AuthService {
   // and merges. Gated by `platform.audit.view` at BOTH tiers. No write/update/delete counterpart
   // exists anywhere — append-only means there is no mutation path to expose.
   rpc ListAuditEntries(crm.audit.v1.ListAuditEntriesRequest) returns (crm.audit.v1.AuditEntryPage);
+
+  // ── Feature 028 (mail delivery) — additive. The worker's tick says "now"; auth does the sending.
+  //
+  // ⚠️ NOTHING about a message crosses this wire — a count in, three counts out. The alternative
+  // design had the worker doing the SMTP send, which would have put a LIVE ONE-TIME CODE into a
+  // gRPC payload and into a second process's memory and failure paths. The promise that the code
+  // reaches no log on any path is cheapest to keep by shrinking the number of places it exists
+  // (spec 028 research R2).
+  //
+  // The tick exists at all because a repeatable job fires ONCE ACROSS REPLICAS, where a
+  // `setInterval` inside auth fires once per pod — the same reasoning feature 017 recorded for
+  // exports.
+  rpc SendDueEmails(SendDueEmailsRequest) returns (SendDueEmailsResult);
 }
 
 message ValidateTokenRequest {
@@ -475,4 +488,16 @@ message SetGroupPermissionRequest {
   // SILENCE about that key, it never refuses it (ADR 0039 §3), so a member holding the key from
   // their role or from another group keeps it.
   bool grant = 6;
+}
+
+// Feature 028 — the mail sweep. Counts only; see the rpc comment for why nothing else is here.
+message SendDueEmailsRequest {
+  // How many messages to attempt in this tick. Clamped by the caller's own config.
+  int32 batch = 1;
+}
+
+message SendDueEmailsResult {
+  int32 attempted = 1;
+  int32 sent = 2;
+  int32 failed = 3;
 }

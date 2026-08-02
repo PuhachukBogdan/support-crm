@@ -77,24 +77,41 @@ export class OtpService {
     });
     const expiresAt = new Date(this.clock.now().getTime() + this.cfg.CODE_TTL * 1000);
 
-    await this.prisma.loginCode.create({
-      data: {
-        account_id: subject.account_id,
-        user_id: subject.id,
-        challenge_id: challengeId,
-        code_hash: codeHash,
-        purpose,
-        expires_at: expiresAt,
-      },
-    });
+    // ⭐ Feature 028 — ONE TRANSACTION for the code and the intent to deliver it.
+    //
+    // Before this, the row was created and the port was called after it, with nothing joining
+    // them. Either half could exist alone, and the half that matters — a code nobody will ever be
+    // sent — presents to the person as a code that never arrives, which is the most confusing
+    // failure this flow can produce.
+    //
+    // ⚠️ A failure here legitimately fails the sign-in step. FR-004 is about the mail HOST, not
+    // about our own database: if we cannot record what we are about to send, we have not started
+    // a sign-in, and saying otherwise would be a lie the person waits on.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.loginCode.create({
+        data: {
+          account_id: subject.account_id,
+          user_id: subject.id,
+          challenge_id: challengeId,
+          code_hash: codeHash,
+          purpose,
+          expires_at: expiresAt,
+        },
+      });
 
-    // Deliver the clear code through the port (dev outbox now; worker→SMTP later). Never logged.
-    await this.email.sendLoginCode({
-      to: subject.email,
-      code,
-      challengeId,
-      purpose,
-      expiresAt,
+      // Deliver the clear code through the port. Never logged; the port records it and the send
+      // happens after this transaction commits.
+      await this.email.sendLoginCode(
+        {
+          to: subject.email,
+          code,
+          challengeId,
+          purpose,
+          expiresAt,
+          accountId: subject.account_id,
+        },
+        tx,
+      );
     });
 
     return { challengeId, codeExpiresAt: Math.floor(expiresAt.getTime() / 1000) };

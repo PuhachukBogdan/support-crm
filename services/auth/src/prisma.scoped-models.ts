@@ -27,4 +27,13 @@ export const SCOPED_MODELS = [
   // `GroupMember` and `GroupPermission` are join tables scoped through their in-schema parents
   // (Group / User / Permission) — the same treatment as UserRole and RolePermission.
   'Group',
+  // Feature 028 (mail delivery): the outbox. It carries `account_id` like every tenant-owned
+  // table, so it is enrolled — but note what that does NOT change: the recipient is copied from
+  // the record that caused the message and is never read from a request, so no caller can address
+  // a message anywhere. The scoping is here because the ROW is tenant data, not because the
+  // address needed guarding.
+  //
+  // ⓘ Enrolled by a guard, not by hand: `account-scope-coverage.spec.ts` failed the moment the
+  // table appeared, which is exactly the point of writing that cross-check in feature 007.
+  'OutboundEmail',
 ] as const;

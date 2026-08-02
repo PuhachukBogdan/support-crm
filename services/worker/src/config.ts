@@ -26,6 +26,9 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env) {
       // a PII copy outliving its authorization (SEC-27). Failing loudly at boot beats a silently
       // non-purging worker, because nobody is waiting on a deletion either.
       USERS_GRPC_TARGET: z.string().min(1),
+      // Feature 028 — the mail sweep's target. Refuse-to-start like its siblings: a worker that
+      // cannot reach auth silently stops retrying undelivered login codes, and nothing 500s.
+      AUTH_GRPC_TARGET: z.string().min(1),
     },
     env,
   );

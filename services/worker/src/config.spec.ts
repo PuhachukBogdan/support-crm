@@ -20,6 +20,8 @@ const BASE = {
   // Feature 017 (roadmap 4.10): the worker also ticks the artefact purge, and `users` owns the
   // storage credentials and therefore the deletion.
   USERS_GRPC_TARGET: 'users:50052',
+  // Feature 028 — the mail sweep's target.
+  AUTH_GRPC_TARGET: 'auth:50051',
 } as NodeJS.ProcessEnv;
 
 describe('loadWorkerConfig — feature 014', () => {

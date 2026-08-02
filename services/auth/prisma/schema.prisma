@@ -111,6 +111,36 @@ model LoginCode {
   @@index([expires_at])
 }
 
+/// The outbox (feature 028). One row per message the product wants delivered, written in the SAME
+/// TRANSACTION as the thing it announces — so a code cannot exist without an intent to deliver it.
+///
+/// ⚠️ `payload_json` CONTAINS THE SECRET (the clear code, or the invite token) for as long as the
+/// message is undelivered. Three things bound that: the row is DELETED on success rather than
+/// marked (this is a queue, not an archive), `expires_at` makes an undeliverable row worthless
+/// within minutes, and it never leaves `auth_db` — the same database that already holds the code's
+/// hash. There is no design of this feature where the secret is at rest nowhere.
+///
+/// `last_error_class` is a CLASS, never a relay's own sentence: SMTP rejections quote the envelope,
+/// and an envelope carries the recipient.
+model OutboundEmail {
+  id               String    @id @default(uuid())
+  account_id       String
+  to_email         String
+  purpose          String // login_code | invitation
+  payload_json     Json // what render() needs; carries the secret until the row is deleted.
+  expires_at       DateTime // what it carries dies here; past this the send is abandoned.
+  status           String    @default("pending") // pending | sending | sent | failed
+  attempts         Int       @default(0)
+  last_error_class String? // unreachable | auth_failed | refused | recipient_blocked | expired
+  last_attempt_at  DateTime?
+  sent_at          DateTime? // when a transport ACCEPTED it — not when a human read it.
+  created_at       DateTime  @default(now())
+
+  @@index([status, created_at]) // the claim query
+  @@index([to_email]) // "what did we send this person?" while diagnosing
+  @@index([account_id])
+}
+
 /// Rotating session token (feature 009). The opaque refresh secret is delivered only in the
 /// httpOnly cookie; at rest we keep an argon2id hash. Rotated on each use (old one revoked);
 /// reuse of a revoked/rotated token is refused (theft detection). account_id is the tenant seam.

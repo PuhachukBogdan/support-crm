@@ -2,7 +2,11 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PrismaService } from '../prisma.service';
 import { AUTH_CONFIG, loadAuthConfig } from '../config';
-import { EMAIL_PORT, OutboxEmailAdapter } from './ports/email.port';
+import { EMAIL_PORT } from './ports/email.port';
+import { MAIL_TRANSPORT } from './mail/mail-transport';
+import { SmtpMailTransport } from './mail/smtp.transport';
+import { OutboundEmailService } from './mail/outbound-email.service';
+import { QueueingEmailAdapter } from './mail/queueing-email.adapter';
 import {
   ADMIN_NOTIFICATION_PORT,
   InMemoryAdminNotificationAdapter,
@@ -39,7 +43,13 @@ import { AuthGrpcController } from './auth.grpc.controller';
   providers: [
     PrismaService,
     { provide: AUTH_CONFIG, useFactory: () => loadAuthConfig() },
-    { provide: EMAIL_PORT, useClass: OutboxEmailAdapter },
+    // ⭐ Feature 028 — the port now DELIVERS. `OutboxEmailAdapter` (in-memory) survives for unit
+    // tests only, and `mail-structure.spec.ts` asserts that nothing outside a test references it:
+    // an adapter that authenticates nobody but delivers nowhere is one binding away from being
+    // live, which is the same argument feature 027 used for the mock session.
+    { provide: MAIL_TRANSPORT, useClass: SmtpMailTransport },
+    OutboundEmailService,
+    { provide: EMAIL_PORT, useClass: QueueingEmailAdapter },
     { provide: ADMIN_NOTIFICATION_PORT, useClass: InMemoryAdminNotificationAdapter },
     { provide: CLOCK, useClass: SystemClock },
     TokenService,

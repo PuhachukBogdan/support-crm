@@ -115,8 +115,15 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
     # Single host-exposed ingress: REST + WebSocket on one port (US4 / FR-009).
+    #
+    # ⚠️ Bound to LOOPBACK. `'3000:3000'` binds 0.0.0.0, which on a host with a public address puts
+    # the entire REST API on the open internet over plain HTTP — found exactly that way on the test
+    # stand on 2026-08-02, after the front end was published: the browser's door was locked and the
+    # API's was not. Nothing in the product needs the host port: the web container reaches the
+    # gateway by service name over the compose network, and the live scripts run ON the host.
+    # Set GATEWAY_BIND=0.0.0.0 deliberately if some tool really must reach it from elsewhere.
     ports:
-      - '${GATEWAY_PORT:-3000}:3000'
+      - '${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-3000}:3000'
 
   auth:
     <<: *service-base
@@ -127,9 +134,36 @@ services:
       DATABASE_URL: postgresql://auth_user:${AUTH_DB_PASSWORD:?}@postgres:5432/auth_db
       # Signs the short-lived access JWT; the gateway verifies it with the SAME secret (009).
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
-      # Dev-only: path where the in-memory EmailPort also appends delivered login codes as JSON
-      # so local/dev flows can read them without real SMTP. Empty (default) = off. Never in prod.
-      LOGIN_CODE_DEV_SINK: ${LOGIN_CODE_DEV_SINK:-}
+      # ── Mail (feature 028) ────────────────────────────────────────────────────────────────
+      # The defaults describe the CATCHER, because that is the transport local development and
+      # every live test round use — mail must not leave a developer's machine or a test round.
+      # A real relay overrides four values and nothing else changes (FR-014).
+      #
+      # ⚠️ `APP_BASE_URL` has no default anywhere in the product. A guessed one emails invitation
+      # links that look perfect and lead nowhere — the defect roadmap 8.6/T033 existed for.
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_SECURE: ${MAIL_SECURE:-false}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@localhost}
+      APP_BASE_URL: ${APP_BASE_URL:?set APP_BASE_URL in .env — the invitation link points at it}
+      MAIL_BRAND_NAME: ${MAIL_BRAND_NAME:-Support CRM}
+      # Empty = unrestricted. Set it on anything that is not production: an accidental send to a
+      # real customer address from a synthetic stand is an incident, not a typo (FR-018).
+      MAIL_ALLOWED_RECIPIENT_DOMAINS: ${MAIL_ALLOWED_RECIPIENT_DOMAINS:-}
+      MAIL_MAX_ATTEMPTS: ${MAIL_MAX_ATTEMPTS:-5}
+      # Session lifetimes. The DEFAULTS here are the product's (15 min / 1 day / 7 days) — a
+      # deployment that sets nothing behaves exactly as before.
+      #
+      # ⚠️ The hosted stand overrides SESSION_TTL/REMEMBER_TTL to a year in its own `.env`, on the
+      # operator's instruction, so a demo session is never interrupted. That is a deliberate
+      # weakening and it is safe ONLY because the stand holds synthetic data: a refresh cookie that
+      # lives a year is a credential that lives a year. It must be reverted before real data — the
+      # security gate (findings.md, P0) owns that, not this file.
+      ACCESS_TTL: ${ACCESS_TTL:-900}
+      SESSION_TTL: ${SESSION_TTL:-86400}
+      REMEMBER_TTL: ${REMEMBER_TTL:-604800}
 
   users:
     <<: *service-base
@@ -236,12 +270,75 @@ services:
       # deliberate — compose passes only the env it lists here, and feature 009's first live run failed
       # exactly this way (a required key present in `.env` but never handed to the container).
       USERS_GRPC_TARGET: users:50052
+      # Feature 028: the mail sweep's target. The worker only says "now" — auth holds the outbox,
+      # renders the message and opens the SMTP connection (spec 028 research R2).
+      AUTH_GRPC_TARGET: auth:50051
+      MAIL_SWEEP_INTERVAL_MS: ${MAIL_SWEEP_INTERVAL_MS:-15000}
+      MAIL_SWEEP_BATCH: ${MAIL_SWEEP_BATCH:-20}
       EXPORT_RUN_INTERVAL_MS: ${EXPORT_RUN_INTERVAL_MS:-10000}
       EXPORT_RUN_BATCH: ${EXPORT_RUN_BATCH:-5}
       # Shorten this on a test box to watch a purge happen instead of waiting five minutes.
       ARTEFACT_PURGE_INTERVAL_MS: ${ARTEFACT_PURGE_INTERVAL_MS:-300000}
       ARTEFACT_PURGE_BATCH: ${ARTEFACT_PURGE_BATCH:-100}
 
+  # The mail catcher (feature 028). ⚠️ NOT scaffolding — this is the transport for local
+  # development and for every live test round, because mail must not leave a developer's machine
+  # and a round must be able to read the DELIVERED MESSAGE rather than a database row.
+  #
+  # ⚠️ The web interface is bound to LOOPBACK by default, like the gateway (SEC-40): it is a
+  # mailbox full of live one-time codes, and anyone who can read it can sign in as anybody.
+  # Publishing it is a deliberate act — on the hosted stand it goes behind the edge proxy's own
+  # password, and it must be gone before real data (tracked with SEC-42).
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - '${MAILPIT_UI_BIND:-127.0.0.1}:${MAILPIT_UI_PORT:-8025}:8025'
+    networks:
+      - default
+      - edge
+
+  # The Next.js front end (roadmap 8.6 hosted; the containerisation itself belongs to Phase 13 and
+  # is done early here so the product can be opened in a browser).
+  #
+  # ── Why it is on TWO networks ───────────────────────────────────────────────────────────────────
+  # `default` so it can reach `gateway` by service name, and the external `edge` network so the
+  # shared Caddy reverse proxy can reach IT by container name. Caddy is not part of this compose
+  # project — it fronts several unrelated projects on the same host — so the network is declared
+  # external rather than created here.
+  #
+  # ⚠️ It publishes NO host port. The only way in is through Caddy, which terminates TLS. Publishing
+  # a port as well would quietly create a second, plain-HTTP door to the same app, and the session
+  # cookies are `Secure` — they would simply not be sent on it, which presents as "login does
+  # nothing" rather than as a misconfiguration.
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+      args:
+        # Build-time, not runtime: Next bakes `rewrites()` into the build. See the Dockerfile.
+        GATEWAY_ORIGIN: http://gateway:3000
+    environment:
+      NODE_ENV: production
+      GATEWAY_ORIGIN: http://gateway:3000
+    depends_on:
+      - gateway
+    networks:
+      - default
+      - edge
+
 volumes:
   pgdata:
   miniodata:
+
+networks:
+  default:
+  # Created outside this project by the shared reverse proxy. `docker network create edge` if a
+  # fresh host does not have it.
+  edge:
+    external: true

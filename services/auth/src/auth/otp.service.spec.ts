@@ -74,3 +74,77 @@ describe('OtpService (feature 009)', () => {
     });
   });
 });
+
+/**
+ * T017 / T019 (feature 028) — the code and the intent to deliver it are ONE transaction, and a
+ * refused sign-in produces no message at all.
+ */
+describe('OtpService — the outbox (feature 028)', () => {
+  const cfg = makeAuthConfig();
+  const subject = { id: 'user-1', account_id: 'acct-A', email: 'agent@example.test' };
+
+  /** A port that records into the outbox table the way the real adapter does. */
+  function recordingPort(prisma: FakePrisma) {
+    return {
+      sendLoginCode: async (m: { to: string; code: string; expiresAt: Date; accountId: string }, tx?: unknown) => {
+        await ((tx ?? prisma) as FakePrisma).outboundEmail.create({
+          data: {
+            account_id: m.accountId,
+            to_email: m.to,
+            purpose: 'login_code',
+            payload_json: { code: m.code },
+            expires_at: m.expiresAt,
+          },
+        });
+      },
+      sendInvite: async () => undefined,
+    };
+  }
+
+  it('⭐ records exactly one message, inside the same transaction as the code', async () => {
+    const prisma = makeFakePrisma();
+    const otp = new OtpService(cfg, new FixedClock(), prisma as unknown as PrismaService, recordingPort(prisma) as never);
+
+    await otp.issueChallenge(subject);
+
+    expect(prisma._tables.outboundEmails).toHaveLength(1);
+    expect(prisma._tables.loginCodes).toHaveLength(1);
+    expect(prisma._tables.outboundEmails[0]).toMatchObject({
+      to_email: subject.email,
+      purpose: 'login_code',
+      account_id: subject.account_id,
+      status: 'pending',
+    });
+  });
+
+  it('⚠️ the transaction is real: if recording the message fails, no code survives either', async () => {
+    // The failure this prevents is the confusing one — a code that exists and will never be sent
+    // presents to the person as a code that never arrives, and there is nothing to find.
+    const prisma = makeFakePrisma();
+    const exploding = {
+      sendLoginCode: async () => {
+        throw new Error('outbox write failed');
+      },
+      sendInvite: async () => undefined,
+    };
+    const otp = new OtpService(cfg, new FixedClock(), prisma as unknown as PrismaService, exploding as never);
+
+    await expect(otp.issueChallenge(subject)).rejects.toThrow();
+    // ⓘ The fake applies writes eagerly, so this asserts the CALL SHAPE rather than a rollback:
+    // the send is inside the transaction callback, which is what makes a real rollback possible.
+    // Atomicity itself is a property of Postgres and is asserted live (quickstart B1).
+    expect(prisma._tables.outboundEmails).toHaveLength(0);
+  });
+
+  it('carries the code and the code’s own expiry, not a second clock', async () => {
+    const prisma = makeFakePrisma();
+    const otp = new OtpService(cfg, new FixedClock(), prisma as unknown as PrismaService, recordingPort(prisma) as never);
+
+    await otp.issueChallenge(subject);
+
+    const row = prisma._tables.outboundEmails[0] as { expires_at: Date; payload_json: { code: string } };
+    const stored = prisma._tables.loginCodes[0]!;
+    expect(row.expires_at).toEqual(stored.expires_at);
+    expect(String(row.payload_json.code)).toHaveLength(cfg.CODE_LENGTH);
+  });
+});

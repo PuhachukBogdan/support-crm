@@ -167,6 +167,8 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
     secret_hash: c.secret_hash ?? null,
   }));
   const loginCodes: FakeLoginCode[] = [];
+  /** Feature 028 — recorded outbound messages. */
+  const outboundEmails: Record<string, unknown>[] = [];
   const refreshTokens: FakeRefreshToken[] = [];
   const userRoles: { user_id: string; roleKey: string }[] = seed.userRoles ?? [];
   const roles: { id: string; account_id: string; key: string }[] = [];
@@ -731,16 +733,35 @@ export function makeFakePrisma(seed: FakeSeed = {}) {
      * leaving nothing behind) needs a lazy fake and is asserted separately in the strict-write specs, which
      * build their own.
      */
-    $transaction: async (statements: unknown) =>
-      Array.isArray(statements) ? Promise.all(statements) : statements,
+    $transaction: async (statements: unknown) => {
+      // Feature 028 — the INTERACTIVE form, `$transaction(async (tx) => …)`, which the outbox
+      // needs so a message is written beside the code it announces. The fake is single-connection
+      // and eager, so the "transaction client" is the fake itself; what this buys the specs is the
+      // call shape, not atomicity (see the note above).
+      if (typeof statements === 'function') {
+        return (statements as (tx: unknown) => unknown)(prisma);
+      }
+      return Array.isArray(statements) ? Promise.all(statements) : statements;
+    },
     // The account-scoped client (feature 007) — in tests the fake IS already single-account, so
     // `forAccount` just returns itself (the resolver calls `prisma.forAccount(accountId).<model>`).
     forAccount: () => prisma,
+    // Feature 028 — the outbox. Only `create` is modelled here: these specs assert that a message
+    // was RECORDED beside the thing that caused it. The state machine (claim, retry, abandon) has
+    // its own spec with its own fake, because it is a different subject.
+    outboundEmail: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `outbound-${outboundEmails.length + 1}`, status: 'pending', ...data };
+        outboundEmails.push(row);
+        return row as { id: string };
+      },
+    },
     // Expose the backing arrays for assertions.
     _tables: {
       users,
       credentials,
       loginCodes,
+      outboundEmails,
       refreshTokens,
       roles,
       userRoles,

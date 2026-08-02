@@ -7,6 +7,7 @@ import { RefreshService } from './refresh.service';
 import { OnboardingService } from './onboarding.service';
 import { InviteService } from './invite.service';
 import { RegistrationService } from './registration.service';
+import { OutboundEmailService } from './mail/outbound-email.service';
 
 // Request/response shapes as delivered by proto-loader (keepCase:false → camelCase;
 // longs:String → int64 fields are strings on the wire; enums:String → enum NAMES on the wire).
@@ -86,6 +87,7 @@ export class AuthGrpcController {
     @Inject(OnboardingService) private readonly onboarding: OnboardingService,
     @Inject(InviteService) private readonly invite: InviteService,
     @Inject(RegistrationService) private readonly registration: RegistrationService,
+    @Inject(OutboundEmailService) private readonly outbox: OutboundEmailService,
   ) {}
 
   @GrpcMethod('AuthService', 'Login')
@@ -221,5 +223,19 @@ export class AuthGrpcController {
       throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'weak_password' });
     }
     throw new RpcException({ code: GrpcStatus.UNAUTHENTICATED, message: 'invalid' });
+  }
+
+  /**
+   * Feature 028 — the mail sweep's entry point. The worker's tick calls this on a clock; the
+   * sending happens HERE, in the service that owns the codes.
+   *
+   * ⚠️ Counts in, counts out. Nothing about a message crosses this wire — putting a live one-time
+   * code into a gRPC payload was the alternative design, and it would have spread the one secret
+   * this system is most careful about into a second process (spec 028 research R2).
+   */
+  @GrpcMethod('AuthService', 'SendDueEmails')
+  async sendDueEmailsRpc(req: { batch?: number }) {
+    const batch = Math.min(Math.max(Number(req.batch) || 10, 1), 100);
+    return this.outbox.sendDue(batch);
   }
 }

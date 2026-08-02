@@ -69,25 +69,40 @@ export class InviteService {
     const secret = randomBytes(32).toString('hex');
     const tokenHash = await this.tokens.hashPassword(secret);
     const expiresAt = new Date(this.clock.now().getTime() + this.cfg.INVITE_TTL * 1000);
-    const row = await this.prisma.invitation.create({
-      data: {
-        account_id: inviter.accountId,
-        email,
-        role_key: roleKey,
-        invited_by: inviter.userId,
-        token_hash: tokenHash,
-        expires_at: expiresAt,
-      },
+    // ⭐ Feature 028 — the invitation and the message that carries it are one transaction. An
+    // invitation nobody is ever sent is not an invitation; it is a row that makes an administrator
+    // believe they invited somebody.
+    const row = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.invitation.create({
+        data: {
+          account_id: inviter.accountId,
+          email,
+          role_key: roleKey,
+          invited_by: inviter.userId,
+          token_hash: tokenHash,
+          expires_at: expiresAt,
+        },
+      });
+
+      await this.email.sendInvite(
+        {
+          to: email,
+          inviteToken: `${created.id}.${secret}`,
+          invitationId: created.id,
+          expiresAt,
+          accountId: inviter.accountId,
+        },
+        tx,
+      );
+
+      return created;
     });
 
+    // Outside the transaction on purpose: pre-creating the invited user is a separate concern with
+    // its own "unless one already exists" rule, and rolling the invitation back because of it
+    // would be the wrong trade.
     await this.ensureInvitedUser(email, inviter.accountId, targetRole.id);
 
-    await this.email.sendInvite({
-      to: email,
-      inviteToken: `${row.id}.${secret}`,
-      invitationId: row.id,
-      expiresAt,
-    });
     return { status: 'created', invitationId: row.id };
   }
 

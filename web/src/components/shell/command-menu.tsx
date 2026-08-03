@@ -10,10 +10,21 @@ import {
   CommandGroup,
   CommandItem,
 } from '@/components/ui/command';
-import { NAV_ITEMS } from './nav-items';
+import { MODULE_CATALOGUE, parseModuleOverrides, resolveModules } from './nav-items';
+import { useSession } from '@/session';
 
-// Command-palette host (⌘K / Ctrl+K). Open state is owned by the shell so the topbar
-// search button can open it too.
+/**
+ * Command-palette host (⌘K / Ctrl+K). Open state is owned by the shell so the topbar search button
+ * can open it too.
+ *
+ * ⚠️ **Feature 029: it resolves the SAME module list as the rail, and that is the point.** A palette
+ * offering a destination the sidebar hides is a way around the sidebar — and a much quieter one,
+ * because nobody looks at a search box to audit navigation. Both call `resolveModules`; neither has
+ * a list of its own.
+ *
+ * ⛔ Still rendering, not enforcement: a route the person may not use refuses server-side regardless
+ * of whether anything offered to navigate there (roadmap 9.14).
+ */
 export function CommandMenu({
   open,
   onOpenChange,
@@ -22,6 +33,13 @@ export function CommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const { state } = useSession();
+  const permissionKeys = state.kind === 'authenticated' ? state.permissionKeys : [];
+  const modules = resolveModules(
+    permissionKeys,
+    parseModuleOverrides(process.env.NEXT_PUBLIC_MODULE_STATES),
+    MODULE_CATALOGUE,
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -40,9 +58,9 @@ export function CommandMenu({
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigation">
-          {NAV_ITEMS.map((item) => (
+          {modules.map((item) => (
             <CommandItem
-              key={item.href}
+              key={item.key}
               onSelect={() => {
                 onOpenChange(false);
                 router.push(item.href);

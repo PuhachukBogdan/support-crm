@@ -446,3 +446,54 @@ avoided.
 id**, so the pool performs an explicit translation. Nothing validates that column today and every other
 actor reference in this service is an auth user id — recorded as a candidate repair point on roadmap 5.3
 rather than reinterpreted here.
+
+## The Inbox's filter and its two orders (feature 029, roadmap 9.2)
+
+`ListConversations` gained a **`channel` filter** and an **`order`** — the only list in this service
+with more than one order. Contract: [`libs/proto/crm/chats/v1/chats.proto`](../../libs/proto/crm/chats/v1/chats.proto).
+
+⚠️⚠️ **`last_activity_at` on the wire IS `Conversation.updated_at`.** There is no `last_activity_at`
+column and there never has been — the rename is recorded in
+[`shared/wire.ts`](src/shared/wire.ts) and in `conversation-projection-covers-contract.spec.ts`. Both
+orders therefore sort on `updated_at`, and the UI labels the column **"Updated"**: that value is a
+Prisma `@updatedAt`, so relabelling, reassigning and resolving all bump it. A queue sorted by it and
+called "last activity" reports our own bookkeeping as customer contact, and looks right doing so.
+
+⇒ **Genuine customer contact is `last_inbound_at` / `last_outbound_at`** (feature 022). They stay
+deliberately **unindexed** — projected and aggregated, never ordered or filtered on — and they belong
+to urgency, roadmap 4.20.
+
+⛔ **There is no urgency / "recommended" order**, and the gateway refuses one with a 400. Nothing
+computes urgency; a sort asserting a property the data lacks is invisible to whoever trusts it.
+
+### The cursor now carries its order
+
+`OrderedCursor` (`[sortKey, id, order]`, [`src/shared/cursor.ts`](src/shared/cursor.ts)) is a
+**second** primitive beside the plain `Cursor`, not a replacement:
+
+- a keyset cursor names a row *in a sequence*; replayed under a different order it silently pages a
+  **different** sequence — a plausible list with rows repeated and rows missing, and no error. The
+  server refuses the mismatch instead.
+- the two encodings are mutually unreadable (2- vs 3-element), so a conversation token is rejected by
+  the feed and message endpoints, which is correct — they name rows in unrelated sequences.
+- the six other read paths keep the plain cursor: every one has a single order keyed on `created_at`,
+  and widening the shared type would have forced an `order` onto cursors that have no such concept.
+
+⚠️ **`DEFAULT_CONVERSATION_ORDER` is `created_desc`, not the Inbox's default.** `list()` is shared by
+both feeds and the CSV export, none of which asked for a new order — making `updated_desc` the
+repository default silently re-ordered all three, and only the cursor's type change surfaced it. The
+Inbox picks `updated_desc` at its own edge (`DEFAULT_INBOX_ORDER`).
+
+### The channel filter
+
+- `undefined`/`''` means **no filter**, never "conversations that have no channel". ~1 in 6 rows carry
+  none and stay reachable only by not filtering.
+- Validated for **shape, not membership**, at the gateway: a channel is *data, never a branch*
+  (roadmap 9.6a), so a closed allow-list would make every Phase-6 channel unfilterable on arrival.
+  Unlike a dropped filter, an unrecognised channel narrows to zero — visible — rather than widening.
+- **Mirrored into `ExportFilters`.** An admin who narrows the Inbox to one channel and exports must
+  not receive the whole set (SEC-AP2). The value crosses four hops (gateway parse → grpc controller →
+  stored row → `filtersOf` at production); `slaOutcome` was once missing at the last one, and a
+  dropped export filter *widens* the file.
+
+Index: `@@index([account_id, updated_at])` — index-only migration, no column change (Principle VII).

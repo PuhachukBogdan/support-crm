@@ -8,7 +8,8 @@ import {
   type MemberIdentity,
   type PersonMembersClient,
 } from '../person/person-members.client';
-import { encodeCursor } from '../shared/cursor';
+import { encodeOrderedCursor } from '../shared/cursor';
+import { DEFAULT_CONVERSATION_ORDER } from '../conversation/conversation.repository';
 import { TransitionRecorder } from '../transition/transition.recorder';
 
 function md(accountId = 'acc-1'): Metadata {
@@ -296,7 +297,14 @@ describe('GetPersonFeed — keyset paging across the union', () => {
     const { prisma } = fakePrisma(store);
     const controller = ctrl(prisma, members(linked).client);
     // Start after the most recent row (a brand-b conversation); the next row belongs to brand-a.
-    const after = encodeCursor({ createdAt: '2026-07-22T09:00:00.000Z', id: 'c-b1' });
+    // Feature 029: the conversation cursor now carries the order it was minted under (research R8).
+    // The feed did not change order — it pins the repository default, `created_at DESC` — so this is
+    // the same row boundary as before, expressed in the token vocabulary the endpoint now speaks.
+    const after = encodeOrderedCursor({
+      sortKey: '2026-07-22T09:00:00.000Z',
+      id: 'c-b1',
+      order: DEFAULT_CONVERSATION_ORDER,
+    });
     const page = await controller.getPersonFeed(
       { personId: 'person-1', pageSize: 2, pageToken: after },
       md(),

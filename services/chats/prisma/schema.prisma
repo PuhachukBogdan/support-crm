@@ -101,6 +101,19 @@ model Conversation {
   @@index([subject_source, created_at])
   // Feature 024: the by-desk list read, and the automation engine's scope filter.
   @@index([account_id, routed_group_id])
+  // ── Feature 029 (roadmap 9.2): the Inbox's default order ───────────────────────────────────────
+  //
+  // The inbox list orders by `updated_at` (both of its two orders do), under a keyset predicate on the
+  // same column. Without this index that is a sort over a scan of the largest table in the system,
+  // against a stated 2 s budget for the first screenful of a 4 500-row view (Principle VII).
+  //
+  // ⚠️ `updated_at`, NOT a "last activity" column — there is no such column, and the wire field of that
+  // name is this one renamed (research R7). The two feature-022 columns above ARE customer contact and
+  // stay deliberately unindexed: they are projected, never ordered or filtered on.
+  //
+  // Account-scoped leading, like the other list indexes here: every read is confined to one account
+  // (Principle I), so `account_id` is the first thing the planner can use.
+  @@index([account_id, updated_at])
 }
 
 /// An entry within a conversation. `private` flags an internal note; realtime-scoping so it

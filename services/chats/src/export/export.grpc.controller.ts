@@ -28,6 +28,8 @@ interface CreateWire {
     playerId?: string;
     brandId?: string;
     slaOutcome?: string;
+    /** Feature 029: mirrors the list's channel filter — see `ExportFilters` in chats.proto. */
+    channel?: string;
   };
 }
 interface ListWire {
@@ -131,6 +133,7 @@ export class ExportController {
               const outcome = this.slaOutcomeOf(f.slaOutcome);
               return outcome ? { slaOutcome: outcome } : {};
             })(),
+            ...(f.channel ? { channel: f.channel } : {}),
           },
           // The stored filter set, for production on a later tick. Stored DECODED, so `filtersOf` reads
           // DB values and no second decode step can be forgotten there.
@@ -147,6 +150,7 @@ export class ExportController {
               const outcome = this.slaOutcomeOf(f.slaOutcome);
               return outcome ? { slaOutcome: outcome } : {};
             })(),
+            ...(f.channel ? { channel: f.channel } : {}),
           },
         },
         new Date(),

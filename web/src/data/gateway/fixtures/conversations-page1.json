@@ -1,31 +1,45 @@
 {
   "status": 200,
-  "path": "/conversations?pageSize=2",
+  "path": "/conversations?status=resolved&pageSize=3",
   "body": {
     "conversations": [
       {
-        "id": "seed-conv-sla-0000-00000000001",
+        "id": "seed-conv-resolved-0000-00000001",
         "brandId": "seed-brand-0000-0000-000000000001",
         "playerId": "seed-player-001",
-        "status": "CONVERSATION_STATUS_OPEN",
-        "priority": "normal",
-        "assigneeOperatorId": "",
+        "status": "CONVERSATION_STATUS_RESOLVED",
+        "priority": "low",
+        "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
         "channel": "",
-        "lastActivityAt": "2026-07-28T22:44:24.330Z",
-        "createdAt": "2026-07-26T18:53:14.412Z"
+        "lastActivityAt": "2026-08-02T19:26:49.009Z",
+        "createdAt": "2026-07-26T15:56:11.654Z",
+        "subject": "совершенно неверный заголовок"
       },
       {
-        "id": "seed-conv-unassigned-0000-00001",
+        "id": "seed-conv-cat-access-000000001",
         "brandId": "seed-brand-0000-0000-000000000001",
         "playerId": "seed-player-001",
-        "status": "CONVERSATION_STATUS_OPEN",
-        "priority": "normal",
-        "assigneeOperatorId": "",
-        "channel": "",
-        "lastActivityAt": "2026-07-28T22:44:24.321Z",
-        "createdAt": "2026-07-26T16:51:18.328Z"
+        "status": "CONVERSATION_STATUS_RESOLVED",
+        "priority": "low",
+        "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
+        "channel": "api",
+        "lastActivityAt": "2026-08-02T19:26:48.992Z",
+        "createdAt": "2026-08-02T19:26:48.992Z",
+        "subject": "Cannot sign in after password reset"
+      },
+      {
+        "id": "51865b10-a9aa-419b-a6d5-39d5aaa83a44",
+        "brandId": "seed-brand-0000-0000-000000000001",
+        "playerId": "seed-player-001",
+        "status": "CONVERSATION_STATUS_RESOLVED",
+        "priority": "",
+        "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
+        "channel": "chat",
+        "lastActivityAt": "2026-08-01T16:22:52.469Z",
+        "createdAt": "2026-08-01T16:22:30.076Z",
+        "subject": "совершенно неверный заголовок"
       }
     ],
-    "nextPageToken": "WyIyMDI2LTA3LTI2VDE2OjUxOjE4LjMyOFoiLCJzZWVkLWNvbnYtdW5hc3NpZ25lZC0wMDAwLTAwMDAxIl0"
+    "nextPageToken": "WyIyMDI2LTA4LTAxVDE2OjIyOjUyLjQ2OVoiLCI1MTg2NWIxMC1hOWFhLTQxOWItYTZkNS0zOWQ1YWFhODNhNDQiLCJ1cGRhdGVkX2Rlc2MiXQ"
   }
 }

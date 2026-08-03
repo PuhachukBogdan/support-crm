@@ -18,7 +18,14 @@ import type { RequestClaims } from '../auth/auth.guard';
 import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
 import { callChats } from './rpc';
-import { toStatusWire, toStatusWireRequired, toSlaOutcomeWire, toSubjectWire } from './wire';
+import {
+  toStatusWire,
+  toStatusWireRequired,
+  toSlaOutcomeWire,
+  toSubjectWire,
+  toChannelFilter,
+  toConversationOrderWire,
+} from './wire';
 
 interface ConversationPageWire {
   conversations: unknown[];
@@ -81,6 +88,14 @@ export class ConversationsController implements OnModuleInit {
       pageSize?: string;
       /** Feature 014 (R10): running | met | breached — the "what did we miss" filter. */
       slaOutcome?: string;
+      /**
+       * Feature 029 (roadmap 9.2). ⚠️ This object is a FIXED DESTRUCTURE: a query parameter that is
+       * not named here is silently dropped, and the caller gets a wider result set believing it was
+       * narrowed. Adding the field to this type is the whole of "the route accepts it".
+       */
+      channel?: string;
+      /** Feature 029: updated_desc (default) | updated_asc. Unknown ⇒ 400, never the default. */
+      order?: string;
     },
     @Req() req: ChatsReq,
   ) {
@@ -96,6 +111,11 @@ export class ConversationsController implements OnModuleInit {
           // query (the feature-012 lesson — a mistyped filter that returns EVERYTHING is worse than an
           // error, because it looks like it worked).
           slaOutcome: toSlaOutcomeWire(q.slaOutcome),
+          // Feature 029. `order` is fail-closed like status — a closed vocabulary, so an unknown value
+          // is a mistake. `channel` is shape-checked only: a channel is data, never a branch (roadmap
+          // 9.6a), and an unrecognised one narrows to zero rather than widening. See `wire.ts`.
+          channel: toChannelFilter(q.channel),
+          order: toConversationOrderWire(q.order),
           pageToken: q.pageToken ?? '',
           pageSize: q.pageSize ? Number(q.pageSize) : 0,
         },

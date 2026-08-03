@@ -9,6 +9,10 @@ import {
   SEED_BRAND_ID,
   SEED_BRAND_ID_2,
   SEED_PLAYER_ID,
+  // Feature 029 (FR-024) — the three conversations for judging the Inbox.
+  SEED_CONVERSATION_TEST_ID,
+  SEED_CONVERSATION_BILLING_ID,
+  SEED_CONVERSATION_ACCESS_ID,
   SEED_CONVERSATION_OPEN_ID,
   SEED_CONVERSATION_UNASSIGNED_ID,
   SEED_MACRO_ID,
@@ -92,12 +96,74 @@ describe('chats seed builder', () => {
     expect(open.last_outbound_at!.getTime()).toBeLessThan(newest);
   });
 
-  it('feature 022: one of the collision player’s conversations has a channel, the rest have none', () => {
+  /**
+   * ⚠️ RELAXED by feature 029, deliberately — from `toHaveLength(1)` to "at least one of each".
+   *
+   * The property this protects is that the contact rollup has **both** an identified channel entry
+   * **and** an unrecorded bucket, so "the counts sum to the total" is not trivially true. Exactly one
+   * named channel was never the requirement; it was simply how many the fixture had at the time.
+   *
+   * Feature 029 added three conversations with real channels (FR-024 — the operator asked for three
+   * categories to judge the Inbox against), which is a legitimate fixture addition. Pinning the count
+   * would have made every future seed addition look like a regression in feature 022.
+   */
+  it('feature 022: the collision player has BOTH channelled and channel-less conversations', () => {
     const mine = seed.conversations.filter((c) => c.player_id === SEED_PLAYER_ID);
     const named = mine.filter((c) => (c as { channel?: string | null }).channel);
-    expect(named).toHaveLength(1);
+    expect(named.length).toBeGreaterThan(0);
     // The others are the state the whole existing history is in until Phase 6 — the unrecorded bucket.
     expect(mine.length - named.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Feature 029 (FR-024) — the operator's three conversations for judging the Inbox.
+   *
+   * They live in the seed because there is no `POST /conversations` at the REST edge: a conversation
+   * is opened by channel ingestion, and Phase 6 owns the channels. Track B tried and got a 404.
+   */
+  it('feature 029: three conversations with DISTINCT categories and channels exist', () => {
+    // ⚠️ Scoped to these three ids, not to "every categorised conversation": an earlier fixture
+    // already carries a lowercase `billing` category for another purpose. Asserting over all of them
+    // would make this test fail whenever some unrelated feature classifies a row — which is exactly
+    // the brittleness that just had to be relaxed one test above.
+    const ids = [
+      SEED_CONVERSATION_TEST_ID,
+      SEED_CONVERSATION_BILLING_ID,
+      SEED_CONVERSATION_ACCESS_ID,
+    ];
+    const mine = seed.conversations.filter((c) => ids.includes(c.id));
+    expect(mine).toHaveLength(3);
+
+    const categories = mine.map((c) => (c as { category: string }).category);
+    expect(new Set(categories)).toEqual(new Set(['Test', 'Billing', 'Access']));
+
+    const channels = mine.map((c) => (c as { channel?: string | null }).channel);
+    expect(new Set(channels).size).toBe(3); // three different channels, so the filter has real work
+
+    // Every one has a human title, so the queue is scannable rather than a column of ids.
+    for (const c of mine) expect((c as { subject?: string | null }).subject).toBeTruthy();
+  });
+
+  it('feature 029: the `Test` conversation carries a real four-turn exchange', () => {
+    const test = seed.conversations.find(
+      (c) => (c as { category?: string | null }).category === 'Test',
+    )!;
+    const thread = seed.messages.filter((m) => m.conversation_id === test.id);
+    expect(thread).toHaveLength(4);
+    // Customer → agent → customer → agent: a dialogue, not four messages from one side.
+    expect(thread.map((m) => m.author_type)).toEqual(['player', 'operator', 'player', 'operator']);
+    // …and the derived contact stamps therefore have both directions.
+    expect((test as { last_inbound_at: Date | null }).last_inbound_at).not.toBeNull();
+    expect((test as { last_outbound_at: Date | null }).last_outbound_at).not.toBeNull();
+  });
+
+  it('feature 029: no seeded message carries a contact detail', () => {
+    // The subject column is the one place customer-authored text reaches the queue unmasked, so the
+    // fixtures must not put an email or a phone number there for a screenshot to leak.
+    for (const m of seed.messages) {
+      expect(m.body).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+      expect(m.body).not.toMatch(/\+\d[\d ()-]{7,}\d/);
+    }
   });
 
   it('includes at least one private (internal) message', () => {

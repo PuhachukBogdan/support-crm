@@ -27,6 +27,21 @@ const ROOTS = [join(__dirname, '..'), join(__dirname, '..', '..', 'app')];
 /** Words that make a stored value a credential. */
 const CREDENTIAL_ISH = /session|token|password|passcode|\bcode\b|credential|auth|secret|jwt/i;
 
+/**
+ * ⚠️ The API's own name is not the stored value.
+ *
+ * `sessionStorage` contains the word "session", so matching the raw statement flagged **every**
+ * `sessionStorage.setItem(…)` — including one storing a timestamp under `crm:stale-build-reload`.
+ * That is exactly the failure this file's header warns about: *"a guard that fails for legitimate
+ * reasons gets deleted — taking the real guarantee with it."*
+ *
+ * So the storage object is removed before matching, and only the KEY and VALUE are judged. Every
+ * planted violation below still fires, because each names a credential in its key or its value.
+ */
+function subjectOf(statement: string): string {
+  return statement.replace(/\b(window\s*\.\s*)?(localStorage|sessionStorage)\b/g, '');
+}
+
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -77,7 +92,26 @@ describe('structure guard — no session, token, password or code is kept in the
     ].join('\n');
     const found = storageWrites(planted);
     expect(found).toHaveLength(3);
-    expect(found.every((w) => CREDENTIAL_ISH.test(w.statement))).toBe(true);
+    // Judged on the key and value, with the storage object's own name removed — see `subjectOf`.
+    expect(found.every((w) => CREDENTIAL_ISH.test(subjectOf(w.statement)))).toBe(true);
+  });
+
+  it('⭐ removing the API name does not weaken it: a credential in the KEY is still caught', () => {
+    for (const planted of [
+      `sessionStorage.setItem('sessionId', id);`,
+      `sessionStorage.setItem('crm.authState', s);`,
+      `window.sessionStorage.setItem('k', accessToken);`,
+      `localStorage.setItem('login-code', c);`,
+    ]) {
+      const [write] = storageWrites(planted);
+      expect(CREDENTIAL_ISH.test(subjectOf(write!.statement))).toBe(true);
+    }
+  });
+
+  it('…and a genuinely innocuous write is allowed, which is the point of the narrowing', () => {
+    const benign = `window.sessionStorage.setItem('crm:stale-build-reload', String(Date.now()));`;
+    const [write] = storageWrites(benign);
+    expect(CREDENTIAL_ISH.test(subjectOf(write!.statement))).toBe(false);
   });
 
   it('the detector ignores a comment that merely discusses one', () => {
@@ -93,7 +127,7 @@ describe('structure guard — no session, token, password or code is kept in the
 
   it('no credential-shaped value is written to browser storage', () => {
     const offenders = writes
-      .filter((w) => CREDENTIAL_ISH.test(w.statement))
+      .filter((w) => CREDENTIAL_ISH.test(subjectOf(w.statement)))
       .map((w) => `${w.file}: ${w.statement.trim()}`);
     expect(offenders).toEqual([]);
   });

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { toSlaOutcomeWire, toStatusWire } from '../chats/wire';
+import { toChannelFilter, toSlaOutcomeWire, toStatusWire } from '../chats/wire';
 
 /**
  * Fail-closed request parsing for the exports edge (feature 017 — FR-005/FR-027).
@@ -36,6 +36,10 @@ const ALLOWED_FILTERS = [
   'playerId',
   'brandId',
   'slaOutcome',
+  // Feature 029: the Inbox can narrow by channel, so "export what I am looking at" must be able to as
+  // well. Without it an admin who has filtered to one channel exports the WHOLE set — more customer
+  // rows than the screen showed, which is the anti-pitching failure itself (SEC-AP2).
+  'channel',
 ] as const;
 
 export interface ExportFiltersWire {
@@ -45,6 +49,7 @@ export interface ExportFiltersWire {
   playerId?: string;
   brandId?: string;
   slaOutcome?: string;
+  channel?: string;
 }
 
 export function parseExportFilters(body: unknown): ExportFiltersWire {
@@ -84,6 +89,10 @@ export function parseExportFilters(body: unknown): ExportFiltersWire {
    */
   if (out.status !== undefined) out.status = toStatusWire(out.status);
   if (out.slaOutcome !== undefined) out.slaOutcome = toSlaOutcomeWire(out.slaOutcome);
+  // Feature 029: `channel` is a plain proto string, not an enum, so there is no member to coerce — the
+  // trap described in the header cannot occur here. It is still shape-checked by the list's own
+  // converter, so the two edges refuse exactly the same values (FR-027: the same code, not the same words).
+  if (out.channel !== undefined) out.channel = toChannelFilter(out.channel);
   return out;
 }
 

@@ -27,7 +27,49 @@ interface TransactionScope {
 interface TxCapableClient {
   $transaction<T>(fn: (tx: TransactionScope) => Promise<T>): Promise<T>;
 }
-import type { Cursor } from '../shared/cursor';
+import type { OrderedCursor } from '../shared/cursor';
+
+/**
+ * The orders the conversation list can be asked for (feature 029, roadmap 9.2).
+ *
+ * ⚠️ BOTH sort on `updated_at`. There is no `last_activity_at` column — the wire field of that name is
+ * `updated_at` renamed, and checking the TABLE rather than the contract is what caught it (research
+ * R7). Consequently the screen labels this "Updated", never "last activity": our own relabelling and
+ * resolving bump the value, so the second name would claim customer contact that never happened.
+ *
+ * ⛔ There is deliberately NO urgency/"recommended" order. Nothing computes urgency (roadmap 4.20 is
+ * unbuilt), and a sort asserting a property the data lacks is a wrong answer nobody can see by looking.
+ */
+export type ConversationOrderKey = 'created_desc' | 'updated_desc' | 'updated_asc';
+
+/**
+ * ⚠️ The REPOSITORY default is the pre-029 behaviour, and deliberately so.
+ *
+ * `list()` is shared by the player feed, the person feed and the CSV export, none of which asked for
+ * a new order. Making `updated_desc` the repository default would have re-ordered all three silently
+ * — the compiler said nothing, because they simply omit the field. It surfaced only because the
+ * cursor type changed underneath them and TypeScript enumerated the call sites.
+ *
+ * ⇒ Callers that never chose an order keep the one they had. The INBOX chooses `updated_desc`
+ * explicitly, at its own edge (`DEFAULT_INBOX_ORDER`), which is the only place the choice was made.
+ */
+export const DEFAULT_CONVERSATION_ORDER: ConversationOrderKey = 'created_desc';
+
+/** What `ListConversations` uses when the caller names no order (feature 029, FR-002). */
+export const DEFAULT_INBOX_ORDER: ConversationOrderKey = 'updated_desc';
+
+const ORDERS: Record<
+  ConversationOrderKey,
+  { column: 'created_at' | 'updated_at'; direction: 'asc' | 'desc' }
+> = {
+  created_desc: { column: 'created_at', direction: 'desc' },
+  updated_desc: { column: 'updated_at', direction: 'desc' },
+  updated_asc: { column: 'updated_at', direction: 'asc' },
+};
+
+export function isConversationOrderKey(v: string): v is ConversationOrderKey {
+  return Object.prototype.hasOwnProperty.call(ORDERS, v);
+}
 import type {
   ConversationDetailRow,
   ConversationSummaryRow,
@@ -86,8 +128,16 @@ export interface ListFilters {
    * in three separate databases (research R6).
    */
   membersIn?: Array<{ brandId: string; playerId: string }>;
+  /**
+   * Feature 029: the arrival channel. ⚠️ `undefined` means NO FILTER — it must never come to mean
+   * "conversations that have no channel". ~1 in 6 rows have none, and a `channel: null` predicate
+   * hiding them would remove a fifth of the queue from the default view without looking broken.
+   */
+  channel?: string;
+  /** Feature 029: defaults to `updated_desc`. See ORDERS above for why there is no urgency order. */
+  order?: ConversationOrderKey;
   limit: number;
-  cursor: Cursor | null;
+  cursor: OrderedCursor | null;
 }
 
 export interface CreateInput {
@@ -117,12 +167,16 @@ export class ConversationRepository {
   async list(
     accountId: string,
     f: ListFilters,
-  ): Promise<{ rows: ConversationSummaryRow[]; nextCursor: Cursor | null }> {
+  ): Promise<{ rows: ConversationSummaryRow[]; nextCursor: OrderedCursor | null }> {
+    const orderKey = f.order ?? DEFAULT_CONVERSATION_ORDER;
+    const { column, direction } = ORDERS[orderKey];
+
     const where: Record<string, unknown> = {};
     if (f.status) where.status = f.status;
     if (f.priority) where.priority = f.priority;
     if (f.assigneeOperatorId) where.assignee_operator_id = f.assigneeOperatorId;
     if (f.playerId) where.player_id = f.playerId;
+    if (f.channel) where.channel = f.channel;
     if (f.brandIn) where.brand_id = { in: f.brandIn };
     if (f.idIn) where.id = { in: f.idIn };
     if (f.membersIn) {
@@ -135,20 +189,25 @@ export class ConversationRepository {
     }
 
     if (f.cursor) {
-      const at = new Date(f.cursor.createdAt);
+      // ⭐ The keyset predicate MUST name the same column and the same direction as the `orderBy`
+      // below. If they ever disagree, page two is drawn from a different sequence than page one — and
+      // the result is not an error but a plausible list with rows repeated and rows missing. Both are
+      // derived from the one `ORDERS` entry above so they cannot drift apart.
+      const at = new Date(f.cursor.sortKey);
+      const beyond = direction === 'desc' ? { lt: at } : { gt: at };
+      const tieBreak = direction === 'desc' ? { lt: f.cursor.id } : { gt: f.cursor.id };
       where.AND = [
         {
-          OR: [
-            { created_at: { lt: at } },
-            { AND: [{ created_at: at }, { id: { lt: f.cursor.id } }] },
-          ],
+          OR: [{ [column]: beyond }, { AND: [{ [column]: at }, { id: tieBreak }] }],
         },
       ];
     }
 
     const rows = (await this.prisma.forAccount(accountId).conversation.findMany({
       where,
-      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      // The tie-breaker follows the primary direction: a stable keyset needs the whole ordering to
+      // point one way, or the `id` comparison above contradicts the sort.
+      orderBy: [{ [column]: direction }, { id: direction }],
       take: f.limit + 1,
       select: SUMMARY_SELECT,
     })) as ConversationSummaryRow[];
@@ -157,7 +216,9 @@ export class ConversationRepository {
     const kept = hasMore ? rows.slice(0, f.limit) : rows;
     const last = kept[kept.length - 1];
     const nextCursor =
-      hasMore && last ? { createdAt: last.created_at.toISOString(), id: last.id } : null;
+      hasMore && last
+        ? { sortKey: last[column].toISOString(), id: last.id, order: orderKey }
+        : null;
     return { rows: kept, nextCursor };
   }
 

@@ -27,10 +27,34 @@ const DEAD: HttpResponse = { status: 0, body: undefined }; // the adapter's "nev
 describe('GatewaySession — resolving who this is', () => {
   it('a 200 with an identity is authenticated', async () => {
     const { port } = scriptedPort([
+      {
+        status: 200,
+        body: {
+          userId: 'u1',
+          accountId: 'a1',
+          roles: ['agent'],
+          permissionKeys: ['crm.inbox.view'],
+        },
+      },
+    ]);
+    const state = await new GatewaySession(port).resolve();
+    expect(state).toEqual({
+      kind: 'authenticated',
+      userId: 'u1',
+      accountId: 'a1',
+      roles: ['agent'],
+      permissionKeys: ['crm.inbox.view'],
+    });
+  });
+
+  it('⚠️ a 200 with NO permissionKeys yields an EMPTY set, never an absent one (feature 029)', async () => {
+    // Deny-by-default at the rendering layer: a missing list must not read as "unknown, so show
+    // everything". An older gateway, or a route that forgot @ResolvesPermissions, lands here.
+    const { port } = scriptedPort([
       { status: 200, body: { userId: 'u1', accountId: 'a1', roles: ['agent'] } },
     ]);
     const state = await new GatewaySession(port).resolve();
-    expect(state).toEqual({ kind: 'authenticated', userId: 'u1', accountId: 'a1', roles: ['agent'] });
+    expect(state).toMatchObject({ kind: 'authenticated', permissionKeys: [] });
   });
 
   it('the RECORDED 401 from /auth/me is anonymous — and its body is never read', async () => {

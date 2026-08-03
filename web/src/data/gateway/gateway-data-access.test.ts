@@ -155,3 +155,41 @@ describe('T013 — *** an undeclared parameter never leaves the browser ***', ()
     expect(calls).toHaveLength(0);
   });
 });
+
+/**
+ * T019 (feature 029) — a NAMED order goes out; anything else never leaves the browser.
+ *
+ * ⚠️ `order` gets the same treatment as an undeclared filter, and for the same recorded reason:
+ * `/conversations` silently drops a parameter it does not recognise. An order the server cannot
+ * honour would therefore come back as a 200 in the DEFAULT sequence, presented to the agent as the
+ * one they picked. That is worse than a broken filter — a wrong list still looks like a list.
+ */
+describe('*** the order is declared, or it never leaves the browser (feature 029) ***', () => {
+  it('a declared order IS sent, under the row’s order parameter', async () => {
+    const { da, calls } = daFor([LIST]);
+    await da.list('conversations', { limit: 2, order: 'updated_asc' });
+    expect(calls[0]!.query).toMatchObject({ order: 'updated_asc' });
+  });
+
+  it('⛔ "recommended" is refused before any request — nothing computes urgency (roadmap 4.20)', async () => {
+    const { da, calls } = daFor([LIST]);
+    await expect(
+      da.list('conversations', { limit: 2, order: 'recommended' }),
+    ).rejects.toMatchObject({ retryable: false });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('an order is refused for a resource that declares none', async () => {
+    const { da, calls } = daFor([LIST]);
+    await expect(
+      da.list('players', { limit: 2, filters: { brandId: 'b1' }, order: 'updated_desc' }),
+    ).rejects.toMatchObject({ retryable: false });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('omitting the order sends no order parameter at all (the server picks its default)', async () => {
+    const { da, calls } = daFor([LIST]);
+    await da.list('conversations', { limit: 2 });
+    expect(calls[0]!.query!.order).toBeUndefined();
+  });
+});

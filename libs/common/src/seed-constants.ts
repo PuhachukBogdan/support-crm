@@ -158,3 +158,35 @@ export const SEED_SLA_POLICY_ID = 'seed-sla-policy-0000-000000000001';
 export const SEED_SLA_TARGET_MINUTES = 1;
 /** Conversation used for the SLA scenarios — its clock is driven by the Track-B script. */
 export const SEED_CONVERSATION_SLA_ID = 'seed-conv-sla-0000-00000000001';
+
+/**
+ * ── Feature 029 (roadmap 9.2, FR-024): three conversations for JUDGING THE INBOX ────────────────
+ *
+ * The operator asked for these by name — three different categories, one of them `Test` carrying a
+ * short customer↔agent exchange — so the screen can be judged against something that looks like work
+ * rather than against an empty table.
+ *
+ * ⚠️ **They live in the seed, not in a Track-B `curl` loop, because THERE IS NO WAY TO CREATE A
+ * CONVERSATION THROUGH THE REST EDGE.** The gateway serves `GET /conversations`, `GET /:id`,
+ * `PATCH /:id/status|subject` and `POST /:id/messages` — a conversation is opened by channel
+ * ingestion (`RecordIncomingMessage`, gRPC), and Phase 6 owns the channels. Track B tried to POST one
+ * and got a 404; the seed is the product's own maintained fixture path, and every other feature uses
+ * it.
+ *
+ * ⚠️ They carry an explicit `subject`/`subject_source: 'manual'`, which is a fixture declaring a
+ * starting state — permitted — and it also pins them against the title sweep so a re-seed cannot
+ * relabel them.
+ *
+ * Deliberately mundane, brand-neutral support scenarios: nothing here should read as a real customer.
+ */
+export const SEED_CONVERSATION_TEST_ID = 'seed-conv-cat-test-000000000001';
+export const SEED_CONVERSATION_BILLING_ID = 'seed-conv-cat-billing-00000001';
+export const SEED_CONVERSATION_ACCESS_ID = 'seed-conv-cat-access-000000001';
+
+/** The four messages of the `Test` conversation's exchange. */
+export const SEED_MESSAGE_TEST_1_ID = 'seed-msg-cat-test-0000000000001';
+export const SEED_MESSAGE_TEST_2_ID = 'seed-msg-cat-test-0000000000002';
+export const SEED_MESSAGE_TEST_3_ID = 'seed-msg-cat-test-0000000000003';
+export const SEED_MESSAGE_TEST_4_ID = 'seed-msg-cat-test-0000000000004';
+export const SEED_MESSAGE_BILLING_ID = 'seed-msg-cat-billing-000000001';
+export const SEED_MESSAGE_ACCESS_ID = 'seed-msg-cat-access-0000000001';

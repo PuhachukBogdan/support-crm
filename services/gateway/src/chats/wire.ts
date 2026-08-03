@@ -205,6 +205,60 @@ const SLA_OUTCOME: Record<string, string> = {
 };
 
 /** Absent/empty → UNSPECIFIED (no filter). Unknown → 400, never a widened query. */
+/**
+ * Feature 029 — the Inbox's order. A CLOSED vocabulary, so fail-closed like status: an unknown value
+ * is a 400, never the default.
+ *
+ * ⛔ There is no `recommended`. Roadmap 4.20 (the routing engine) is unbuilt and nothing computes
+ * urgency, so a sort of that name would assert a property the data does not have — and unlike a
+ * dropped filter, nobody can see it is wrong by looking at the list.
+ */
+const CONVERSATION_ORDER: Record<string, string> = {
+  updated_desc: 'CONVERSATION_ORDER_UPDATED_DESC',
+  updated_asc: 'CONVERSATION_ORDER_UPDATED_ASC',
+};
+
+export function toConversationOrderWire(order?: string): string {
+  if (!order) return 'CONVERSATION_ORDER_UNSPECIFIED';
+  return CONVERSATION_ORDER[order] ?? reject('order', order, Object.keys(CONVERSATION_ORDER));
+}
+
+/** The orders this edge accepts — the front end derives its sort control from exactly this set. */
+export const CONVERSATION_ORDER_KEYS = Object.keys(CONVERSATION_ORDER);
+
+/**
+ * Feature 029 — the channel filter. ⚠️ **Shape-validated, NOT membership-validated**, and this is a
+ * deliberate exception to the fail-closed rule above.
+ *
+ * ── Why `channel` cannot have a closed allow-list here ───────────────────────────────────────────
+ * A channel is DATA, never a branch (roadmap 9.6a, binding: *"most channels are Phase 6 and unbuilt,
+ * so a channel is audience/predicate data, never a branch"*). The column is a free-form string that
+ * Phase 6 fills as connections are added. A hardcoded list at this edge would (a) be a branch on a
+ * channel name, and (b) make every newly-ingested channel unfilterable until somebody edits the
+ * gateway — a silent, confusing failure exactly when a new integration goes live.
+ *
+ * ── Why that is safe, where it would not be for `status` ─────────────────────────────────────────
+ * The fail-closed rule exists to prevent SILENT WIDENING: a value that is dropped, so the caller
+ * believes the list is narrowed and it is not. An unrecognised channel does not widen anything — it
+ * narrows to zero rows, and an empty list is visibly different from a full one. `status` and `order`
+ * are closed vocabularies known at build time, so an unknown value there is certainly a mistake;
+ * `channel` is an open set, so an unknown value is indistinguishable from a channel we do not have
+ * conversations on yet.
+ *
+ * What is still enforced: the value must be a non-empty, plausible token. A blank or absurd value is
+ * a client error rather than a filter.
+ */
+const MAX_CHANNEL_LENGTH = 64;
+const CHANNEL_SHAPE = /^[a-z0-9][a-z0-9_-]*$/i;
+
+export function toChannelFilter(channel?: string): string {
+  if (channel === undefined || channel === '') return '';
+  if (channel.length > MAX_CHANNEL_LENGTH || !CHANNEL_SHAPE.test(channel)) {
+    throw new BadRequestException('invalid channel: expected a short alphanumeric channel name');
+  }
+  return channel;
+}
+
 export function toSlaOutcomeWire(outcome?: string): string {
   if (!outcome) return 'SLA_OUTCOME_UNSPECIFIED';
   return SLA_OUTCOME[outcome] ?? reject('slaOutcome', outcome, Object.keys(SLA_OUTCOME));

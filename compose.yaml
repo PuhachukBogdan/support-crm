@@ -326,6 +326,17 @@ services:
     environment:
       NODE_ENV: production
       GATEWAY_ORIGIN: http://gateway:3000
+    # ⚠️ **LOOPBACK ONLY**, and that is the whole point of writing the address out.
+    #
+    # Bound to 127.0.0.1 so the UI is reachable over an SSH tunnel (`ssh -L 3002:localhost:3002`)
+    # WITHOUT going through the edge proxy — which is how a proxy-specific fault gets ruled in or out
+    # instead of argued about. It is not published to the host's public address: SEC-40 was exactly
+    # that mistake made with the gateway's port, and the same default (`0.0.0.0`) would repeat it.
+    #
+    # ⓘ Override with WEB_BIND if a different loopback address is wanted; there is no reason to set
+    # it to 0.0.0.0, because the public route is Caddy's and it carries the outer password.
+    ports:
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3002}:3001'
     depends_on:
       - gateway
     networks:

@@ -178,3 +178,68 @@ describe('Conversation writes (US1)', () => {
     expect(row.dims_json).toEqual({ brand: 'brand-a' });
   });
 });
+
+/**
+ * T012 (feature 029) — the two new ways to ask the list a question stay inside the account.
+ *
+ * ⚠️ A new filter is a new way to ask the WRONG question across a tenant boundary, and a new order is
+ * a new way to reach rows the previous order kept out of the first page. Neither is exotic: both go
+ * through `forAccount`, and this asserts that they still do rather than assuming it. Principle I is
+ * the one wall left after brand scope was removed (ADR 0038 §1), so it gets an explicit test per
+ * surface that touches the query.
+ */
+describe('*** account isolation holds for the new channel filter and both orders (Principle I) ***', () => {
+  function listCtrl() {
+    const f = fakePrisma({ findMany: jest.fn().mockResolvedValue([]) });
+    return {
+      ...f,
+      ctrl: new ConversationReadController(
+        new ConversationRepository(f.prisma, new TransitionRecorder()),
+        noSla(),
+      ),
+    };
+  }
+
+  it('the channel filter runs through the account-scoped client', async () => {
+    const { ctrl, forAccount, conversation } = listCtrl();
+    await ctrl.listConversations({ channel: 'email' }, md('acc-1'));
+    expect(forAccount).toHaveBeenCalledWith('acc-1');
+    // …and the caller cannot smuggle an account into the query itself.
+    expect(conversation.findMany.mock.calls[0][0].where.account_id).toBeUndefined();
+  });
+
+  it.each(['CONVERSATION_ORDER_UPDATED_DESC', 'CONVERSATION_ORDER_UPDATED_ASC'])(
+    'the %s order runs through the account-scoped client',
+    async (order) => {
+      const { ctrl, forAccount } = listCtrl();
+      await ctrl.listConversations({ order }, md('acc-2'));
+      expect(forAccount).toHaveBeenCalledWith('acc-2');
+    },
+  );
+
+  it('⭐ a page token from one account is not a way into another', async () => {
+    // The token carries a sort key, an id and an order — no account. It is only ever used INSIDE an
+    // account-scoped client, so replaying another tenant's token still reads this tenant's rows. This
+    // pins that: same token, different caller, still `forAccount` with the caller's own account.
+    const rows = Array.from({ length: 51 }, (_, i) => ({
+      ...detailRow({ id: `c${i}` }),
+      updated_at: new Date(Date.UTC(2026, 7, 2, 0, 0, i)),
+    }));
+    const a = fakePrisma({ findMany: jest.fn().mockResolvedValue(rows) });
+    const ctrlA = new ConversationReadController(
+      new ConversationRepository(a.prisma, new TransitionRecorder()),
+      noSla(),
+    );
+    const page = await ctrlA.listConversations({ pageSize: 50 }, md('acc-1'));
+    expect(page.nextPageToken).not.toBe('');
+
+    const b = fakePrisma({ findMany: jest.fn().mockResolvedValue([]) });
+    const ctrlB = new ConversationReadController(
+      new ConversationRepository(b.prisma, new TransitionRecorder()),
+      noSla(),
+    );
+    await ctrlB.listConversations({ pageToken: page.nextPageToken }, md('acc-2'));
+    expect(b.forAccount).toHaveBeenCalledWith('acc-2');
+    expect(b.forAccount).not.toHaveBeenCalledWith('acc-1');
+  });
+});

@@ -17,6 +17,16 @@ import {
   SEED_MESSAGE_PLAYER_ID,
   SEED_MESSAGE_REPLY_ID,
   SEED_MESSAGE_NOTE_ID,
+  // Feature 029 (FR-024) — the three category conversations for judging the Inbox.
+  SEED_CONVERSATION_TEST_ID,
+  SEED_CONVERSATION_BILLING_ID,
+  SEED_CONVERSATION_ACCESS_ID,
+  SEED_MESSAGE_TEST_1_ID,
+  SEED_MESSAGE_TEST_2_ID,
+  SEED_MESSAGE_TEST_3_ID,
+  SEED_MESSAGE_TEST_4_ID,
+  SEED_MESSAGE_BILLING_ID,
+  SEED_MESSAGE_ACCESS_ID,
   // feature 014 (roadmap 4.6/4.7).
   SEED_AUTOMATION_KEYWORD_ID,
   SEED_AUTOMATION_ASSIGN_ID,
@@ -62,6 +72,19 @@ export const SEED_MESSAGE_REPLY_AT = new Date('2026-07-20T09:15:00.000Z');
 export const SEED_MESSAGE_NOTE_AT = new Date('2026-07-20T09:30:00.000Z');
 /** LATER than everything else on that conversation: a system entry must not become contact either. */
 export const SEED_MESSAGE_SYSTEM_AT = new Date('2026-07-20T09:45:00.000Z');
+
+/**
+ * Feature 029 (FR-024) — the three category conversations the operator asked for.
+ *
+ * Spread across three days so the Inbox's two orders have something visibly different to do with
+ * them: newest-updated first and oldest-updated first must not look like the same list.
+ */
+export const SEED_MESSAGE_CAT_TEST_AT = new Date('2026-07-30T11:00:00.000Z');
+export const SEED_MESSAGE_CAT_TEST_2_AT = new Date('2026-07-30T11:04:00.000Z');
+export const SEED_MESSAGE_CAT_TEST_3_AT = new Date('2026-07-30T11:09:00.000Z');
+export const SEED_MESSAGE_CAT_TEST_4_AT = new Date('2026-07-30T11:12:00.000Z');
+export const SEED_MESSAGE_CAT_BILLING_AT = new Date('2026-07-28T14:20:00.000Z');
+export const SEED_MESSAGE_CAT_ACCESS_AT = new Date('2026-07-27T08:05:00.000Z');
 
 /** The linked person's contact — the second brand is LATER, so the person-level maximum comes from it. */
 export const SEED_MESSAGE_LINKED_A_AT = new Date('2026-07-23T10:00:00.000Z');
@@ -121,7 +144,74 @@ export function buildSeed() {
         status: 'open',
         priority: 'high', // feature 012: exercise priority filtering (4.1)
         assignee_operator_id: SEED_OPERATOR_ID,
+        /**
+         * ⭐ A plausible support title, added 2026-08-03.
+         *
+         * The seeded conversations carried **no** subject, so the Inbox showed "no subject" beside a
+         * wall of `совершенно неверный заголовок` — a test string that feature 023's live script
+         * stamped across every row and restored on only one (fixed in that script). The operator saw
+         * the result and, reasonably, called it ugly.
+         *
+         * ⚠️ Deliberately mundane, brand-neutral, and free of any contact detail: the subject is the
+         * one place customer-authored text reaches the queue unmasked (SEC-43).
+         */
+        subject: 'Deposit not credited after 30 minutes' as string | null,
+        subject_source: 'manual' as string | null,
         category: null as string | null, // unclassified is valid (reserved, ADR 0027)
+        classified_by: null as string | null,
+      },
+      /**
+       * ── Feature 029 (roadmap 9.2, FR-024): three categories, for judging the Inbox ────────────
+       *
+       * The operator asked for these so the screen can be judged on something that looks like work.
+       * ⚠️ They exist HERE because there is no `POST /conversations` at the REST edge — a
+       * conversation is opened by channel ingestion, and Phase 6 owns the channels.
+       *
+       * Each carries a distinct `channel` and `category`, so the Inbox's channel filter and its
+       * Category column both have something real to show. `subject_source: 'manual'` pins the title
+       * against the derivation sweep (feature 023): a fixture may declare a starting state, and this
+       * one must stay legible across re-seeds.
+       */
+      {
+        id: SEED_CONVERSATION_TEST_ID,
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        player_id: SEED_PLAYER_ID,
+        status: 'open',
+        priority: 'high',
+        channel: 'chat',
+        assignee_operator_id: SEED_OPERATOR_ID,
+        subject: 'Card payment declined twice' as string | null,
+        subject_source: 'manual' as string | null,
+        category: 'Test' as string | null,
+        classified_by: null as string | null,
+      },
+      {
+        id: SEED_CONVERSATION_BILLING_ID,
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        player_id: SEED_PLAYER_ID,
+        status: 'pending',
+        priority: 'normal',
+        channel: 'email',
+        assignee_operator_id: null as string | null,
+        subject: 'Withdrawal still pending after two days' as string | null,
+        subject_source: 'manual' as string | null,
+        category: 'Billing' as string | null,
+        classified_by: null as string | null,
+      },
+      {
+        id: SEED_CONVERSATION_ACCESS_ID,
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        player_id: SEED_PLAYER_ID,
+        status: 'resolved',
+        priority: 'low',
+        channel: 'api',
+        assignee_operator_id: SEED_OPERATOR_ID,
+        subject: 'Cannot sign in after password reset' as string | null,
+        subject_source: 'manual' as string | null,
+        category: 'Access' as string | null,
         classified_by: null as string | null,
       },
       {
@@ -131,6 +221,8 @@ export function buildSeed() {
         player_id: SEED_PLAYER_ID,
         status: 'pending', // feature 012: mixed lifecycle status for list filtering (4.1)
         priority: 'normal',
+        subject: 'Bonus wagering balance looks wrong' as string | null,
+        subject_source: 'manual' as string | null,
         assignee_operator_id: SEED_OPERATOR_ID,
         category: null as string | null,
         classified_by: null as string | null,
@@ -148,6 +240,8 @@ export function buildSeed() {
         status: 'resolved',
         priority: 'low',
         assignee_operator_id: SEED_OPERATOR_ID,
+        subject: 'Verification documents rejected twice' as string | null,
+        subject_source: 'manual' as string | null,
         category: 'billing',
         classified_by: 'seed',
       },
@@ -157,6 +251,8 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_ID,
+        subject: 'Cannot complete withdrawal to card' as string | null,
+        subject_source: 'manual' as string | null,
         status: 'open',
         priority: 'normal',
         assignee_operator_id: null as string | null,
@@ -170,6 +266,8 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_ID,
+        subject: 'Live chat disconnected mid-conversation' as string | null,
+        subject_source: 'manual' as string | null,
         status: 'open',
         priority: 'normal',
         assignee_operator_id: null as string | null,
@@ -183,6 +281,8 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID_2,
         player_id: SEED_PLAYER_ID,
+        subject: 'Promo code not applying at checkout' as string | null,
+        subject_source: 'manual' as string | null,
         status: 'open',
         priority: 'normal',
         assignee_operator_id: SEED_OPERATOR_ID,
@@ -201,6 +301,8 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_LINKED_A,
+        subject: 'Duplicate charge on the same deposit' as string | null,
+        subject_source: 'manual' as string | null,
         status: 'open',
         priority: 'normal',
         assignee_operator_id: null as string | null,
@@ -213,6 +315,8 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID_2,
         player_id: SEED_PLAYER_LINKED_B,
+        subject: 'Requesting a self-exclusion period' as string | null,
+        subject_source: 'manual' as string | null,
         status: 'open',
         priority: 'normal',
         assignee_operator_id: SEED_OPERATOR_ID,
@@ -224,6 +328,77 @@ export function buildSeed() {
       },
     ],
     messages: [
+      /**
+       * Feature 029 (FR-024) — the `Test` conversation's short exchange.
+       *
+       * Four turns, customer → agent → customer → agent, so the Inbox is judged against a thread that
+       * reads like real work. The other two categories get one inbound each: enough to be legitimate
+       * conversations with derived contact stamps, without pretending every ticket has a dialogue.
+       *
+       * ⚠️ Deliberately mundane and brand-neutral — nothing here should read as a real customer, and
+       * no message carries a contact detail (the subject column is the one place customer-authored
+       * text reaches the queue unmasked).
+       */
+      {
+        id: SEED_MESSAGE_TEST_1_ID,
+        account_id: SEED_ACCOUNT_ID,
+        conversation_id: SEED_CONVERSATION_TEST_ID,
+        author_type: 'player',
+        author_id: SEED_PLAYER_ID,
+        body: 'Card payment declined twice, but the bank says nothing is wrong on their side.',
+        private: false,
+        created_at: SEED_MESSAGE_CAT_TEST_AT,
+      },
+      {
+        id: SEED_MESSAGE_TEST_2_ID,
+        account_id: SEED_ACCOUNT_ID,
+        conversation_id: SEED_CONVERSATION_TEST_ID,
+        author_type: 'operator',
+        author_id: SEED_OPERATOR_ID,
+        body: 'Thanks — I can see two declined attempts on the account. Checking with the provider now.',
+        private: false,
+        created_at: SEED_MESSAGE_CAT_TEST_2_AT,
+      },
+      {
+        id: SEED_MESSAGE_TEST_3_ID,
+        account_id: SEED_ACCOUNT_ID,
+        conversation_id: SEED_CONVERSATION_TEST_ID,
+        author_type: 'player',
+        author_id: SEED_PLAYER_ID,
+        body: 'Understood. Should I try a different card in the meantime?',
+        private: false,
+        created_at: SEED_MESSAGE_CAT_TEST_3_AT,
+      },
+      {
+        id: SEED_MESSAGE_TEST_4_ID,
+        account_id: SEED_ACCOUNT_ID,
+        conversation_id: SEED_CONVERSATION_TEST_ID,
+        author_type: 'operator',
+        author_id: SEED_OPERATOR_ID,
+        body: 'Yes, please do. I will keep this open until the provider confirms.',
+        private: false,
+        created_at: SEED_MESSAGE_CAT_TEST_4_AT,
+      },
+      {
+        id: SEED_MESSAGE_BILLING_ID,
+        account_id: SEED_ACCOUNT_ID,
+        conversation_id: SEED_CONVERSATION_BILLING_ID,
+        author_type: 'player',
+        author_id: SEED_PLAYER_ID,
+        body: 'My withdrawal is still pending after two days. Can you check the status?',
+        private: false,
+        created_at: SEED_MESSAGE_CAT_BILLING_AT,
+      },
+      {
+        id: SEED_MESSAGE_ACCESS_ID,
+        account_id: SEED_ACCOUNT_ID,
+        conversation_id: SEED_CONVERSATION_ACCESS_ID,
+        author_type: 'player',
+        author_id: SEED_PLAYER_ID,
+        body: 'I reset my password but still cannot sign in.',
+        private: false,
+        created_at: SEED_MESSAGE_CAT_ACCESS_AT,
+      },
       {
         id: SEED_MESSAGE_PLAYER_ID,
         account_id: SEED_ACCOUNT_ID,

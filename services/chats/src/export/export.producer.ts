@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { csvRow, type CsvSink, type ExportScope } from '@crm/common';
 import { ConversationRepository, type ListFilters } from '../conversation/conversation.repository';
 import { SlaRepository } from '../sla/sla.repository';
-import type { Cursor } from '../shared/cursor';
+import type { OrderedCursor } from '../shared/cursor';
 
 /**
  * The export producer (feature 017, US1 — FR-004/FR-004a/FR-004b/FR-007).
@@ -114,7 +114,10 @@ export class ExportProducer {
       : listFilters;
 
     let rowCount = 0;
-    let cursor: Cursor | null = null;
+    // Feature 029: an order-stamped cursor now, but no order is named — the export keeps the
+    // repository default (`created_at DESC`) it has always produced rows in. An export is a set, so
+    // its order is a production detail and never a request parameter (see `ExportFilters` in the proto).
+    let cursor: OrderedCursor | null = null;
 
     for (;;) {
       const page = await this.conversations.list(accountId, {

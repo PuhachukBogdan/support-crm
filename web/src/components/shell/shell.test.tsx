@@ -8,7 +8,8 @@ import type { HttpPort } from '@/data/gateway/http-port';
 
 // next/navigation isn't available in jsdom — mock the two hooks the shell uses.
 jest.mock('next/navigation', () => ({
-  usePathname: () => '/inbox',
+  // Feature 029: the Inbox is the landing route, so "the current page" is `/`, not `/inbox`.
+  usePathname: () => '/',
   useRouter: () => ({ push: jest.fn() }),
 }));
 
@@ -18,7 +19,18 @@ jest.mock('next/navigation', () => ({
  * shell's chrome, and a shell test that also exercised the network would fail for reasons that have
  * nothing to do with the shell.
  */
-const SIGNED_IN = { kind: 'authenticated', userId: 'u1', accountId: 'a1', roles: [] } as const;
+/**
+ * Feature 029: the rail is assembled from the caller's permissions, so these tests must grant the
+ * ones whose links they assert on. ⚠️ An empty set is now the correct way to render almost no rail —
+ * that is deny-by-default working, not a broken fixture.
+ */
+const SIGNED_IN = {
+  kind: 'authenticated',
+  userId: 'u1',
+  accountId: 'a1',
+  roles: [],
+  permissionKeys: ['crm.inbox.view', 'platform.settings.manage'],
+} as const;
 const silentPort: HttpPort = async () => ({ status: 0, body: undefined });
 
 function renderShell(ui: ReactNode) {
@@ -47,7 +59,7 @@ describe('S3 app shell', () => {
 
   it('marks the active route in the nav', () => {
     renderShell(<AppShell>x</AppShell>);
-    // usePathname is mocked to /inbox.
+    // usePathname is mocked to `/`, which is the Inbox (FR-001).
     expect(screen.getByRole('link', { name: /inbox/i })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /settings/i })).not.toHaveAttribute('aria-current');
   });
@@ -94,5 +106,57 @@ describe('S3 app shell', () => {
   it('hardcodes no hex colors (white-label)', () => {
     const { container } = renderShell(<AppShell>x</AppShell>);
     expect(container.innerHTML + document.body.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+});
+
+/**
+ * T042 (feature 029, FR-020) — the RENDERED rail follows the caller's permissions.
+ *
+ * `module-states.test.tsx` proves the resolution rule; this proves the shell actually applies it.
+ * Both are needed: a correct rule that nothing calls is the shape of several defects in this
+ * repository's history.
+ */
+describe('*** the rail is rendered from server-resolved permissions (FR-020) ***', () => {
+  function renderWith(permissionKeys: string[]) {
+    const seed = {
+      kind: 'authenticated',
+      userId: 'u1',
+      accountId: 'a1',
+      roles: [],
+      permissionKeys,
+    } as const;
+    return render(
+      <ThemeProvider attribute="class" defaultTheme="light">
+        <SessionProvider impl={new GatewaySession(silentPort)} seed={seed}>
+          <ContextPanelProvider>
+            <AppShell>x</AppShell>
+          </ContextPanelProvider>
+        </SessionProvider>
+      </ThemeProvider>,
+    );
+  }
+
+  it('a settings permission produces a Settings link; its absence removes it', () => {
+    const withSettings = renderWith(['crm.inbox.view', 'platform.settings.manage']);
+    expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
+    withSettings.unmount();
+
+    renderWith(['crm.inbox.view']);
+    expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
+    // …and the positive control: the rail did render, so the absence means something.
+    expect(screen.getByRole('link', { name: /inbox/i })).toBeInTheDocument();
+  });
+
+  it('⚠️ no permissions renders no privileged links at all (deny-by-default)', () => {
+    renderWith([]);
+    expect(screen.queryByRole('link', { name: /inbox/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
+  });
+
+  it('⭐ R13: the reserved telephony slot is absent by configuration, not deleted from the product', () => {
+    renderWith(['crm.inbox.view', 'platform.settings.manage']);
+    expect(screen.queryByRole('link', { name: /telephony/i })).not.toBeInTheDocument();
+    // The catalogue still carries it — `module-states.test.tsx` asserts that, and it is what makes
+    // "bring it back" a configuration value rather than a code change.
   });
 });

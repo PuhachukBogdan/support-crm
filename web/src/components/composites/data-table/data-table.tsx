@@ -19,10 +19,22 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/composites/states';
+import { cn } from '@/lib/utils';
+// ⓘ `EmptyState` is deliberately not used here any more: an empty result keeps the table and puts the
+// message in a row, as Zendesk does. The centred composite still serves screens that are not tables.
+import { ErrorState, LoadingRows } from '@/components/composites/states';
 import type { AsyncState, PaginatedResult, Query } from '@/data/types';
 
 const ROW_HEIGHT = 44;
+
+/**
+ * First-paint guess for the scroll viewport, before it is measured.
+ *
+ * ⚠️ A module constant on purpose: it used to be an object literal built inside the render, so every
+ * render handed the virtualizer a fresh `initialRect`. That is a re-measure invitation on a component
+ * whose measurement loop is the one thing that must not be provoked.
+ */
+const INITIAL_RECT = { width: 0, height: 600 } as const;
 
 export type DataTableProps<T> = {
   columns: ColumnDef<T, unknown>[];
@@ -33,7 +45,16 @@ export type DataTableProps<T> = {
   onSortChange?: (sort: NonNullable<Query['sort']>) => void;
   rowSelection?: { selected: string[]; onChange: (ids: string[]) => void };
   emptyLabel?: string;
-  /** Scroll-viewport height; virtualization keeps rendered rows proportional to it. */
+  /**
+   * Scroll-viewport height in pixels.
+   *
+   * ⚠️ **Optional, and normally omitted.** Left unset — the default — the table **fills the height its
+   * parent gives it**, which is what a work surface must do. It used to default to `600`, so the Inbox
+   * shipped as a 600-pixel box: fine on an old laptop, half an empty page on the operator's 2K monitor.
+   * *«Не надо хардкодить по пикселям»* — `ui-design/density-spec.md` §0.
+   *
+   * Pass a number only for a table genuinely embedded in a fixed slot (a card, a preview).
+   */
   height?: number;
 };
 
@@ -51,8 +72,10 @@ export function DataTable<T>({
   onSortChange,
   rowSelection,
   emptyLabel = 'Nothing here yet.',
-  height = 600,
+  height,
 }: DataTableProps<T>) {
+  /** Fills its parent unless a caller pinned a height. See the prop's note. */
+  const fills = height === undefined;
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const items = state.status === 'ready' ? state.data.items : [];
 
@@ -106,7 +129,9 @@ export function DataTable<T>({
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
-    initialRect: { width: 0, height },
+    // A first-paint guess only; the real size is measured from the scroll element. Kept constant so
+    // the options object does not hand the virtualizer a new rect on every render.
+    initialRect: INITIAL_RECT,
   });
   const vItems = virtualizer.getVirtualItems();
   const paddingTop = vItems.length > 0 ? vItems[0]!.start : 0;
@@ -135,21 +160,65 @@ export function DataTable<T>({
       </div>
     );
   }
+  /**
+   * ⚠️ **Empty no longer replaces the table**, and that is both a copy of Zendesk and a bug fix.
+   *
+   * `screenshots/views_1.png` keeps the column headers and puts *"No tickets in this view"* in a row
+   * beneath them — so a person can see what they filtered by and undo it. Ours replaced the entire
+   * table with a centred message, which meant every transition to an empty result **tore down the
+   * whole table**: hundreds of nodes removed in one commit, in the same commit as a `<select>`'s
+   * value change. That is the shape that froze the renderer once already, and the operator hit it
+   * again on the one filter that always returns nothing.
+   *
+   * Keeping the header mounted removes the teardown *and* answers the question the empty screen
+   * should answer: empty **of what**.
+   */
   if (state.status === 'empty') {
     return (
-      <div data-testid="dt-empty">
-        <EmptyState title={emptyLabel} />
+      <div className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')} data-testid="dt-empty">
+        <div
+          className={cn(
+            'overflow-auto rounded-md border border-border',
+            fills && 'min-h-0 flex-1',
+          )}
+        >
+          <Table>
+            <TableHeader className="sticky top-0 z-sticky bg-card">
+              {table.getHeaderGroups().map((hg) => (
+                <TableRow key={hg.id}>
+                  {hg.headers.map((header) => (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              <TableRow>
+                <TableCell colSpan={colCount} className="py-8 text-center text-muted-foreground">
+                  {emptyLabel}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
       </div>
     );
   }
-
   return (
-    <div className="flex flex-col gap-3">
+    <div className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')}>
       <div
         ref={parentRef}
         data-testid="dt-scroll"
-        className="overflow-auto overscroll-contain rounded-md border border-border"
-        style={{ maxHeight: height }}
+        className={cn(
+          'overflow-auto overscroll-contain rounded-md border border-border',
+          // Filling: take the remaining height of the column. Pinned: cap at the given number.
+          fills && 'min-h-0 flex-1',
+        )}
+        style={fills ? undefined : { maxHeight: height }}
       >
         <Table>
           <TableHeader className="sticky top-0 z-sticky bg-card">

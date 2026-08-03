@@ -103,3 +103,50 @@ describe('AuthController (feature 009)', () => {
     expect(signup.status).toBe(404);
   });
 });
+
+/**
+ * Feature 029 — `/auth/me` carries the effective permission keys, and is ANNOTATED so it gets them.
+ *
+ * ⚠️ The annotation is the whole risk. The guard fills `req.effective` only for routes carrying
+ * permission metadata, so an un-annotated `/auth/me` answers `permissionKeys: []` for everybody —
+ * indistinguishable from "this person may do nothing". The shell would then render an empty rail for
+ * an admin and the cause would look like a permissions bug in `auth`, not a missing decorator.
+ * Feature 016 hit exactly this on `GET /uploads/:id`, live, with both guards' unit specs green.
+ */
+describe('*** GET /auth/me exposes the resolved permission keys (feature 029) ***', () => {
+  const { Reflector } = jest.requireActual<typeof import('@nestjs/core')>('@nestjs/core');
+  const { RESOLVE_PERMISSIONS_KEY } = jest.requireActual<
+    typeof import('../security/requires-permission.decorator')
+  >('../security/requires-permission.decorator');
+
+  it('the route is marked @ResolvesPermissions — without it the set is empty for everyone', () => {
+    const reflector = new Reflector();
+    expect(reflector.get(RESOLVE_PERMISSIONS_KEY, AuthController.prototype.me)).toBe(true);
+  });
+
+  it('returns the keys the guard resolved onto the request', () => {
+    const ctrl = new AuthController(
+      { getService: () => ({}) } as never,
+      {} as never,
+    );
+    const res = ctrl.me({
+      claims: { userId: 'u1', accountId: 'acc-1', roles: ['support_agent'] },
+      effective: { permissionKeys: ['crm.inbox.view'] },
+    } as never);
+    expect(res).toMatchObject({
+      userId: 'u1',
+      accountId: 'acc-1',
+      roles: ['support_agent'],
+      permissionKeys: ['crm.inbox.view'],
+    });
+  });
+
+  it('answers an EMPTY list rather than undefined when nothing resolved', () => {
+    // Deny-by-default at the rendering layer too: a missing list must not read as "unknown, so allow".
+    const ctrl = new AuthController({ getService: () => ({}) } as never, {} as never);
+    const res = ctrl.me({ claims: { userId: 'u1', accountId: 'a' } } as never) as {
+      permissionKeys: string[];
+    };
+    expect(res.permissionKeys).toEqual([]);
+  });
+});

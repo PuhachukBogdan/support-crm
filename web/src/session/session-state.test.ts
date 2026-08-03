@@ -63,6 +63,7 @@ describe('SessionState — four values, not two', () => {
       userId: 'u1',
       accountId: 'a1',
       roles: ['agent'],
+      permissionKeys: ['crm.inbox.view'],
     };
     expect(describeState(authed)).toBe('signed in as u1');
     expect(Object.keys({ kind: 'anonymous' } satisfies SessionState)).toEqual(['kind']);

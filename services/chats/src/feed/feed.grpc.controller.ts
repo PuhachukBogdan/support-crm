@@ -5,7 +5,16 @@ import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext, resolveBrandIn } from '../security/actor-context';
-import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
+import {
+  clampPageSize,
+  decodeOrderedCursor,
+  encodeOrderedCursor,
+  InvalidCursorError,
+} from '../shared/cursor';
+// Feature 029: the shared conversation list gained a choice of order, so its cursor now carries one.
+// The feeds did not ask for a new order and do not get one — they pin the repository default
+// explicitly, which is the `created_at DESC` they have always used.
+import { DEFAULT_CONVERSATION_ORDER } from '../conversation/conversation.repository';
 import { toSummaryWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { PersonMembersClient, toPersonRpc } from '../person/person-members.client';
@@ -75,7 +84,7 @@ export class FeedReadController {
 
     let cursor;
     try {
-      cursor = decodeCursor(req.pageToken);
+      cursor = decodeOrderedCursor(req.pageToken, DEFAULT_CONVERSATION_ORDER);
     } catch (e) {
       if (e instanceof InvalidCursorError) {
         throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid page token' });
@@ -94,7 +103,7 @@ export class FeedReadController {
     });
     return {
       conversations: rows.map(toSummaryWire),
-      nextPageToken: nextCursor ? encodeCursor(nextCursor) : '',
+      nextPageToken: nextCursor ? encodeOrderedCursor(nextCursor) : '',
     };
   }
 
@@ -127,7 +136,7 @@ export class FeedReadController {
 
     let cursor;
     try {
-      cursor = decodeCursor(req.pageToken);
+      cursor = decodeOrderedCursor(req.pageToken, DEFAULT_CONVERSATION_ORDER);
     } catch (e) {
       if (e instanceof InvalidCursorError) {
         throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid page token' });
@@ -156,7 +165,7 @@ export class FeedReadController {
     });
     return {
       conversations: rows.map(toSummaryWire),
-      nextPageToken: nextCursor ? encodeCursor(nextCursor) : '',
+      nextPageToken: nextCursor ? encodeOrderedCursor(nextCursor) : '',
     };
   }
 }

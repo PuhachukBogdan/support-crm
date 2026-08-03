@@ -48,6 +48,23 @@ const WIRE_TO_SLA_OUTCOME: Record<string, string> = {
 };
 
 /** `undefined` = no filter (absent or UNSPECIFIED). `null` = a value the wire does not define. */
+/**
+ * Feature 029 — the conversation list's order.
+ *
+ * `undefined` = "not asked for, use the default"; `null` = "asked for something that does not exist",
+ * which the caller must refuse rather than coerce. Same three-state shape as `wireToSlaOutcome` below,
+ * and for the same reason: feature 012's live defect was a silently coerced unknown value.
+ */
+const WIRE_TO_CONVERSATION_ORDER: Record<string, string> = {
+  CONVERSATION_ORDER_UPDATED_DESC: 'updated_desc',
+  CONVERSATION_ORDER_UPDATED_ASC: 'updated_asc',
+};
+
+export function wireToConversationOrder(wire: string | undefined): string | undefined | null {
+  if (!wire || wire === 'CONVERSATION_ORDER_UNSPECIFIED') return undefined;
+  return WIRE_TO_CONVERSATION_ORDER[wire] ?? null;
+}
+
 export function wireToSlaOutcome(wire: string | undefined): string | undefined | null {
   if (!wire || wire === 'SLA_OUTCOME_UNSPECIFIED') return undefined;
   return WIRE_TO_SLA_OUTCOME[wire] ?? null;

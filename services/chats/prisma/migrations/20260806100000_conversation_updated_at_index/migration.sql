@@ -1,0 +1,20 @@
+-- Feature 029 (roadmap 9.2) — the index behind the Inbox's order.
+--
+-- INDEX ONLY. No column is added, altered or dropped; no data is touched; no backfill. Every existing
+-- row and every existing query behaves identically, so this is safe to apply ahead of the code.
+--
+-- ── Why it is needed ─────────────────────────────────────────────────────────────────────────────
+-- The Inbox offers two orders and both sort on `updated_at`, paged by a keyset predicate on the same
+-- column. Unindexed, that is a sort over a scan of the largest table in the system, against a stated
+-- budget of 2 s for the first screenful of a 4 500-row view (Principle VII: index every
+-- high-cardinality, frequently-ordered column; keyset paging, never OFFSET).
+--
+-- `account_id` leads because every read is confined to one account (Principle I), matching the other
+-- list indexes on this table.
+--
+-- ⚠️ `updated_at` is NOT "last activity", despite the wire field called `last_activity_at` being
+-- exactly this column renamed (research R7). It is a Prisma @updatedAt column, so our own relabelling
+-- and resolving bump it. The genuine customer-contact columns (`last_inbound_at`, `last_outbound_at`,
+-- feature 022) remain deliberately UNINDEXED: they are projected and aggregated, never ordered or
+-- filtered on, and indexing them would add write cost on the busiest path in the product for no read.
+CREATE INDEX "Conversation_account_id_updated_at_idx" ON "Conversation"("account_id", "updated_at");

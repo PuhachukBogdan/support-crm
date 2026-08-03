@@ -65,6 +65,27 @@ const detailRow = {
  * name-based comparison cannot see.
  */
 const COMPOSED_ELSEWHERE = ['first_reply_sla'];
+/**
+ * ⚠️⚠️ **This one rename cost feature 029 a near-miss, so it is worth naming plainly.**
+ *
+ * `last_activity_at` on the wire IS `Conversation.updated_at`. There is no `last_activity_at` column
+ * and there never has been. The mapping is recorded here because the name-based comparison below
+ * cannot see through a rename — but the entry doubles as the only place the discrepancy is written
+ * down, and it is not where anyone looks.
+ *
+ * ⭐ Feature 029 planned to sort the Inbox "by last activity" and wrote a research decision saying the
+ * column existed and was maintained by feature 022. Both halves were wrong. What made it persuasive is
+ * that the PROTO agrees with the name — only the schema disagrees, and the schema is one hop further
+ * than anyone checks. It surfaced while writing the task that would have sorted on it.
+ *
+ * ⇒ Two consequences now enforced elsewhere: the Inbox orders by `updated_at` and labels the column
+ * **"Updated"**, never "last activity" (our own relabelling and resolving bump it, so the other name
+ * would claim customer contact that never happened); and the genuine contact columns
+ * (`last_inbound_at` / `last_outbound_at`, feature 022) stay unindexed and belong to urgency, 4.20.
+ *
+ * ⇒ And the general rule, which is the real lesson: **verify a field against the TABLE, not against
+ * the contract that renames it.**
+ */
 const RENAMED_ON_THE_WIRE: Record<string, string> = { last_activity_at: 'updated_at' };
 
 describe('T033 — the conversation mappers project every field the contract declares', () => {

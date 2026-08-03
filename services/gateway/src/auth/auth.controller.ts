@@ -23,6 +23,8 @@ import {
   type SessionTokens,
 } from './session-cookie';
 import type { RequestClaims } from './auth.guard';
+import type { EffectivePermissions } from '@crm/common';
+import { ResolvesPermissions } from '../security/requires-permission.decorator';
 
 // AuthService methods as delivered by proto-loader (enum NAMES as strings, int64 as strings).
 interface TokenPairWire {
@@ -163,10 +165,32 @@ export class AuthController implements OnModuleInit {
     return { status: 'logged_out' };
   }
 
-  /** Convenience — the current identity from the validated session (protected by the guard). */
+  /**
+   * Convenience — the current identity from the validated session (protected by the guard).
+   *
+   * ── Feature 029: it now also returns the caller's EFFECTIVE PERMISSION KEYS ──────────────────
+   * The shell must render only the modules a person may use (FR-020), and the Inbox must not show an
+   * admin-only control to an agent (FR-018). Both need the resolved key set, and `roles` alone cannot
+   * answer either: a role is a bundle whose contents live server-side and change without the client.
+   *
+   * ⚠️ `@ResolvesPermissions()` is required, not decoration. The guard fills `req.effective` **only**
+   * for routes carrying permission metadata; without it this route would answer `[]` for everybody —
+   * an empty set that looks exactly like "this person may do nothing", and the shell would render an
+   * empty rail for an admin. That is feature 016's live defect in a new place, which is why the
+   * decorator exists as an explicit, nameable position.
+   *
+   * ⛔ **This is convenience for rendering, never enforcement.** Every route still checks its own key
+   * server-side. A client that lies to itself about this list gets refusals, not access.
+   */
   @Get('me')
-  me(@Req() req: Request & { claims?: RequestClaims }) {
+  @ResolvesPermissions()
+  me(@Req() req: Request & { claims?: RequestClaims; effective?: EffectivePermissions }) {
     const claims = req.claims;
-    return { userId: claims?.userId, accountId: claims?.accountId, roles: claims?.roles ?? [] };
+    return {
+      userId: claims?.userId,
+      accountId: claims?.accountId,
+      roles: claims?.roles ?? [],
+      permissionKeys: req.effective?.permissionKeys ?? [],
+    };
   }
 }

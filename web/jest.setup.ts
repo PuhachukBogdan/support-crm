@@ -58,3 +58,24 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as unknown as MediaQueryList;
 }
+
+/**
+ * Radix Select needs three DOM APIs jsdom does not implement. Without them the listbox throws the
+ * moment it opens, which reads as "the component is broken" rather than "the environment is thin".
+ *
+ * ⚠️ Added when the Inbox's filters moved off native `<select>` elements — a native dropdown opens an
+ * OS-level popup, and choosing from one froze the renderer (see `features/inbox/choice.tsx`).
+ */
+if (typeof Element !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => {};
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  // Radix scrolls the selected item into view on open; jsdom's stub above may already cover it.
+  Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {});
+}

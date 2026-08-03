@@ -56,6 +56,75 @@ export function decodeCursor(token: string | undefined | null): Cursor | null {
   throw new InvalidCursorError();
 }
 
+/**
+ * ── The ORDER-STAMPED cursor (feature 029, research R8) ──────────────────────────────────────────
+ *
+ * The conversation list is the first read in this product with MORE THAN ONE order, and a keyset
+ * cursor means "resume after this row **in this sequence**". The two-value token above cannot name a
+ * sequence, because until now there was only ever one.
+ *
+ * ⚠️ Left unstamped, a token minted under `updated_desc` and replayed under `updated_asc` decodes
+ * perfectly and then pages a DIFFERENT sequence. That is not an error anyone sees: it is a plausible
+ * list with rows missing and rows repeated. So the order travels inside the token and a mismatch is
+ * refused.
+ *
+ * ── Why this is a SECOND primitive and not a widened `Cursor` ────────────────────────────────────
+ * Six read paths share the cursor above (feeds ×2, messages, automations ×2, exports) and every one of
+ * them has exactly one order, keyed on `created_at`. Widening the shared type would force an `order`
+ * onto five cursors that have no such concept, and renaming its `createdAt` to `sortKey` would make
+ * four of them LESS precise — there the key really is the creation time. The order-carrying cursor is
+ * a different thing, so it is a different type.
+ *
+ * ⓘ The two encodings are mutually unreadable by construction (2-element vs 3-element array), so a
+ * conversation token is refused by the message endpoints and vice versa — which is correct: they name
+ * rows in unrelated sequences.
+ */
+export interface OrderedCursor {
+  /**
+   * The value of the column the list is ORDERED BY on the last row of the previous page.
+   * ⚠️ Deliberately not called `createdAt`: under `updated_*` it holds `updated_at`. A tuple whose
+   * meaning depends on a sibling field, while still named for one of the possibilities, is how the
+   * next reader gets it wrong.
+   */
+  sortKey: string;
+  /** id of that row — the tie-breaker for a stable order. */
+  id: string;
+  /** The order this token was minted under. Presenting it under any other order is refused. */
+  order: string;
+}
+
+export function encodeOrderedCursor(c: OrderedCursor): string {
+  return Buffer.from(JSON.stringify([c.sortKey, c.id, c.order]), 'utf8').toString('base64url');
+}
+
+/**
+ * Decode an order-stamped page token, requiring it to have been minted under `expectedOrder`.
+ * Returns `null` for an empty token (= first page); throws for anything else that does not match —
+ * never silently restarts and never silently continues in the wrong sequence.
+ */
+export function decodeOrderedCursor(
+  token: string | undefined | null,
+  expectedOrder: string,
+): OrderedCursor | null {
+  if (!token) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as unknown;
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 3 &&
+      typeof parsed[0] === 'string' &&
+      typeof parsed[1] === 'string' &&
+      typeof parsed[2] === 'string' &&
+      parsed[2] === expectedOrder
+    ) {
+      return { sortKey: parsed[0], id: parsed[1], order: parsed[2] };
+    }
+  } catch {
+    // fall through to the throw below
+  }
+  throw new InvalidCursorError();
+}
+
 export class InvalidCursorError extends Error {
   constructor() {
     super('invalid page token');

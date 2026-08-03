@@ -108,3 +108,70 @@ describe('ConversationsController — the human title write', () => {
     expect(message).not.toContain('секретное');
   });
 });
+
+/**
+ * T013 (feature 029) — the two parameters the Inbox added, at the REST edge.
+ *
+ * ⚠️ The hazard being tested is specific to THIS controller: its `@Query()` is a fixed destructure,
+ * so a parameter that is not named in it is **silently dropped**. Against `/players` an unknown
+ * parameter is a 400; here it produces a confidently wrong answer — the caller believes the list is
+ * narrowed and receives everything. That asymmetry is recorded in the front-end route registry and is
+ * why these assertions check the value ARRIVES at the rpc, not merely that the call succeeded.
+ */
+describe('*** the Inbox filter and order reach the rpc (feature 029) ***', () => {
+  it('passes channel through to the rpc', async () => {
+    const { ctrl, listConversations } = makeCtrl();
+    await ctrl.list({ channel: 'email' }, req());
+    expect((listConversations.mock.calls[0][0] as { channel: string }).channel).toBe('email');
+  });
+
+  it('passes both orders through as their wire enums', async () => {
+    for (const [rest, wire] of [
+      ['updated_desc', 'CONVERSATION_ORDER_UPDATED_DESC'],
+      ['updated_asc', 'CONVERSATION_ORDER_UPDATED_ASC'],
+    ]) {
+      const { ctrl, listConversations } = makeCtrl();
+      await ctrl.list({ order: rest }, req());
+      expect((listConversations.mock.calls[0][0] as { order: string }).order).toBe(wire);
+    }
+  });
+
+  it('omitting either one sends the documented "no filter" / "default order" values', async () => {
+    const { ctrl, listConversations } = makeCtrl();
+    await ctrl.list({}, req());
+    const arg = listConversations.mock.calls[0][0] as { channel: string; order: string };
+    expect(arg.channel).toBe('');
+    expect(arg.order).toBe('CONVERSATION_ORDER_UNSPECIFIED');
+  });
+
+  it('⭐ 400s an unknown order and never falls back to the default', async () => {
+    for (const order of ['recommended', 'urgency', 'created_desc', 'nonsense']) {
+      const { ctrl, listConversations } = makeCtrl();
+      await expect(ctrl.list({ order }, req())).rejects.toMatchObject({ status: 400 });
+      expect(listConversations).not.toHaveBeenCalled(); // refused BEFORE the rpc, not after
+    }
+  });
+
+  it('⛔ "recommended" is not an accepted order — nothing computes urgency (roadmap 4.20)', async () => {
+    const { ctrl } = makeCtrl();
+    const err = await ctrl.list({ order: 'recommended' }, req()).catch((e: unknown) => e as Error);
+    const message = err instanceof Error ? err.message : String(err);
+    expect(message).toContain('updated_desc');
+    expect(message).toContain('updated_asc');
+    expect(message).not.toContain('recommended: ok');
+  });
+
+  it('400s a malformed channel (blank-ish or absurd), but NOT an unknown-but-plausible one', async () => {
+    // ⚠️ Deliberate asymmetry with `status`: a channel is DATA, never a branch (roadmap 9.6a), so the
+    // edge cannot hold a closed list without making every Phase-6 channel unfilterable on arrival.
+    // An unrecognised channel narrows to zero rows — visible — rather than widening the result set,
+    // which is the failure the fail-closed rule actually exists to prevent.
+    for (const channel of ['   ', 'has space', 'x'.repeat(65), 'drop;table']) {
+      const { ctrl } = makeCtrl();
+      await expect(ctrl.list({ channel }, req())).rejects.toMatchObject({ status: 400 });
+    }
+    const { ctrl, listConversations } = makeCtrl();
+    await ctrl.list({ channel: 'telegram' }, req()); // not in the data yet — still a legitimate ask
+    expect((listConversations.mock.calls[0][0] as { channel: string }).channel).toBe('telegram');
+  });
+});

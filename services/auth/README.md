@@ -50,8 +50,10 @@ shared policy lib at the gateway + owning services; contact-field masking lives 
   `ListPermissionCatalogue`, `ListRoleDefaults`, `SetRoleDefault`, `PersonalizeUser`,
   `PersonalizeGroup`, `ResetToDefault`, `AssignRole`) + [`health.proto`](../../libs/proto/crm/health/v1/health.proto).
 - DB schema (its own): [`prisma/schema.prisma`](prisma/schema.prisma) → `auth_db`.
-- Outbound seams: `EmailPort` (dev in-memory outbox now; worker→SMTP + egress allow-list later) and
-  `AdminNotificationPort` (identity-only lockout alert) — `src/auth/ports/`.
+- Outbound seams: `EmailPort` — **now really delivers** (feature 028, see below) — and
+  `AdminNotificationPort` (identity-only lockout alert), both in `src/auth/ports/`.
+- **feature 028:** `SendDueEmails` — the worker's mail tick. Counts in, counts out; nothing about a
+  message crosses the wire.
 
 ## Config (refuse-to-start, SEC-6)
 `NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`JWT_SECRET`** (secret — shared with the gateway for local
@@ -61,6 +63,16 @@ verify). Tunables with safe defaults (overridable): `ACCESS_TTL`, `SESSION_TTL`,
 `INVITE_RATE_MAX`/`WINDOW`, `ONBOARD_REQUEST_RATE_MAX`/`WINDOW`. Validated at boot by
 [`src/config.ts`](src/config.ts).
 
+**feature 028 (mail)** adds three to the refuse-to-start tier — **`MAIL_HOST`**, **`MAIL_FROM`**,
+**`APP_BASE_URL`** — and tunables `MAIL_PORT`, `MAIL_USER`/`MAIL_PASSWORD`, `MAIL_SECURE`,
+`MAIL_BRAND_NAME`, `MAIL_ALLOWED_RECIPIENT_DOMAINS`, `MAIL_MAX_ATTEMPTS`, `MAIL_SWEEP_INTERVAL_MS`.
+
+⚠️ **`APP_BASE_URL` has no default anywhere, on purpose.** A guessed one emails invitation links that
+look perfect and lead nowhere — the defect roadmap 8.6/T033 existed for.
+⚠️ **An empty `MAIL_USER`/`MAIL_PASSWORD` means absent, not "a credential of length zero".** Compose
+passes unset optionals as `''`; reading that as a value made the service refuse to start against a
+catcher that needs no credentials.
+
 ## Run / test
 ```bash
 npm run test --workspace services/auth      # Track A: hermetic (mock Prisma, in-memory ports, fixed clock)
@@ -68,9 +80,37 @@ npm run prisma:deploy                        # Track B only (apply committed mig
 ```
 Runs as part of `docker compose up` (see [`deploy/local/README.md`](../../deploy/local/README.md)).
 
+## Mail — the outbox (feature 028)
+
+Contract: [`specs/028-email-delivery/contracts/mail-transport.md`](../../specs/028-email-delivery/contracts/mail-transport.md).
+Code: `src/auth/mail/`.
+
+**Auth sends; the worker is only a clock.** A row is written in `OutboundEmail` **inside the same
+transaction as the code or invitation it announces**, so "a code exists that nobody will ever send"
+is unrepresentable. The send is attempted immediately after the request (never inside it — FR-004),
+and the worker's `SendDueEmails` tick sweeps whatever failed. Putting the send in the worker was the
+recorded alternative and was rejected: it would put a **live one-time code** into a gRPC payload.
+
+- One renderer owns every word of both messages (`mail/render.ts`), plain text, no remote content.
+  ⚠️ The brand is a **configured value with a neutral default** — an authentication email is the
+  worst place for a licensee to find our name (Principle VI).
+- One transport opens sockets (`mail/smtp.transport.ts`). Failures become a **class**, never the
+  relay's own sentence — SMTP rejections quote the envelope. Recipient allow-list is checked
+  **before a connection**, so a blocked address is never a TCP session.
+- ⚠️ **Timeouts are set explicitly** (10/10/20s). The library default is ~2 minutes, and a send to a
+  dead host hung: the row stayed claimed with no attempt recorded, so a failure that must be visible
+  within a minute was invisible for two.
+- `sent` rows are **deleted**, not marked — kept rows would be a plaintext record of who signed in
+  and when, in a table that also holds live codes.
+- ⚠️ The plaintext dev sink (`LOGIN_CODE_DEV_SINK`) is **gone**, and `mail-structure.spec.ts` fails
+  if it returns. Live rounds read codes from the delivered message.
+
 ## Gotchas
-- Codes/passwords/tokens are **never** logged (Principle IV) — the dev EmailPort keeps codes in an
-  inspectable outbox object, not the log.
+- Codes/passwords/tokens are **never** logged (Principle IV) — nothing on a mail path may take an
+  error object or a payload, and a structural test enforces it.
+- ⚠️ **SMTP bodies use CRLF.** Anything grepped out of a delivered message carries an invisible `\r`;
+  a token extracted that way makes the gateway answer *"Bad control character in JSON"*, which reads
+  like a broken endpoint. `tr -d '\r'` in the live scripts.
 - Does **not** connect to Postgres at boot — a downed DB degrades health, it doesn't crash startup.
 - Access-JWT expiry is real-time (`jsonwebtoken`); OTP/refresh/lockout expiry uses the injectable clock.
 

@@ -21,7 +21,23 @@
 
 export type SessionState =
   | { kind: 'resolving' }
-  | { kind: 'authenticated'; userId: string; accountId: string; roles: readonly string[] }
+  | {
+      kind: 'authenticated';
+      userId: string;
+      accountId: string;
+      roles: readonly string[];
+      /**
+       * Feature 029 — the caller's effective permission keys, as the gateway resolved them.
+       *
+       * ⛔ **For RENDERING only, never for enforcement.** Every route checks its own key server-side;
+       * this list decides what is worth drawing, not what is allowed. A client that lies to itself
+       * about it gets refusals, not access.
+       *
+       * ⚠️ Empty means "none resolved", which is deny-by-default here too — an unknown set must never
+       * read as "unknown, so show everything".
+       */
+      permissionKeys: readonly string[];
+    }
   | { kind: 'anonymous' }
   | { kind: 'unreachable' };
 

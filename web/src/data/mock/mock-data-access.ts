@@ -58,6 +58,18 @@ export class MockDataAccess implements DataAccess {
       // implementations gain it in the same change.
       throw { message: 'sorting is not supported by this resource', retryable: false, code: 'invalid-request' } satisfies DataError;
     }
+    /**
+     * Feature 029 — the moment the comment above anticipated: a route gained ordering, so both
+     * implementations change in the same commit.
+     *
+     * ⚠️ This resource declares NO orders, so every order is refused — exactly as the gateway refuses
+     * one for `/players`, which declares none either. Ignoring `order` here would be the divergence
+     * this whole class is written to avoid: a screen would pick an order, watch the mock happily
+     * return rows, and only discover against the real gateway that the order was never applied.
+     */
+    if (query.order !== undefined) {
+      throw { message: 'ordering is not supported by this resource', retryable: false, code: 'invalid-request' } satisfies DataError;
+    }
     if (query.limit > MAX_PAGE_SIZE) {
       // Refused, not clamped: a silently reduced page teaches the caller the parameter is advisory.
       throw { message: `limit must not exceed ${MAX_PAGE_SIZE}`, retryable: false, code: 'invalid-request' } satisfies DataError;

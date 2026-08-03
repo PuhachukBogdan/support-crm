@@ -100,6 +100,20 @@ export class GatewayDataAccess implements DataAccess {
     const out: Record<string, string> = { [row.pageSizeParam]: String(query.limit) };
     if (query.cursor) out[row.pageTokenParam] = query.cursor;
 
+    // Feature 029 — a NAMED order, checked against what this row declares. Refused client-side for the
+    // same reason as an undeclared filter: `/conversations` silently drops an unknown parameter, so an
+    // order this route does not accept would come back as a confidently wrong sequence rather than an
+    // error. Reading `row.orders` (never a constant) keeps the transport free of route knowledge.
+    if (query.order !== undefined) {
+      if (!row.orderParam || !row.orders) {
+        throw clientRefusal('ordering is not supported by this resource');
+      }
+      if (!row.orders.includes(query.order)) {
+        throw clientRefusal(`unknown order for this resource: ${query.order}`);
+      }
+      out[row.orderParam] = query.order;
+    }
+
     const filters = query.filters ?? {};
     for (const key of Object.keys(filters)) {
       const wire = row.params[key];

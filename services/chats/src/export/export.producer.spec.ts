@@ -206,4 +206,29 @@ describe('*** the SLA filter is RESOLVED, not dropped *** (found on Track B, 202
     expect(sla.conversationIdsByOutcome).not.toHaveBeenCalled();
     expect((conv.calls[0]!.filters as { idIn?: string[] }).idIn).toBeUndefined();
   });
+
+  /**
+   * Feature 029 — the channel filter reaches the QUERY, not just the request.
+   *
+   * ⚠️ This is the `slaOutcome` defect's exact shape, and it is worth one test of its own: that filter
+   * was accepted at the REST edge, validated, stored on the export record — and then never reached the
+   * read, so "export the breached ones" produced every conversation. Every hop looked correct in
+   * isolation. The direction matters: a dropped filter WIDENS, so the file has more customer rows than
+   * the caller asked for and looks exactly like a correct answer on the way to somebody's inbox.
+   */
+  it('⭐ carries `channel` through to the read path (a dropped filter widens the file)', async () => {
+    const conv = fakeConversations([row(1)], 500);
+    const producer = new ExportProducer(conv as never, { conversationIdsByOutcome: jest.fn() } as never);
+    await producer.produce('acc-1', SCOPE, { channel: 'email' }, arraySink());
+
+    expect((conv.calls[0]!.filters as { channel?: string }).channel).toBe('email');
+  });
+
+  it('no channel filter means no channel predicate — empty-channel rows stay in the export', async () => {
+    const conv = fakeConversations([row(1)], 500);
+    const producer = new ExportProducer(conv as never, { conversationIdsByOutcome: jest.fn() } as never);
+    await producer.produce('acc-1', SCOPE, {}, arraySink());
+
+    expect((conv.calls[0]!.filters as { channel?: string }).channel).toBeUndefined();
+  });
 });

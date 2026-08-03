@@ -148,7 +148,12 @@ export class GatewaySession implements Session {
   private stateFor(res: HttpResponse): SessionState {
     if (this.failedToAsk(res)) return { kind: 'unreachable' };
     if (res.status !== 200) return { kind: 'anonymous' };
-    const body = res.body as { userId?: unknown; accountId?: unknown; roles?: unknown };
+    const body = res.body as {
+      userId?: unknown;
+      accountId?: unknown;
+      roles?: unknown;
+      permissionKeys?: unknown;
+    };
     // A 200 without an identity is not an identity. Treated as "could not ask" rather than as a
     // signed-out answer, because the server did not say the session was over.
     if (typeof body?.userId !== 'string' || typeof body.accountId !== 'string') {
@@ -159,6 +164,12 @@ export class GatewaySession implements Session {
       userId: body.userId,
       accountId: body.accountId,
       roles: Array.isArray(body.roles) ? (body.roles as string[]).filter((r) => typeof r === 'string') : [],
+      // Feature 029. Absent ⇒ empty, never "unknown so allow": the shell and the Inbox both decide
+      // what to DRAW from this list, and a permissive default would draw an admin's controls for
+      // everyone the moment the field went missing.
+      permissionKeys: Array.isArray(body.permissionKeys)
+        ? (body.permissionKeys as string[]).filter((k) => typeof k === 'string')
+        : [],
     };
   }
 }

@@ -40,6 +40,21 @@ export interface RouteRow {
   /** This route's paging parameter names. */
   readonly pageSizeParam: string;
   readonly pageTokenParam: string;
+  /**
+   * Feature 029 — the ORDER vocabulary, when the route has one.
+   *
+   * ⚠️ An order is not a filter and not a generic sort. `Query.sort` (an arbitrary `{field, dir}[]`)
+   * remains refused by the transport for every route, because no route accepts one; what
+   * `/conversations` accepts is a choice between NAMED orders the server implements. Modelling that as
+   * a free-form sort would let a screen ask for `subject asc` and be told nothing until it silently
+   * came back unordered.
+   *
+   * A row with no `orders` accepts no order at all, and asking for one is refused client-side.
+   * ⇒ The sort control derives its options from this array, so an order the server cannot honour is
+   * unrenderable rather than merely untested (FR-012a).
+   */
+  readonly orderParam?: string;
+  readonly orders?: readonly string[];
   /** Operations that exist. Anything absent fails loudly rather than silently doing nothing. */
   readonly ops: readonly Operation[];
 }
@@ -47,8 +62,15 @@ export interface RouteRow {
 /**
  * The whole registry. Two rows — read paths only; writes arrive with the page that needs them.
  *
- * `sort` is deliberately absent from every row: no consumed route accepts one, and quietly returning
- * an unsorted list would be a lie the caller cannot see.
+ * ── On sorting (amended by feature 029) ─────────────────────────────────────────────────────────
+ * `sort` — an arbitrary `{field, dir}[]` — is still deliberately absent from every row, and the
+ * transport still refuses it outright: no route accepts one, and quietly returning an unsorted list
+ * would be a lie the caller cannot see.
+ *
+ * What changed is narrower: `/conversations` now accepts a choice between two NAMED orders, declared
+ * as `orders` on its row. That is a closed vocabulary the server implements, not a field the caller
+ * picks — so a screen cannot ask to sort by subject and be quietly ignored. The distinction is the
+ * same one the export contract draws between a filter and a sequencing parameter.
  */
 export const ROUTE_REGISTRY: readonly RouteRow[] = [
   {
@@ -62,10 +84,19 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
       playerId: 'playerId',
       brandId: 'brandId',
       slaOutcome: 'slaOutcome',
+      // Feature 029 (roadmap 9.2): the Inbox filters by arrival channel. ⚠️ Omitting it means "no
+      // filter on channel", NOT "conversations with no channel" — ~1 in 6 rows have none and stay
+      // reachable only because the parameter is absent.
+      channel: 'channel',
     },
     required: [],
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
+    // Feature 029: the two orders the server actually implements, and the whole list of them.
+    // ⛔ There is no `recommended`: roadmap 4.20 is unbuilt and nothing computes urgency, so a sort of
+    // that name would assert a property the data does not have — invisible to whoever trusts it.
+    orderParam: 'order',
+    orders: ['updated_desc', 'updated_asc'],
     ops: ['list', 'get'],
   },
   {

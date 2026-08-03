@@ -16,6 +16,20 @@ import { join, resolve } from 'node:path';
  *
  * `page_token` / `page_size` are excluded on purpose: an export covers the whole filtered set up to its
  * scope's row limit, so paging is an internal production concern and never a request parameter.
+ *
+ * ── Feature 029 (2026-08-02): this test caught exactly what its own comment predicted ─────────────
+ * The Inbox added two fields to the list request, and the header above says in as many words that
+ * intent "does not survive a future field added to one side only". It did not have to survive —
+ * the test failed and named both fields.
+ *
+ * The two were resolved differently, and the distinction is the point:
+ *   • `channel` is a FILTER  → mirrored into ExportFilters. An admin who narrows the Inbox to one
+ *     channel and exports must not receive the whole set; that is more customer rows than the screen
+ *     showed, which is the anti-pitching failure itself (SEC-AP2).
+ *   • `order` is SEQUENCING → excluded, like paging. An export is a set, not a sequence.
+ *
+ * ⇒ The excluded list is therefore not "paging", it is **everything that is not a filter**, and it is
+ * named that way so the next person adding a field has to decide which of the two it is.
  */
 const ROOT = resolve(__dirname, '..', '..');
 const CHATS_PROTO = join(ROOT, 'libs', 'proto', 'crm', 'chats', 'v1', 'chats.proto');
@@ -35,7 +49,12 @@ function fieldsOf(message: string): Array<{ name: string; number: number; type: 
   return fields;
 }
 
-const PAGING = ['page_token', 'page_size'];
+/**
+ * Fields on the list request that are NOT part of the filter vocabulary, and therefore are not
+ * expected to appear on `ExportFilters`. Adding a name here is a claim that the field does not narrow
+ * WHICH rows come back — check that before extending it.
+ */
+const NOT_A_FILTER = ['page_token', 'page_size', 'order'];
 
 describe('the scan finds what it is meant to police (guards against a vacuous pass)', () => {
   it('both messages exist and are non-trivial', () => {
@@ -45,7 +64,9 @@ describe('the scan finds what it is meant to police (guards against a vacuous pa
 });
 
 describe('*** ExportFilters === the list request filters (FR-027) ***', () => {
-  const listFilters = fieldsOf('ListConversationsRequest').filter((f) => !PAGING.includes(f.name));
+  const listFilters = fieldsOf('ListConversationsRequest').filter(
+    (f) => !NOT_A_FILTER.includes(f.name),
+  );
   const exportFilters = fieldsOf('ExportFilters');
 
   it('the field NAMES are identical sets', () => {
@@ -69,9 +90,9 @@ describe('*** ExportFilters === the list request filters (FR-027) ***', () => {
     }
   });
 
-  it('paging is absent from ExportFilters — an export is not a page', () => {
-    for (const paged of PAGING) {
-      expect(exportFilters.map((f) => f.name)).not.toContain(paged);
+  it('paging and ordering are absent from ExportFilters — an export is not a page, nor a sequence', () => {
+    for (const notAFilter of NOT_A_FILTER) {
+      expect(exportFilters.map((f) => f.name)).not.toContain(notAFilter);
     }
   });
 });

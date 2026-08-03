@@ -70,7 +70,7 @@ describe('*** the transport branches on no resource ***', () => {
 
   it('reads every route fact from the row rather than from a constant', () => {
     const code = codeOf(TRANSPORT);
-    for (const field of ['path', 'collection', 'params', 'required', 'pageSizeParam', 'pageTokenParam', 'ops']) {
+    for (const field of ['path', 'collection', 'params', 'required', 'pageSizeParam', 'pageTokenParam', 'ops', 'orderParam', 'orders']) {
       expect(code).toContain(`row.${field}`);
     }
   });
@@ -96,10 +96,54 @@ describe('the registry is well formed', () => {
     }
   });
 
-  it('no row declares a sort parameter — no consumed route accepts one (I-4)', () => {
+  /**
+   * I-4, AMENDED by feature 029.
+   *
+   * ⚠️ The original read *"no row declares a sort parameter — no consumed route accepts one"*. That
+   * was a statement of FACT ABOUT THE SERVER, and the fact changed: `/conversations` now implements a
+   * choice between two named orders. Deleting the guard would have been the easy move and the wrong
+   * one — what it protects is still live, so it is rewritten to assert the new truth.
+   *
+   * What still holds, unchanged: no route accepts an arbitrary field `sort`, and a screen may only
+   * offer an order the route declares.
+   */
+  it('no row declares a generic `sort` parameter — still no route that accepts one (I-4)', () => {
     for (const row of ROUTE_REGISTRY) {
       expect(Object.keys(row.params)).not.toContain('sort');
     }
+  });
+
+  it('I-4b: a row declaring orders declares them as a NON-EMPTY closed list with a parameter name', () => {
+    for (const row of ROUTE_REGISTRY) {
+      // Both or neither: an order parameter with no vocabulary would accept anything, and a
+      // vocabulary with no parameter could never be sent.
+      expect(Boolean(row.orders)).toBe(Boolean(row.orderParam));
+      if (row.orders) {
+        expect(row.orders.length).toBeGreaterThan(0);
+        expect(new Set(row.orders).size).toBe(row.orders.length);
+      }
+    }
+  });
+
+  it('I-4c: `conversations` declares exactly the two orders the server implements', () => {
+    const row = rowFor('conversations');
+    expect(row.orderParam).toBe('order');
+    expect([...row.orders!].sort()).toEqual(['updated_asc', 'updated_desc']);
+  });
+
+  it('⛔ I-4d: NO row offers an urgency/"recommended" order — nothing computes one (roadmap 4.20)', () => {
+    // The sort control renders from this list, so an order named here is an order a person can pick.
+    // A label asserting priority with nothing behind it is the one failure this screen must not ship:
+    // unlike a broken filter, an agent working top-down cannot see that it is wrong.
+    for (const row of ROUTE_REGISTRY) {
+      for (const order of row.orders ?? []) {
+        expect(order).not.toMatch(/recommend|priorit|urgen|smart|best/i);
+      }
+    }
+  });
+
+  it('the players row declares no order — it has none, and asking is refused client-side', () => {
+    expect(rowFor('players').orders).toBeUndefined();
   });
 
   it('an unknown resource fails loudly rather than returning a default row', () => {

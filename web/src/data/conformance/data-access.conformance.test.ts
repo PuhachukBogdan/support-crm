@@ -146,6 +146,26 @@ describe.each(SUBJECTS.map((s) => [s.name, s] as const))('[%s] DataAccess contra
         }),
       ).rejects.toMatchObject({ retryable: false });
     });
+
+    /**
+     * 4.4 (feature 029) — an UNDECLARED order is refused before anything is sent.
+     *
+     * The same rule as an undeclared filter, and the same reason: `/conversations` silently drops a
+     * query parameter it does not recognise, so an unhonoured order returns 200 in the DEFAULT
+     * sequence — presented to the agent as the one they picked. A wrong list still looks like a list.
+     *
+     * ⚠️ Deliberately asserts the REFUSAL only, which is the part both subjects share. Whether a
+     * resource has any orders at all differs per subject (the mock declares none; `/conversations`
+     * declares two), and a conformance case must be true of every implementation or it is testing one.
+     */
+    it('4.4 an order the resource does not declare is refused before anything is sent', async () => {
+      await expect(
+        s.create('paging').list(s.resource, {
+          ...s.baseQuery(s.pageSize),
+          order: 'no_such_order_exists',
+        }),
+      ).rejects.toMatchObject({ retryable: false });
+    });
   });
 
   describe('C-5 a write either takes effect or refuses by name — never silently nothing', () => {

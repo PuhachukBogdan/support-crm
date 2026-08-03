@@ -45,6 +45,27 @@ enum ThreadProjection {
   THREAD_PROJECTION_CUSTOMER = 2;     // public + incoming only; private notes excluded at query (R4)
 }
 
+// Feature 029 (roadmap 9.2): the order a conversation list arrives in.
+//
+// ⚠️ BOTH VALUES SORT ON `Conversation.updated_at`, which is what `last_activity_at` above already
+// returns — there is no `last_activity_at` COLUMN. The rename is old and deliberate, but it is also
+// what nearly made feature 029 sort on a field that does not exist (research R7): the decision that
+// existed to catch requirements with no server behind them was itself written against this name.
+//
+// ⇒ The UI header for it reads "Updated", never "last activity": `updated_at` is a Prisma `@updatedAt`
+// column, so OUR OWN relabelling, reassigning and resolving bump it. A queue sorted by it and labelled
+// "last activity" reports our bookkeeping as customer contact — and looks right doing so.
+//
+// True customer contact is `last_inbound_at` (feature 022) — nullable, deliberately unindexed, and an
+// input to URGENCY, which is roadmap 4.20. There is deliberately NO "recommended"/urgency value here:
+// nothing computes urgency, and a sort asserting a property the data lacks is invisible to the person
+// trusting it.
+enum ConversationOrder {
+  CONVERSATION_ORDER_UNSPECIFIED = 0; // = UPDATED_DESC (the default), never "no order"
+  CONVERSATION_ORDER_UPDATED_DESC = 1;
+  CONVERSATION_ORDER_UPDATED_ASC = 2;
+}
+
 // Lean list item (no thread) — ListConversations / player feed.
 message ConversationSummary {
   string id = 1;
@@ -175,6 +196,13 @@ message ListConversationsRequest {
   // inherits keyset paging, the page cap, brand intersection and crm.inbox.view. Unknown value ⇒
   // 400 at the REST edge (never a widened query).
   SlaOutcome sla_outcome = 8;
+  // Feature 029 (roadmap 9.2) — additive.
+  // ⚠️ `channel` is a FILTER, and "" means "no filter on channel", NOT "conversations that have no
+  // channel". ~1 in 6 rows on the stand have none; they stay reachable only by not filtering, so the
+  // screen must not offer an "unset" option that this field cannot express.
+  string channel = 9;
+  // UNSPECIFIED = the default order (updated_at DESC), never "unordered".
+  ConversationOrder order = 10;
 }
 
 message ConversationPage {
@@ -771,6 +799,12 @@ message ExportFilters {
   // the whole filtered set up to the scope's row limit, so paging is an internal production concern
   // and never a request parameter.
   SlaOutcome sla_outcome = 8;
+  // Feature 029: mirrors the list's new `channel` filter, and it is NOT optional tidiness — an admin
+  // who narrows the Inbox to one channel and exports must not receive the whole set. That is more rows
+  // of customer data than the screen showed, which is the anti-pitching failure itself (SEC-AP2).
+  string channel = 9;
+  // 10 is `order` on the list request — INTENTIONALLY ABSENT, for the same reason as 6 and 7: an export
+  // is a SET, not a sequence. Ordering it would be a presentation choice smuggled into a data request.
 }
 
 message CreateExportRequest {

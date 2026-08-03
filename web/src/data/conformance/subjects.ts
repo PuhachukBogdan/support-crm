@@ -77,7 +77,19 @@ const mockSubject: Subject = {
 const gatewaySubject: Subject = {
   name: 'gateway',
   resource: 'conversations',
-  pageSize: 2,
+  /**
+   * ⚠️ 3, matching what the fixtures were recorded at (feature 029 re-recording).
+   *
+   * The pages were originally captured at pageSize 2, when the seed held 5 conversations. The stand
+   * has since grown past 35, so re-recording at 2 produced three FULL pages with a live token on the
+   * last — an open-ended walk, which made the conformance traversal run to its safety limit and fail
+   * with "20 pages". It reads like a transport bug and is not one.
+   *
+   * The re-recording narrows to `status=resolved` at pageSize 3, which exhausts inside three pages
+   * (3 · 3 · 1), and the Track-B recorder now ASSERTS that the last token is empty — so the next
+   * person to re-record gets a failure rather than a fixture that no longer means "the last page".
+   */
+  pageSize: 3,
   undeclaredFilterKey: 'thisFilterDoesNotExist',
   writes: [], // no page needs them yet; they must refuse by name until one does
   baseQuery: (limit) => ({ limit }),

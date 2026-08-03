@@ -1,29 +1,19 @@
 {
   "status": 200,
-  "path": "/conversations?pageSize=2&pageToken=WyIyMDI2LTA3LTI2VDE1OjU2OjExLjY1NFoiLCJzZWVkLWNvbnYtcmVzb2x2ZWQtMDAwMC0wMDAwMDAwMSJd",
+  "path": "/conversations?status=resolved&pageSize=3&pageToken=WyIyMDI2LTA4LTAxVDE2OjIwOjI2LjI3OVoiLCI1YmVjMWQ1NS01MzMzLTQ2NDktYTY0Yy1iYzFlMTFlZDlhNzEiLCJ1cGRhdGVkX2Rlc2MiXQ",
   "body": {
     "conversations": [
       {
-        "id": "seed-conv-pending-0000-000000001",
+        "id": "fa086239-559a-40e1-a627-727f271eb0e8",
         "brandId": "seed-brand-0000-0000-000000000001",
         "playerId": "seed-player-001",
-        "status": "CONVERSATION_STATUS_PENDING",
-        "priority": "normal",
+        "status": "CONVERSATION_STATUS_RESOLVED",
+        "priority": "",
         "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
-        "channel": "",
-        "lastActivityAt": "2026-07-28T22:44:24.262Z",
-        "createdAt": "2026-07-26T15:56:11.645Z"
-      },
-      {
-        "id": "seed-conv-open-0000-000000000001",
-        "brandId": "seed-brand-0000-0000-000000000001",
-        "playerId": "seed-player-001",
-        "status": "CONVERSATION_STATUS_OPEN",
-        "priority": "high",
-        "assigneeOperatorId": "seed-operator-0000-0000-000000000001",
-        "channel": "",
-        "lastActivityAt": "2026-07-28T22:44:24.212Z",
-        "createdAt": "2026-07-26T15:56:11.637Z"
+        "channel": "chat",
+        "lastActivityAt": "2026-08-01T16:18:48.091Z",
+        "createdAt": "2026-08-01T16:18:25.678Z",
+        "subject": "совершенно неверный заголовок"
       }
     ],
     "nextPageToken": ""

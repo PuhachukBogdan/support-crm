@@ -258,6 +258,11 @@ export class ExportService {
     if (Array.isArray(raw.brandIn)) out.brandIn = raw.brandIn as string[];
     if (Array.isArray(raw.idIn)) out.idIn = raw.idIn as string[];
     if (typeof raw.slaOutcome === 'string') out.slaOutcome = raw.slaOutcome;
+    // Feature 029. ⚠️ THIS is the hop where `slaOutcome` was once missing, so a request for breached
+    // conversations produced every conversation — accepted at the edge, stored, then dropped on the way
+    // to the query. A channel filter forgotten here fails the same way and in the same direction: a file
+    // with MORE customer rows than the caller asked for, which looks like a correct answer.
+    if (typeof raw.channel === 'string') out.channel = raw.channel;
     return out;
   }
 

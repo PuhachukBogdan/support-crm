@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { WsAdapter } from '@nestjs/platform-ws';
 import type { INestApplication } from '@nestjs/common';
 import WebSocket from 'ws';
+import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 import { AppModule } from '../app.module';
 
@@ -42,9 +43,27 @@ describe('gateway single ingress (REST + WS)', () => {
     expect(res.body).toMatchObject({ status: 'ok', service: 'gateway' });
   });
 
+  /**
+   * ⚠️ **This connection now carries an access cookie, and that is a deliberate behaviour change**
+   * (feature 034, W4).
+   *
+   * Both gateways live on the same `@WebSocketGateway()` path, so one socket carries both — and
+   * `RealtimeGateway` closes any connection it cannot authorize (FR-006). Before W4 the socket surface was
+   * completely unauthenticated, because `AuthGuard` returns `true` for every non-HTTP context by design.
+   *
+   * ⇒ So this test was updated rather than the gateway loosened. Keeping an unauthenticated door open so
+   * that a diagnostic ping keeps working would be exactly the trade this block exists to refuse. What the
+   * test asserts is unchanged: REST and realtime answer on the SAME port.
+   */
+  const accessCookie = () =>
+    `access=${new JwtService({}).sign(
+      { sub: 'u-ingress', account_id: 'acc-ingress' },
+      { secret: process.env.JWT_SECRET as string },
+    )}`;
+
   it('upgrades a WebSocket connection on the SAME port and round-trips a message', async () => {
     const reply = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { cookie: accessCookie() } });
       const timer = setTimeout(() => {
         ws.close();
         reject(new Error('timed out waiting for pong'));

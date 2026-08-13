@@ -234,17 +234,18 @@ try {
   // (`gateway/src/chats/rpc.ts` flattens refusal detail), so the WORDS are asserted at the service
   // tier (unit suites) and on the SCREEN (the required-hint below); here the wire proves the CLASS
   // of refusal and — the receipt rule — that the stored state did not move.
-  // Two DIFFERENT fail-closed paths: a value outside the field's option set, and a field that is
-  // not on this conversation's form at all (`deposit_amount` is in the catalogue and on no form —
-  // Q42: only the composition frame 032 actually shows is seeded).
-  const offForm = await agentApi('PATCH', `/conversations/${tid}/fields/deposit_amount`, { value: '100' });
+  // THREE fail-closed paths, one per rule: a wrong TYPE, a value outside the field's OPTION SET,
+  // and a field that is not on this conversation's FORM at all (`client_name` is in the catalogue
+  // and placed on none — Q42: only what the frames support is placed).
+  const notNumber = await agentApi('PATCH', `/conversations/${tid}/fields/deposit_amount`, { value: 'abc' });
   const offSet = await agentApi('PATCH', `/conversations/${tid}/fields/country`, { value: 'Atlantis' });
+  const offForm = await agentApi('PATCH', `/conversations/${tid}/fields/client_name`, { value: 'x' });
   const heldAfter = await agentApi('GET', `/conversations/${tid}/fields`);
   const heldKeys = (heldAfter.json?.values ?? []).map((v) => v.fieldKey);
-  if (offForm.status === 400 && offSet.status === 400
-      && !heldKeys.includes('deposit_amount') && !heldKeys.includes('country'))
-    pass('⛔ off-form field · out-of-set value — both 400, NOTHING stored (fail-closed on the wire)');
-  else fail('value refusals', `${offForm.status}/${offSet.status} held=${heldKeys.join(',')}`);
+  if (notNumber.status === 400 && offSet.status === 400 && offForm.status === 400
+      && !heldKeys.includes('deposit_amount') && !heldKeys.includes('country') && !heldKeys.includes('client_name'))
+    pass('⛔ wrong type · out-of-set value · off-form field — all 400, NOTHING stored (fail-closed on the wire)');
+  else fail('value refusals', `${notNumber.status}/${offSet.status}/${offForm.status} held=${heldKeys.join(',')}`);
 
   // The screen NAMES the empty required fields before any refusal — the hint is the worded half.
   const hint = await p2.textContent('[data-testid="custom-fields-required-hint"]').catch(() => '');

@@ -11,28 +11,37 @@ import { SEED_ACCOUNT_ID } from '@crm/common';
  * earlier seed carried four or five invented placeholders per list (Brazil, Provider error, …) —
  * they are gone; every value below was read off their screen.
  *
- * ⚠️ **Their spellings are kept EXACTLY**, typos included: «Withdrawal Satus», «Oher bonus info»,
- * «Client cant log in», «Order Vs deposit missmatch», «Sportbooks», «Poduct», «Declined::Other».
- * Normalising them would make this fixture disagree with the system it mirrors, and the whole point
- * of a closed value list is that two systems can be compared. The one exception is a DOUBLE space
- * («VIP Anniversary /  Birthday» in their tag) — an invisible difference that no reader could
- * reproduce, so it is a single space here and recorded in the transcript.
+ * ⚠️ **The obvious typos are CORRECTED here — the operator's own call (12.08)**, and the transcript
+ * keeps the originals so the pair is always readable:
+ *   «Withdrawal Satus» → Withdrawal Status · «How to withdrawal» → How to withdraw ·
+ *   «Oher bonus info» → Other bonus info · «Order Vs deposit missmatch» → Order vs deposit
+ *   mismatch · «Sportbooks» → Sportsbooks (value, set name and field label) · «Poduct» → Product ·
+ *   «General Info» → General info (one list spelled it both ways) · «VIP Anniversary /  Birthday»
+ *   loses its double space.
+ * Everything else is verbatim — a name that merely looks odd («Manitist», «Sportbet General Info»,
+ * «Deposit::Delay::Card», «X-pass») is THEIR vocabulary, not a mistake to fix, and guessing at one
+ * would put a value in this list that exists nowhere in their system.
+ * ⚠️ The corrections are a one-way door for MATCHING: a Zendesk export still says «Satus», so the
+ * migration (14.2) maps old spelling → new. That mapping belongs to the migration, not here.
  *
  * ⚠️ **A SEED, not a migration.** These are the account's starting rows; the operator edits them on
  * `/admin/fields` and a re-seed must not overwrite what he has since decided — the runner's
  * `update` therefore carries labels/order and never `active` (the statuses rule, third instance).
  *
- * ── What is deliberately NOT wired, and why ─────────────────────────────────────────────────────
+ * ── How a field finds its place ─────────────────────────────────────────────────────────────────
  * Zendesk expresses the cascade as separate per-parent fields, and the screenshots give the field
- * NAMES but never say which parent VALUE opens them. Where the name matches a parent value
- * one-to-one (exactly, or through their own typo) the condition is encoded. Where it does not, the
- * field is seeded but left UNCONDITIONED rather than guessed:
- *   · «Form L2 - Cashback Bonus» / «Deposit Bonus %» / «Free bet Bonus» / «Free Spins Bonus» —
- *     these look like children of the BONUS KIND, not of an L1 topic; which value opens which is
- *     not on any frame.
- *   · the generic «Form L2» (26 values) and «Form L3» (8 values) — catch-alls whose parent is
- *     unknowable from a screenshot.
- * They are listed in the block's report so the operator can say the word; wiring one is one row.
+ * NAMES but never say which parent VALUE opens them. So the parent is DERIVED, and only where the
+ * derivation is a one-to-one name match: «Form L2 - Deposit status» under the L1 value *Deposit
+ * status*, the four bonus L2 fields under the matching *Bonus name/type* value (Cashback ·
+ * % Deposit · Free bet · Free spin), «Form L3 - WS Declined» under *Declined*, and so on. The
+ * build-time checks below refuse a condition whose value the parent's list does not contain, so a
+ * mis-derived parent fails here rather than as a field that never appears on screen.
+ *
+ * ⛔ **The one thing NOT seeded: their generic «Form L2» (26 values) and «Form L3» (8).** Those are
+ * catch-alls whose value lists are a UNION of the specific lists above (NA · Gambling addiction ·
+ * Completed · Declined::Other …), belonging to no topic in particular. Seeding them would put the
+ * same word in two places with two meanings — the thing a closed list exists to prevent — and every
+ * value they hold already lives in the list that owns it.
  */
 
 const A = SEED_ACCOUNT_ID;
@@ -60,10 +69,10 @@ const SETS: SetSpec[] = [
   { slug: 'bonus-type', name: 'Bonus name/type', values: ['Free spin', '% Deposit', 'Cashback', 'Sorry bonus', 'Free bet', 'Daily bonus', 'Bonus not informed by customer', 'Other'] },
   // ── the L1 topic of each form (the sub-category source) ────────────────────────────────────────
   { slug: 'l1-deposits', name: 'Deposits topics', values: ['How to deposit', 'Payment methods offered', 'Deposit status', 'No deposit order created', 'Deposit Delay', 'General info', 'PSP Ticket', 'Other'] },
-  { slug: 'l1-withdrawal', name: 'Withdrawal topics', values: ['How to withdrawal', 'Withdrawal Satus', 'Withdrawal Delay', 'Cancel Request', 'Unable to Withdraw', 'General Info', 'Other'] },
+  { slug: 'l1-withdrawal', name: 'Withdrawal topics', values: ['How to withdraw', 'Withdrawal Status', 'Withdrawal Delay', 'Cancel Request', 'Unable to Withdraw', 'General info', 'Other'] },
   { slug: 'l1-account', name: 'Account topics', values: ['Request to close account', 'Request to re-open account', 'Duplicated account', 'Change personal details', 'Update phone number', 'Update email', 'Balance info', 'Password reset', 'Account restrictions', 'General questions', 'Delete data request', 'Email not found', 'Other'] },
   { slug: 'l1-general', name: 'General topics', values: ['General questions', 'How to register', 'How to play', 'Refund request', 'More info', 'Terms and Conditions', 'Privacy policy', 'Navigation help', 'Fairplay RNG', 'Collaboration', 'Other'] },
-  { slug: 'l1-issues', name: 'Issues topics', values: ['Website', 'Promotions', 'Deposits', 'Withdrawal', 'Account', 'Sportbooks', 'Provider Issue', 'Other'] },
+  { slug: 'l1-issues', name: 'Issues topics', values: ['Website', 'Promotions', 'Deposits', 'Withdrawal', 'Account', 'Sportsbooks', 'Provider Issue', 'Other'] },
   { slug: 'l1-product', name: 'Product topics', values: ['Casino General Info', 'Slot General Info', 'Live casino info', 'Games info', 'Product suggestion', 'Other'] },
   { slug: 'l1-promotions', name: 'Promotions topics', values: ['Retracted Bonus', 'Withdrawal unavailable by Bonus Terms', 'Balance locked', 'Cancel Request', 'General info', 'Loyalty Program (Level program) Info', 'Bonus Request', 'Sport Bonus', 'Promo code', 'Other'] },
   { slug: 'l1-verification', name: 'Verification topics', values: ['Email verification', 'Phone verification', 'How to verify', 'Verification status', 'User unable to verify account', 'Risk Verification', 'Other'] },
@@ -73,7 +82,7 @@ const SETS: SetSpec[] = [
   { slug: 'l1-sportsbooks', name: 'Sportsbooks topics', values: ['Sportbet General Info', 'Sportsbook General Info', 'Claim of bet not settled correctly', 'Sportbet not available', 'Other'] },
   // ── L2, wired where the field NAME matches a parent value ──────────────────────────────────────
   { slug: 'l2-deposit-status', name: 'Deposit status', values: ['Approved', 'Pending', 'Declined'] },
-  { slug: 'l2-deposits-delay', name: 'Deposit delay reasons', values: ['PSP delay', 'Order Vs deposit missmatch', 'Order created post deposit', 'Unknown'] },
+  { slug: 'l2-deposits-delay', name: 'Deposit delay reasons', values: ['PSP delay', 'Order vs deposit mismatch', 'Order created post deposit', 'Unknown'] },
   { slug: 'l2-withdrawal-status', name: 'Withdrawal status', values: ['Pending', 'Declined', 'Approved'] },
   { slug: 'l2-unable-to-withdraw', name: 'Unable to withdraw reasons', values: ['Incomplete verification', 'Withdrawal limit'] },
   { slug: 'l2-account-restrictions', name: 'Account restrictions', values: ['Bonus Abuser / Casino', 'Bonus Abuser / Sports', 'Bonus hunting', 'Billing antifraud', 'Risk', 'Duplicated from another operator', 'Underage', 'Other'] },
@@ -81,8 +90,16 @@ const SETS: SetSpec[] = [
   { slug: 'l2-password-reset', name: 'Password reset', values: ['How to reset password', 'Password Recovery Assistance'] },
   { slug: 'l2-verification-status', name: 'Verification status', values: ['Completed', 'Declined', 'Requested'] },
   { slug: 'l2-retracted-bonus', name: 'Retracted bonus', values: ['Expired Bonus', 'Max Limit bonus winning'] },
+  // The four per-bonus-kind lists. Their parent is the BONUS KIND, not an L1 topic — «Cashback
+  // Bonus» opens under *Cashback*, and so on; the names map one-to-one onto `bonus-type`.
+  { slug: 'l2-cashback-bonus', name: 'Cashback bonus', values: ['How to use it', 'How to complete it', 'Cancel Request', 'Terms and conditions'] },
+  { slug: 'l2-deposit-bonus', name: 'Deposit bonus %', values: ['How to use it', 'How to complete it', 'Cancel Request', 'Terms and conditions'] },
+  { slug: 'l2-free-bet-bonus', name: 'Free bet bonus', values: ['How to use it', 'How to complete it', 'Cancel Request', 'Terms and conditions'] },
+  // ⚠️ Free Spins lists «Cancel Request» SECOND — their order, kept: the order is what the agent's
+  // eye learns, and re-sorting it to match the siblings would be a silent edit of their screen.
+  { slug: 'l2-free-spins-bonus', name: 'Free spins bonus', values: ['How to use it', 'Cancel Request', 'How to complete it', 'Terms and conditions'] },
   { slug: 'l2-sport-bonus', name: 'Sport bonus', values: ['Bonus mechanic (50/50)', 'Terms and conditions'] },
-  { slug: 'l2-promo-general', name: 'Promotions general info', values: ['Terms and conditions', 'Oher bonus info'] },
+  { slug: 'l2-promo-general', name: 'Promotions general info', values: ['Terms and conditions', 'Other bonus info'] },
   { slug: 'l2-vip-perks', name: 'VIP perks', values: ['VIP Exclusive Promo', 'VIP Anniversary / Birthday', 'VIP Bonus Request', 'VIP Preferences'] },
   { slug: 'l2-vip-follow-up', name: 'VIP follow up', values: ['Missed Call', 'Prospect Outreach'] },
   { slug: 'l2-issues-website', name: 'Issues — website', values: ['Login Problems', 'Website/Platform Errors', 'Game Not Loading / Crashing', 'Performance/Slow Loading', 'Error in Game', 'UI Issues', 'Other'] },
@@ -90,7 +107,7 @@ const SETS: SetSpec[] = [
   { slug: 'l2-issues-deposits', name: 'Issues — deposits', values: ['Deposit Payment Error', 'Other'] },
   { slug: 'l2-issues-withdrawal', name: 'Issues — withdrawal', values: ['Withdrawal Payment Error', 'Other'] },
   { slug: 'l2-issues-account', name: 'Issues — account', values: ['Incorrect Balance / Funds Not Updated', 'Other'] },
-  { slug: 'l2-issues-sportbooks', name: 'Issues — sportbooks', values: ['Bet not settled or settled incorrectly', 'Other'] },
+  { slug: 'l2-issues-sportsbooks', name: 'Issues — sportsbooks', values: ['Bet not settled or settled incorrectly', 'Other'] },
   // ── L3 ─────────────────────────────────────────────────────────────────────────────────────────
   { slug: 'l3-deposit-declined', name: 'Deposit declined reasons', values: ['Timeout', 'Declined by bank', 'General declined', 'Antifraud declined', 'Too many requests', 'Cancelled by Customer', 'Other'] },
   { slug: 'l3-ws-declined', name: 'Withdrawal declined reasons', values: ['Timeout', 'Declined by bank', '70% not wagered', 'General declined', 'Antifraud declined', 'Too many requests', 'Other'] },
@@ -102,7 +119,7 @@ const SETS: SetSpec[] = [
   // product feature of its own (approvals, routing, our own status catalogue — feature 032), and
   // seeding them as custom fields would create a second place that answers the same question.
   { slug: 'type-of-issue', name: 'Type of issue', values: ['Technical', 'Non Technical'] },
-  { slug: 'topic', name: 'Topic', values: ['Deposit::Delay::Card', 'Account ban', 'Activation', 'BetGames/TVBet', 'Bets', 'Betting Shops', 'Bonus Request', 'Casino', 'Casino Live', 'Correction', 'Customer Support', 'Data Recovery', 'Deposit', 'Empty', 'Esports', 'Gamification', 'General Questions', 'Instant Games', 'Legal Questions', 'Mobile Application', 'Other', 'Poduct', 'Promotions', 'Repeated Request', 'Responsible Gambling', 'Spam', 'Sports Content', 'Top Parlay', 'Verification', 'Video broadcast', 'VIP', 'VIP Bets', 'VIP Promotions', 'Virtual Sports', 'Website Complaints', 'Withdrawal', 'X-pass'] },
+  { slug: 'topic', name: 'Topic', values: ['Deposit::Delay::Card', 'Account ban', 'Activation', 'BetGames/TVBet', 'Bets', 'Betting Shops', 'Bonus Request', 'Casino', 'Casino Live', 'Correction', 'Customer Support', 'Data Recovery', 'Deposit', 'Empty', 'Esports', 'Gamification', 'General Questions', 'Instant Games', 'Legal Questions', 'Mobile Application', 'Other', 'Product', 'Promotions', 'Repeated Request', 'Responsible Gambling', 'Spam', 'Sports Content', 'Top Parlay', 'Verification', 'Video broadcast', 'VIP', 'VIP Bets', 'VIP Promotions', 'Virtual Sports', 'Website Complaints', 'Withdrawal', 'X-pass'] },
 ];
 
 // ── field definitions ────────────────────────────────────────────────────────────────────────────
@@ -126,12 +143,12 @@ const FIELDS: FieldSpec[] = [
   { key: 'comments', label: 'Comments', type: 'multiline' },
   // payments
   { key: 'psp', label: 'PSP', type: 'dropdown', required: true, set: 'psp' },
-  { key: 'payment_gateway', label: 'Payment Gateway', type: 'dropdown', required: true, set: 'payment-gateway' },
-  { key: 'deposit_amount', label: 'Deposit Amount', type: 'numeric', required: true },
-  { key: 'transaction_id', label: 'Transaction ID', type: 'text', required: true },
-  { key: 'external_id_psp', label: 'External ID (PSP ID)', type: 'text', required: true },
-  { key: 'payment_date', label: 'Payment Date', type: 'text', required: true },
-  { key: 'bonus_name_type', label: 'Bonus name/type', type: 'dropdown', required: true, set: 'bonus-type' },
+  { key: 'payment_gateway', label: 'Payment Gateway', type: 'dropdown', set: 'payment-gateway' },
+  { key: 'deposit_amount', label: 'Deposit Amount', type: 'numeric' },
+  { key: 'transaction_id', label: 'Transaction ID', type: 'text' },
+  { key: 'external_id_psp', label: 'External ID (PSP ID)', type: 'text' },
+  { key: 'payment_date', label: 'Payment Date', type: 'text' },
+  { key: 'bonus_name_type', label: 'Bonus name/type', type: 'dropdown', set: 'bonus-type' },
   // L1 — one per form, each its form's sub-category source
   { key: 'l1_deposits', label: 'Form L1 - Deposits', type: 'dropdown', required: true, set: 'l1-deposits' },
   { key: 'l1_withdrawal', label: 'Form L1 - Withdrawal', type: 'dropdown', required: true, set: 'l1-withdrawal' },
@@ -154,6 +171,10 @@ const FIELDS: FieldSpec[] = [
   { key: 'l2_verification_status', label: 'Level 2 - Verification Status', type: 'dropdown', required: true, set: 'l2-verification-status' },
   { key: 'l2_retracted_bonus', label: 'Form L2 - Retracted Bonus', type: 'dropdown', required: true, set: 'l2-retracted-bonus' },
   { key: 'l2_sport_bonus', label: 'Level 2 - Sport Bonus', type: 'dropdown', set: 'l2-sport-bonus' },
+  { key: 'l2_cashback_bonus', label: 'Form L2 - Cashback Bonus', type: 'dropdown', required: true, set: 'l2-cashback-bonus' },
+  { key: 'l2_deposit_bonus', label: 'Form L2 - Deposit Bonus %', type: 'dropdown', required: true, set: 'l2-deposit-bonus' },
+  { key: 'l2_free_bet_bonus', label: 'Form L2 - Free bet Bonus', type: 'dropdown', required: true, set: 'l2-free-bet-bonus' },
+  { key: 'l2_free_spins_bonus', label: 'Form L2 - Free Spins Bonus', type: 'dropdown', required: true, set: 'l2-free-spins-bonus' },
   { key: 'l2_promo_general', label: 'Form L2 - General info', type: 'dropdown', set: 'l2-promo-general' },
   { key: 'l2_vip_perks', label: 'Form L2 - VIP Perks', type: 'dropdown', required: true, set: 'l2-vip-perks' },
   { key: 'l2_vip_follow_up', label: 'Form L2 - VIP Follow Up', type: 'dropdown', required: true, set: 'l2-vip-follow-up' },
@@ -162,7 +183,7 @@ const FIELDS: FieldSpec[] = [
   { key: 'l2_issues_deposits', label: 'Issues L2 - Deposits', type: 'dropdown', required: true, set: 'l2-issues-deposits' },
   { key: 'l2_issues_withdrawal', label: 'Issues L2 - Withdrawal', type: 'dropdown', required: true, set: 'l2-issues-withdrawal' },
   { key: 'l2_issues_account', label: 'Issues L2 - Account', type: 'dropdown', set: 'l2-issues-account' },
-  { key: 'l2_issues_sportbooks', label: 'Issues L2 - Sportbooks', type: 'dropdown', required: true, set: 'l2-issues-sportbooks' },
+  { key: 'l2_issues_sportsbooks', label: 'Issues L2 - Sportsbooks', type: 'dropdown', required: true, set: 'l2-issues-sportsbooks' },
   // L3
   { key: 'l3_deposit_declined', label: 'Level 3 - Deposit/Declined', type: 'dropdown', set: 'l3-deposit-declined' },
   { key: 'l3_ws_declined', label: 'Form L3 - WS Declined', type: 'dropdown', required: true, set: 'l3-ws-declined' },
@@ -170,7 +191,7 @@ const FIELDS: FieldSpec[] = [
   // Captured custom fields that sit on NO form here — see the FORMS note: the only frame that shows
   // a real form's composition is `conversation/032` (Deposits), so these wait in the catalogue for
   // the operator to place them, which is one drag on `/admin/fields`.
-  { key: 'type_of_issue', label: 'Type of Issue', type: 'dropdown', required: true, set: 'type-of-issue' },
+  { key: 'type_of_issue', label: 'Type of Issue', type: 'dropdown', set: 'type-of-issue' },
   { key: 'topic', label: 'Topic', type: 'dropdown', required: true, set: 'topic' },
   { key: 'client_name', label: 'Client name', type: 'text' },
   { key: 'user_description', label: 'User Description', type: 'multiline' },
@@ -195,14 +216,18 @@ interface FormSpec {
 }
 
 /**
- * ⚠️ **A form's composition is evidence, not inference.** The ONE frame that shows a real form's
- * left column is `conversation/032` (Deposits): Country · Form L1 · Form L2 · Level 3 · PSP · Type
- * of contact · User Level. So a form here carries its L1 cascade plus these three globals, and
- * NOTHING else — the payment details (Deposit Amount, Transaction ID, External ID, Payment Date,
- * Payment Gateway), Bonus name/type, Type of Issue, Topic, Client name and User Description are
- * seeded as DEFINITIONS on no form. A first draft put the payment ones on Deposits «by meaning»;
- * the frame does not show them there, and a guess that over-gates the solve is worse than an empty
- * slot the operator fills with one drag.
+ * ⚠️ **Two different confidences, kept apart on purpose.**
+ *
+ * The ONE frame that shows a real form's left column is `conversation/032` (Deposits): Country ·
+ * Form L1 · Form L2 · Level 3 · PSP · Type of contact · User Level, all asterisked. Those rows are
+ * EVIDENCE, and they keep their captured `required`.
+ *
+ * Everything else placed below is REASONED — a payment field on the two payment forms, the bonus
+ * kind on the bonus form, the issue type on Issues. Reasoned placements are seeded
+ * **`required: false`** even where their field page ticks «Required to solve»: their own Deposits
+ * frame shows no asterisked Deposit Amount, so imposing one would be my inference hardening into a
+ * rule that blocks an agent from finishing a ticket. Placement is a suggestion the operator can
+ * move; a solve gate is not.
  */
 const COMMON: EntrySpec[] = [
   { field: 'country' },
@@ -227,6 +252,13 @@ const FORMS: FormSpec[] = [
       { field: 'l3_deposit_declined', cond: ['l2_deposit_status', 'Declined'] },
       { field: 'l2_deposits_delay', cond: ['l1_deposits', 'Deposit Delay'] },
       { field: 'psp' },
+      // Reasoned, not on the frame: the payment detail an agent chases a deposit with. Optional —
+      // see the header's «two confidences».
+      { field: 'payment_gateway' },
+      { field: 'deposit_amount' },
+      { field: 'transaction_id' },
+      { field: 'external_id_psp' },
+      { field: 'payment_date' },
       { field: 'type_of_contact' },
       { field: 'user_level' },
     ],
@@ -237,13 +269,13 @@ const FORMS: FormSpec[] = [
     category: 'Withdrawal',
     entries: [
       { field: 'l1_withdrawal', source: true },
-      // ⚠️ «Withdrawal Satus» — their own typo in the L1 list; the condition must match the VALUE
-      // as stored, not as it should have been spelled.
-      { field: 'l2_withdrawal_status', cond: ['l1_withdrawal', 'Withdrawal Satus'] },
+      { field: 'l2_withdrawal_status', cond: ['l1_withdrawal', 'Withdrawal Status'] },
       { field: 'l3_ws_declined', cond: ['l2_withdrawal_status', 'Declined'] },
       { field: 'l3_ws_pending', cond: ['l2_withdrawal_status', 'Pending'] },
       { field: 'l2_unable_to_withdraw', cond: ['l1_withdrawal', 'Unable to Withdraw'] },
       { field: 'psp' },
+      { field: 'payment_gateway' },
+      { field: 'transaction_id' },
       ...COMMON,
     ],
   },
@@ -270,7 +302,8 @@ const FORMS: FormSpec[] = [
       { field: 'l2_issues_deposits', cond: ['l1_issues', 'Deposits'] },
       { field: 'l2_issues_withdrawal', cond: ['l1_issues', 'Withdrawal'] },
       { field: 'l2_issues_account', cond: ['l1_issues', 'Account'] },
-      { field: 'l2_issues_sportbooks', cond: ['l1_issues', 'Sportbooks'] },
+      { field: 'l2_issues_sportsbooks', cond: ['l1_issues', 'Sportsbooks'] },
+      { field: 'type_of_issue' },
       ...COMMON,
     ],
   },
@@ -293,6 +326,13 @@ const FORMS: FormSpec[] = [
       { field: 'l2_retracted_bonus', cond: ['l1_promotions', 'Retracted Bonus'] },
       { field: 'l2_sport_bonus', cond: ['l1_promotions', 'Sport Bonus'] },
       { field: 'l2_promo_general', cond: ['l1_promotions', 'General info'] },
+      // The bonus kind is asked whatever the topic; the four per-kind lists open under it, each
+      // named after exactly one of its values (Cashback · % Deposit · Free bet · Free spin).
+      { field: 'bonus_name_type' },
+      { field: 'l2_cashback_bonus', cond: ['bonus_name_type', 'Cashback'] },
+      { field: 'l2_deposit_bonus', cond: ['bonus_name_type', '% Deposit'] },
+      { field: 'l2_free_bet_bonus', cond: ['bonus_name_type', 'Free bet'] },
+      { field: 'l2_free_spins_bonus', cond: ['bonus_name_type', 'Free spin'] },
       ...COMMON,
     ],
   },

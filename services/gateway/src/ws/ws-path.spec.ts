@@ -2,36 +2,22 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * ⭐⭐ **EVERY WebSocket gateway SITS ON THE AUTHENTICATED PATH** (feature 034, W4 — FR-006).
+ * ⭐⭐ **EXACTLY ONE WebSocket GATEWAY, ON ONE AUTHORIZED PATH** (feature 034, W4 — FR-006).
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════
- * Authorization on this edge is done by ONE gateway's `handleConnection`. Sockets are matched by PATH, so a
- * gateway declared on a different path is a socket surface **nobody authorizes** — `AuthGuard` returns
- * `true` for every non-HTTP context by design, so there is no second line of defence behind it.
+ * Authorization on this edge is done by one `handleConnection`, and sockets are matched by PATH — so a
+ * second gateway class is not defence-in-depth, it is a coin toss. `AuthGuard` returns `true` for every
+ * non-HTTP context by design, so there is nothing behind it.
  *
- * ⚠️ This is not hypothetical. Moving `RealtimeGateway` to `/ws` (so a reverse proxy can route it) left
- * `IngressGateway` on `/`, and for the length of one edit the root path accepted anonymous connections
- * again — the exact property the same session had just added. Caught by reasoning about the change rather
- * than by a test, which is why the test exists now.
- * ═════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⚠️ **Measured, not theorised.** This file first asserted "every gateway declares `/ws`", and with two
+ * classes on that path a browser's handshake was closed while `handleConnection` NEVER RAN — the gateway
+ * logged nothing at all. Two `@WebSocketGateway` classes do not compose under the native `ws` adapter: the
+ * adapter binds one, and the one it bound had no connection handler. The suite was green over a dead edge,
+ * which is the one thing a guard must never be.
  *
- * ⇒ **A security property enforced by one participant is a property every participant must be checked
- * against.** The next `@WebSocketGateway()` added to this service fails this suite until it joins the path.
- *
- * ═════════════════════════════════════════════════════════════════════════════════════════════════
- * ⛔⛔ **THIS GUARD IS CURRENTLY PINNING A SHAPE THAT DOES NOT WORK — READ BEFORE TRUSTING IT.**
- *
- * Measured on the stand 2026-08-05: with BOTH gateways declaring `path: '/ws'`, a browser's handshake is
- * closed and **`handleConnection` never runs** — the gateway logs nothing at all. Two `@WebSocketGateway`
- * classes on one path, under the native `ws` adapter, do not compose the way this file assumes: the one
- * that answers is whichever the adapter bound, and `IngressGateway` has no connection handler.
- *
- * So the RULE is right (one authorized path, every gateway checked against it) and the IMPLEMENTATION of
- * that rule is wrong: the two gateways must become **one class** — the ping handler folded into the
- * authorized gateway — rather than two classes sharing a path. Until that is done, this suite is green over
- * a broken realtime edge, which is the one thing a guard must never be.
- *
- * ⚠️ Left failing-forward rather than deleted: whoever fixes it should have to read this.
+ * ⇒ So the rule is stronger than "same path": **there is one gateway, and it is the one that authorizes.**
+ * Spec 003's `ping`/`pong` lives inside it (that claim — REST and realtime on one port — still needs
+ * demonstrating), rather than in a class of its own.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════
  */
 const WS_DIR = __dirname;
@@ -40,9 +26,9 @@ const AUTHORIZED_PATH = "path: '/ws'";
 const files = readdirSync(WS_DIR).filter((f) => f.endsWith('.gateway.ts'));
 
 describe('the WebSocket surface has exactly one, authorized, path', () => {
-  it('found the gateways it is supposed to police', () => {
-    // Two today. A guard over an empty set proves nothing, and a shrinking set is worth noticing too.
-    expect(files.length).toBeGreaterThanOrEqual(2);
+  it('there is exactly ONE gateway class', () => {
+    // ⚠️ The count IS the assertion now: a second class means a coin toss over which one the adapter binds.
+    expect(files).toEqual(['realtime.gateway.ts']);
   });
 
   it.each(files)('%s declares the authorized path', (file) => {
@@ -64,10 +50,10 @@ describe('the WebSocket surface has exactly one, authorized, path', () => {
    * ⚠️ And the half that makes the path worth having: exactly one gateway authorizes, so if the
    * authorizing one is ever renamed or removed, this fails rather than silently leaving an open door.
    */
-  it('exactly one gateway authorizes the handshake', () => {
-    const authorizing = files.filter((f) =>
-      readFileSync(join(WS_DIR, f), 'utf8').includes('verifyAccessToken'),
-    );
-    expect(authorizing).toEqual(['realtime.gateway.ts']);
+  it('that one gateway authorizes the handshake, and answers ping', () => {
+    const src = readFileSync(join(WS_DIR, 'realtime.gateway.ts'), 'utf8');
+    expect(src).toContain('verifyAccessToken');
+    // Spec 003's US4 proof lives here now, not in a second class.
+    expect(src).toContain("@SubscribeMessage('ping')");
   });
 });

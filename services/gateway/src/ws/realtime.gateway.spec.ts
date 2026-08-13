@@ -321,10 +321,17 @@ describe('there is no frame vocabulary for naming an account (FR-007)', () => {
    *
    * Read from the source, because the property is an ABSENCE and absences are what silently regress.
    */
-  it('declares no @SubscribeMessage handler', () => {
+  it('no frame handler accepts an account', () => {
     const src = readFileSync(join(__dirname, 'realtime.gateway.ts'), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(code).not.toContain('@SubscribeMessage');
-    expect(code).not.toContain('MessageBody');
+    /**
+     * ⚠️ Narrowed 2026-08-05: `ping` moved INTO this gateway (two classes on one path closed every
+     * handshake), so "no message handler at all" is no longer the property — and it never was the point.
+     * The property is that **no handler takes an account**: `ping` echoes its own payload and names no
+     * tenant, so a client still cannot ask to join anything.
+     */
+    const handlers = [...code.matchAll(/@SubscribeMessage\('([^']+)'\)/g)].map((m) => m[1]);
+    expect(handlers).toEqual(['ping']);
+    expect(code).not.toMatch(/accountId\s*[:=][^;]*(MessageBody|data|payload|req|frame)/);
   });
 });

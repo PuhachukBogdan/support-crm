@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
 import type { IncomingMessage } from 'node:http';
@@ -98,6 +100,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     this.join(claims.accountId, client);
     client.on('close', () => this.leave(client));
+  }
+
+  /**
+   * ⚠️ **`ping` LIVES HERE, and it had to move.** It was its own `@WebSocketGateway` class, and when both
+   * declared `path: '/ws'` the handshake was closed with `handleConnection` never running — two gateway
+   * classes on one path do not compose under the native `ws` adapter; the adapter binds one, and the ping
+   * class has no connection handler. Measured on the stand: the gateway logged nothing at all.
+   *
+   * ⓘ It still earns its place: spec 003's US4 claim is that REST and realtime answer on the SAME port, and
+   * this reply is the only thing that demonstrates it. One class, one path, one authorization.
+   */
+  @SubscribeMessage('ping')
+  handlePing(@MessageBody() data: unknown): { event: 'pong'; data: unknown } {
+    return { event: 'pong', data: data ?? null };
   }
 
   handleDisconnect(client: Socket): void {

@@ -1,5 +1,5 @@
 import type { Metadata, MetadataValue } from '@grpc/grpc-js';
-import { ROLE_VISIBLE_TIERS, visibleTiersFor } from '@crm/common';
+import { narrowsToOwnPortfolio } from '@crm/common';
 
 /**
  * WHO is narrowed to their own portfolio (feature 030, roadmap 4.14).
@@ -67,13 +67,14 @@ export function callerActingRole(md: Metadata | undefined): string {
  * answers this question.**
  */
 export function narrowsToPortfolio(md: Metadata | undefined): boolean {
-  const role = callerActingRole(md);
-  if (!role) return false;
-  if (!Object.prototype.hasOwnProperty.call(ROLE_VISIBLE_TIERS, role)) return false;
-
-  const tiers = visibleTiersFor(role);
-  if (tiers.includes('masked_pii')) return false;
-  return tiers.includes('am_only');
+  /**
+   * ⚠️ **The arithmetic is NOT repeated here, and a repo-wide guard enforces that.**
+   * `tests/users-read/single-policy-path.spec.ts` requires the tier vocabulary to have one home and
+   * clearance to be computed in one place — it went red when this function did the tier comparison
+   * itself, which is exactly the "second mechanism deciding access" ADR 0039 §2 forbids. This module's
+   * job is therefore only to read WHO is asking; WHETHER they are narrowed belongs to the policy lib.
+   */
+  return narrowsToOwnPortfolio(callerActingRole(md));
 }
 
 /** One attached customer: `(brand, player)`, never a bare platform id. */

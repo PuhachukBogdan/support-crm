@@ -122,6 +122,31 @@ export function visibleTiersFor(roleKey: string): readonly FieldTier[] {
  * not see enough of an unattached player to attach them, and self-assignment would be unreachable.
  * That clause is what makes the narrowing coherent rather than a deadlock.
  */
+/**
+ * ⭐ Feature 030 (roadmap 4.14) — does this role's work get narrowed to **its own portfolio**?
+ *
+ *     narrows  ⟺  role sees `am_only`  ∧  ¬ role sees `masked_pii`
+ *
+ * The same derivation {@link visibleTiersForSubject} performs for player *fields*, asked about
+ * *conversations* instead. It lives **here** rather than in `chats` for the reason the repo-wide
+ * `single-policy-path` guard enforces: the tier vocabulary has one home and clearance is computed in one
+ * place. A copy of this arithmetic in another service would be the second mechanism deciding access that
+ * ADR 0039 §2 forbids — and two mechanisms that both decide access will diverge, invisibly, until
+ * somebody sees something they should not.
+ *
+ * ⚠️ **An unknown role does NOT narrow**, and that is deliberate rather than lax. `x-actor-effective-role`
+ * is set by the gateway only when a role resolves, so its absence is a reachable normal state; narrowing
+ * on it would empty the queue for every such caller. It also agrees with {@link visibleTiersFor}, which
+ * already answers an unknown role as *least privileged and not an AM* — such a caller receives no
+ * `am_only` field either, which bounds the exposure. Answering differently here would be the divergence
+ * this function exists to prevent.
+ */
+export function narrowsToOwnPortfolio(roleKey: string): boolean {
+  if (!roleKey || !Object.prototype.hasOwnProperty.call(ROLE_VISIBLE_TIERS, roleKey)) return false;
+  const tiers = visibleTiersFor(roleKey);
+  return tiers.includes('am_only') && !tiers.includes('masked_pii');
+}
+
 export function visibleTiersForSubject(
   roleKey: string,
   opts: { attachedToSubject: boolean },

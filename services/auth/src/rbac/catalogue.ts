@@ -189,6 +189,21 @@ const ALL_KEYS = SYSTEM_CATALOGUE.map((e) => e.key);
  * SYSTEM_CATALOGUE.
  */
 export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
+  /**
+   * ⭐ W31 / 038 (roadmap 3.15, ADR 0043 §2) — the BASE NEWCOMER role, and the only role the
+   * staff-provisioning API can ever produce.
+   *
+   * ⚠️ **Provisional, and marked so on purpose.** The operator's own description of a newcomer is
+   * «видит только свои обращения и базу знаний»; the knowledge base has no permission yet (W37), so
+   * this is the first half of his sentence and nothing more. **Q26 owns the final set** — what HR
+   * can send and what a starter may do — and widening this list is one line here plus a re-seed.
+   *
+   * ⚠️ It is deliberately the WEAKEST role in the catalogue: a machine holding a shared secret mints
+   * these accounts, so the blast radius of a leaked key is «somebody can read their own empty
+   * inbox», not «somebody can work tickets». An admin promotes a real newcomer in Access Management
+   * (W28) — which is a human act, with a human's session behind it.
+   */
+  newcomer: ['crm.inbox.view'],
   support_agent: [
     'crm.inbox.view',
     'crm.conversation.reply',

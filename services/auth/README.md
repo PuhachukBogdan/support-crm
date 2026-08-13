@@ -208,3 +208,76 @@ group as a grant subject for views and folders.
 once" (feature 011) and owned the word first. The wire name is kept because renaming an rpc trips
 `buf breaking`; in TypeScript it is `OverrideService.personalizeSelection`, and
 `tests/naming/personalize-group-disambiguated.spec.ts` keeps the two apart.
+
+## API keys (W31 / feature 038, roadmap 3.17 — [ADR 0043](../../cowork/decisions/0043-staff-provisioning-api-and-deactivation.md) §5)
+
+One credential per external consumer, held in `ApiKey` (`services/auth/prisma/schema.prisma`) and driven by
+four rpcs on `AuthService`: `ListApiKeys` / `IssueApiKey` / `RotateApiKey` / `RevokeApiKey`
+([`auth.proto`](../../libs/proto/crm/auth/v1/auth.proto)).
+
+**The value exists for one response.** `<id>.<secret>` is assembled in `ApiKeysService.issue`; at rest there
+is an argon2id hash of the secret half (`TokenService`'s helpers, reused — never a second implementation).
+`IssuedApiKey` is the ONE message in the product carrying a value; proto `ApiKey` has no such field, so a
+list cannot leak one through a forgotten filter. A lost key is **rotated, not recovered**.
+
+**Rotation writes a new row and revokes the old**, revoke-then-create in one transaction — the order is
+forced by `ApiKey_one_active_per_consumer`, a partial unique index Prisma cannot express (it lives in
+`migrations/20260813000000_provisioning`). `rotated_from_id` keeps the lineage, so "which key was live last
+Tuesday" still has an answer. Revocation is immediate; a repeat answers `revoked: false`, not an error.
+
+**Permission:** `platform.settings.manage` at both tiers — the account-configuration key admins already
+hold, not a new one. Enforced here by `AuthAccessGuard` (`src/security/`) against the gateway's forwarded
+context, so a call that skips the gateway is refused (Principle II / FR-004).
+
+**Audited:** `api_key.issued` / `api_key.rotated` / `api_key.revoked` (class `privilege`), one entry per act
+inside the act's own transaction, carrying the **fingerprint** — first 12 hex of `sha256("<id>:<secret>")`,
+a label rather than a derivative of the credential. A rotation writes ONE entry, not a revoke plus an issue.
+
+⚠️ **Nothing in `src/api-keys/` logs.** FR-020 asks for a structural guarantee, and the cheapest structure is
+a module that never acquired a logger. Keep it that way.
+
+⚠️ `ApiKeysRepository.resolve` / `.markUsed` use the RAW client on purpose: the machine caller presenting
+`<id>.<secret>` has no account context yet — the account is a property of the row it is verified against.
+Every admin path goes through `forAccount` (Principle I), with a two-account regression test.
+
+## Staff provisioning — the machine path (W31 / feature 038, roadmap 3.15 — [ADR 0043](../../cowork/decisions/0043-staff-provisioning-api-and-deactivation.md) §3/§6/§7)
+
+Two operations, and deliberately only two: **create** and **deactivate**. Roles, permissions and groups
+stay inside Access Management, where a human with a session does them. `src/provisioning/`.
+
+**The gate runs before anything else and its refusals are VALUES, not throws** (`provisioning.verify.ts`).
+Order is the design — key → address → signature → rate → idempotency — so a cheap refusal never pays for
+an expensive check, and every refusal can be audited because the code still holds it. An unknown key and a
+**revoked** key answer the identical 401: different reasons for us, one answer for them, or the endpoint
+becomes a way to enumerate credentials that once existed.
+
+**⚠️ The least-privilege bar is the ABSENCE of a parameter.** `InviteService.createProvisioningInvitation`
+takes no role — the newcomer role is a module constant. A `canInvite`-style check cannot protect this path
+(there is no human whose role could be compared), so the protection is that the machine path has nothing to
+pass. The administrator bar then applies in **both** directions: create cannot mint one, and delete cannot
+close one either — an HR platform firing a termination for an admin's email must not be able to close the
+account that could have stopped it.
+
+**Idempotency is claimed INSERT-FIRST** (`provisioning.repository.ts`), never select-then-insert: two
+retries of one webhook arrive in the same second by design. The unique index decides; the loser reads the
+winner's **stored response** and replays it verbatim, including its status. A different body under the same
+key is 409, and an `in_flight` row is 409 too — answering "done" for unfinished work is the one lie the
+ledger must not tell.
+
+**Deactivation keeps the record** (§3): status `disabled`, every role binding dropped, the refresh chain
+revoked. Authorship, the audit trail and the statistics stay. A repeated delete is a no-op success.
+
+⚠️ **The handover is NOT done here and not in the request at all.** The open work lives in `chats` and this
+service holds no client to it. `AuthMaintenanceService.ListDisabledStaff` (`staff-sweep.grpc.controller.ts`,
+system-actor only, no route) is what the worker's offboarding sweep asks first; the sweep then names the
+person to `users` and `chats`. See the note under ADR 0043 §4 for why it is a tick — briefly: an HTTP path
+to a maintenance rpc makes its actor gate decoration, and in-request the failure could only be retried by
+the HR platform rather than by us.
+
+⚠️ **The residual access-token window is a recorded limit, not silence.** The refresh chain dies at once and
+permission-gated routes refuse within the effective-permission cache window, but a route that checks no
+permission can still answer for the remainder of an access token's life (≤900 s). Say so rather than claim
+"sessions revoked immediately".
+
+⚠️ **Nothing in `src/provisioning/` logs**, for the same reason as `src/api-keys/`: key values, signatures
+and raw bodies pass through it.

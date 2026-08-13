@@ -152,6 +152,38 @@ service AuthService {
   // `setInterval` inside auth fires once per pod — the same reasoning feature 017 recorded for
   // exports.
   rpc SendDueEmails(SendDueEmailsRequest) returns (SendDueEmailsResult);
+
+  // ── ⭐ W31 / feature 038 (roadmap 3.17, ADR 0043 §5): the provisioning key's own lifecycle ──────
+  //
+  // Gated `platform.settings.manage` at BOTH tiers — the account-configuration key admins already
+  // hold. No new permission key: issuing an integration credential is the same class of act as
+  // configuring a channel, and one key per scope stops meaning anything once every screen invents
+  // its own.
+  //
+  // ⚠️ `IssuedApiKey` is the ONLY message in this product that carries a key value, and it is
+  // returned by exactly two rpcs. `ApiKey` has no such field at all, so a list or a read cannot leak
+  // one by a forgotten filter — the absence is the protection.
+  rpc ListApiKeys(ListApiKeysRequest) returns (ApiKeyList);
+  rpc IssueApiKey(IssueApiKeyRequest) returns (IssuedApiKey);
+  rpc RotateApiKey(ApiKeyIdRequest) returns (IssuedApiKey);
+  rpc RevokeApiKey(ApiKeyIdRequest) returns (RevokeApiKeyResult);
+
+  // ── ⭐ W31 / feature 038 (roadmap 3.15, ADR 0043 §1–§7): the machine path ────────────────────────
+  //
+  // ⚠️ These two take the RAW BYTES and the headers, never parsed fields. The gateway cannot parse
+  // what it does not verify: if it sent a decoded body alongside the signature, the thing verified
+  // and the thing applied would be two objects, and only one of them was signed. Auth verifies the
+  // bytes and then parses the same bytes.
+  //
+  // ⚠️ **There is no role member in either request, and that is the least-privilege bar** (SEC-PV1):
+  // the created role is a constant of the path, so no reordering, no default and no future field can
+  // make this API mint an administrator. A check could be moved; an absent input cannot.
+  //
+  // Both answer with a rendered result — status, problem type, outcome, handover counts and the body
+  // to return — because the decision belongs to the service that owns the accounts, and the gateway
+  // renders it (Principle VIII).
+  rpc ProvisionStaff(ProvisionStaffRequest) returns (ProvisioningResult);
+  rpc DeactivateStaff(DeactivateStaffRequest) returns (ProvisioningResult);
 }
 
 message ValidateTokenRequest {
@@ -607,4 +639,115 @@ message SendDueEmailsResult {
   int32 attempted = 1;
   int32 sent = 2;
   int32 failed = 3;
+}
+
+// ── ⭐ W31 / feature 038: API keys ───────────────────────────────────────────────────────────────
+
+message ApiKey {
+  string id = 1;
+  string consumer = 2;
+  // Short, non-reversible label — what the screen and the audit trail show instead of a value.
+  string fingerprint = 3;
+  repeated string ip_allow_list = 4; // ⚠️ empty = DENIES every call (fail-closed)
+  int32 rate_per_hour = 5;
+  bool active = 6;
+  string last_used_at = 7; // RFC3339; "" until an accepted call
+  string created_at = 8;
+  string rotated_from_id = 9; // "" for a first issuance
+}
+
+message ApiKeyList {
+  repeated ApiKey keys = 1;
+}
+
+// This file has no shared Empty/Ack (that is the chats dialect) — a named request message keeps the
+// contract self-describing and leaves room for a filter the day the list needs one.
+message ListApiKeysRequest {}
+
+message RevokeApiKeyResult {
+  bool revoked = 1; // false when it was already revoked — a repeat is a no-op, not an error
+}
+
+message IssueApiKeyRequest {
+  string consumer = 1;
+  repeated string ip_allow_list = 2;
+  int32 rate_per_hour = 3; // 0 = the server's default
+}
+
+message ApiKeyIdRequest {
+  string key_id = 1;
+}
+
+// The ONE message carrying a key value. Returned by IssueApiKey and RotateApiKey, never stored,
+// never logged, never returned again.
+message IssuedApiKey {
+  ApiKey key = 1;
+  string value = 2; // "<id>.<secret>" — shown once, to one admin
+}
+
+// ── ⭐ W31 / feature 038: the machine path ───────────────────────────────────────────────────────
+
+message ProvisionStaffRequest {
+  string raw_body = 1;          // exactly the bytes that were signed
+  string signature_header = 2;  // t=<unix>,v1=<hex>
+  string key_id = 3;            // the public half the caller sent
+  string key_secret = 4;        // the secret half — verified, never stored, never logged
+  string idempotency_key = 5;
+  string client_ip = 6;         // resolved by the edge from the forwarded chain
+  int64 received_at = 7;        // unix seconds, the gateway's clock at receipt
+}
+
+message DeactivateStaffRequest {
+  string raw_body = 1;          // empty body, still signed — the timestamp is what it protects
+  string signature_header = 2;
+  string key_id = 3;
+  string key_secret = 4;
+  string idempotency_key = 5;
+  string client_ip = 6;
+  int64 received_at = 7;
+  string hr_employee_id = 8;    // from the path
+}
+
+// What the edge renders. `body_json` is the exact answer to return — including on an idempotent
+// replay, where it is the FIRST call's answer read back out of the ledger.
+//
+// ⚠️ **It carries NO handover counts, and that is the design rather than an omission.** An earlier
+// shape had the gateway close the account here and then call chats to move the work, reporting both
+// in one answer. Two things killed it: a maintenance rpc reachable over HTTP makes its system-actor
+// gate decoration (`tests/worker/maintenance-ticks.spec.ts` says so structurally), and «the work did
+// not move» would have been reported to the HR platform — leaving the fix to a retry by a system we
+// neither control nor test. The handover is a TICK now (see AuthMaintenanceService below), so it is
+// guaranteed by our own infrastructure instead of by somebody else's error handling.
+message ProvisioningResult {
+  int32 status_code = 1;
+  string problem_type = 2; // "" on success
+  string outcome = 3;      // invited | reactivated | noop_active | deactivated | noop_inactive | refused
+  string body_json = 4;
+}
+
+// ── ⭐ W31 / feature 038: the offboarding sweep ──────────────────────────────────────────────────
+//
+// System actor only, no gateway route, counts in the answer — the three properties every maintenance
+// surface in this product has. It exists because closing an account in auth is only ONE THIRD of an
+// offboarding: the operator flag lives in users and the open work lives in chats, and neither auth
+// nor users holds a client to chats. The worker does, and this is what it asks first.
+service AuthMaintenanceService {
+  // Staff whose account is closed, most recently first. The sweep re-checks them and does nothing
+  // when there is nothing to do — both follow-up calls are idempotent — so this needs no «handled»
+  // flag and no second table to keep in step with reality.
+  rpc ListDisabledStaff(ListDisabledStaffRequest) returns (ListDisabledStaffResult);
+}
+
+message ListDisabledStaffRequest {
+  int32 limit = 1;      // server-clamped, like every maintenance batch
+  int32 within_days = 2; // 0 ⇒ the server's default window
+}
+
+message DisabledStaffMember {
+  string account_id = 1; // a machine has no account of its own — the row carries it
+  string user_id = 2;
+}
+
+message ListDisabledStaffResult {
+  repeated DisabledStaffMember staff = 1;
 }

@@ -25,6 +25,7 @@ import { PresenceEdgeModule } from './presence/presence.module';
 // Feature 026 (roadmap 5.7): the player↔AM assignment edge. Also caches nothing, and for a sharper
 // reason — an attachment decides what somebody may READ.
 import { AssignmentEdgeModule } from './assignment/assignment.module';
+import { ProvisioningEdgeModule } from './provisioning/provisioning.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -56,6 +57,9 @@ import { AssignmentEdgeModule } from './assignment/assignment.module';
     GroupsEdgeModule,
     PresenceEdgeModule,
     AssignmentEdgeModule,
+    // ⭐ W31 / feature 038 (roadmap 3.15 + 3.17): the HR platform's machine boundary and the admin
+    // screen that cuts its keys. The ONLY module here holding a `@Public()` write route.
+    ProvisioningEdgeModule,
   ],
 })
 export class AppModule {}

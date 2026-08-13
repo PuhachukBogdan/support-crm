@@ -6,6 +6,7 @@ import { PresenceModule } from '../presence/presence.module';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
 import { PrismaService } from '../prisma.service';
 import { OperatorRepository } from '../operator/operator.repository';
+import { StaffLifecycleRepository } from './staff-lifecycle.repository';
 import {
   ChannelParticipantService,
   CONTACT_HASH_SALT,
@@ -32,6 +33,9 @@ import { loadUsersConfig } from '../config';
     PresenceSweepService,
     PrismaService,
     OperatorRepository,
+    // ⭐ W31 / feature 038: the `Operator.active` writer. Its own class, beside the purge, because the
+    // read repositories are pinned write-free by FR-027 and that guard is worth keeping true.
+    StaffLifecycleRepository,
     ChannelParticipantService,
     // ⚠️ A value provider, so a deployment with no salt fails to CONSTRUCT rather than resolving nobody
     // for ever. `loadUsersConfig` already refuses a salt shorter than 32 characters; this is where that

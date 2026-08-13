@@ -35,12 +35,25 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   // renamed, so its name is readable from the row and copying it here would be the trail storing
   // state instead of referencing it (015: "target_ref identifies, never copies"). The cost is real
   // and accepted — after a group is deleted the trail names it only by id.
-  privilege: ['scope', 'permissionKey', 'roleKey', 'grant', 'affectedCount'],
+  // ⭐ W31 / 038: `keyFingerprint` is the ONE key this class gained. The three `api_key.*` actions
+  // are filed under `privilege` (issuing a credential that mints staff accounts IS a grant of
+  // authority), and FR-005 requires every one of them to carry a fingerprint — the short,
+  // non-reversible label. Without this entry the requirement is inexpressible and the writer refuses
+  // its own entry, which is how it was found. ⚠️ The VALUE can never appear: none is stored, and
+  // `staffing` (the machine path) carries its own separate list below.
+  privilege: ['scope', 'permissionKey', 'roleKey', 'grant', 'affectedCount', 'keyFingerprint'],
   // `name` is the rule's own operator-authored name — not customer data.
   deletion: ['name', 'revision'],
   // W27 / 036: the shelf transition — both STATES (`'' | suspended | deleted`), never a subject,
   // never a status key, never a customer value. Two closed words per entry, nothing else fits here.
   lifecycle: ['fromState', 'toState'],
+  // ⭐ W31 / 038: `keyFingerprint` = the key's short non-reversible label (never the value — none is
+  // stored); `reasonClass` = one of the closed refusal words (`signature | stale | unknown_key |
+  // revoked_key | ip | rate | forbidden_role | malformed`); `employeeIdHash` = the SALTED sha256 of
+  // the HR id, the W9 `valueHash` precedent — an investigator confirms «was this person provisioned»
+  // by hashing the id, and nobody reads an employee number out of the trail; `movedCount` /
+  // `noDeskCount` = what the handover did. No email, no name, no raw id, no body.
+  staffing: ['keyFingerprint', 'reasonClass', 'employeeIdHash', 'movedCount', 'noDeskCount'],
   // `tier` = the most sensitive tier a read surfaced (never a field value).
   // `filters` = which fields a reader filtered on (names only, never their values).
   // W9 (ADR 0044 §4) — the lookup trio: `valueHash` = the SALTED sha256 of the searched contact

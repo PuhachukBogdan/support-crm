@@ -130,7 +130,7 @@ export function loadChannelConfig(env: NodeJS.ProcessEnv = process.env) {
  * is the same outcome as not configuring it at all.
  *
  * A secret is never logged, never returned in an error, and never compared with `===` (see
- * `channel/signature.ts` — the comparison is constant-time).
+ * `@crm/common` signing — the comparison is constant-time).
  */
 export function parseChannelSecrets(raw: string | undefined): ReadonlyMap<string, string> {
   const out = new Map<string, string>();

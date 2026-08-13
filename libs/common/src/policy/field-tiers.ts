@@ -90,6 +90,15 @@ export const FIELD_TIERS: Readonly<Record<string, FieldTier>> = {
  * A role not listed here is treated as linear (open only) — fail-closed.
  */
 export const ROLE_VISIBLE_TIERS: Readonly<Record<string, readonly FieldTier[]>> = {
+  // ⭐ W31 / feature 038: the starter role a provisioning invitation carries. `open` only — the same
+  // clearance as a support agent and the narrowest this map can express.
+  //
+  // ⚠️ It is written down rather than left to the fail-closed fallback ON PURPOSE. The fallback gives
+  // the identical answer today, so the entry changes no behaviour; what it changes is that the
+  // clearance of a role a MACHINE can hand out became a decision somebody made, in the same table as
+  // every other role, instead of a default nobody looked at. Q26 may widen the newcomer's
+  // permissions; whoever does that will find this line and have to think about the data tier too.
+  newcomer: ['open'],
   support_agent: ['open'],
   teamlead: ['open', 'operational'],
   vip_support: ['open', 'operational'],

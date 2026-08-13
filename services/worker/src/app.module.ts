@@ -9,6 +9,7 @@ import { ExpirySweepJob } from './jobs/expiry-sweep.job';
 // Feature 025 (roadmap 5.9): the auto-away tick. Its own queue rather than a passenger on the
 // five-minute expiry sweep — the tick interval is added to the away threshold as lag.
 import { PresenceSweepJob } from './jobs/presence-sweep.job';
+import { StaffOffboardingJob } from './jobs/staff-offboarding.job';
 import { MailSweepJob } from './jobs/mail-sweep.job';
 import { WorkerAuthModule } from './auth/auth.client';
 // ⭐ Feature 033 (roadmap 6.4): the mailbox. Unlike every provider above, `ImapReaderService` holds a
@@ -42,6 +43,9 @@ import { OutboundTickJob } from './channels/outbound-tick.job';
     ExportRunJob,
     ExpirySweepJob,
     PresenceSweepJob,
+    // ⭐ W31 / feature 038: finishes an offboarding across all three services. Its own queue, so a
+    // stuck handover cannot delay presence or expiry, or the reverse.
+    StaffOffboardingJob,
     MailSweepJob,
     // Feature 033: the reader and its safety net. Registered here because a provider nobody registers
     // contributes nothing while looking present — feature 015's single live-only defect.

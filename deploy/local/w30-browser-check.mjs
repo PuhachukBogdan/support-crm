@@ -326,7 +326,7 @@ try {
   await p.screenshot({ path: `${SHOTS}/w30-admin-light.png` });
   await p.goto(`${WEB}/settings`, { waitUntil: 'networkidle', timeout: 30000 });
   await p.click('[data-testid="theme-dark"]');
-  // eslint-disable-next-line no-undef -- the predicate runs in the BROWSER, where document exists
+  // ⓘ The predicate runs in the BROWSER, where `document` exists (eslint knows since 2026-08-13).
   await p.waitForFunction(() => document.documentElement.classList.contains('dark'), undefined, { timeout: 8000 });
   await p.goto(`${WEB}/admin/fields`, { waitUntil: 'networkidle', timeout: 30000 });
   await p.waitForSelector('[data-testid="tab-fields"]', { timeout: 20000 });

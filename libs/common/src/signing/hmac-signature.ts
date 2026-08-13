@@ -1,13 +1,18 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
- * Webhook signature verification (feature 033, roadmap 6.5 — FR-009, SEC-C2/C3).
+ * Signed-request verification — shared (feature 033 wrote it; feature 038 gave it a second consumer).
  *
- * ── Why this lives in chats and not at the gateway ──────────────────────────────────────────────
- * The secret belongs to a channel, and channels are chats' data. The gateway does routing and JWT
- * validation and holds no business logic (Principle VIII); a per-tenant shared secret is tenant
- * configuration, not transport authentication like a JWT. Verifying there would mean either a second
- * secret store or shipping a symmetric key to a service with no other use for it.
+ * ── Why it lives HERE, and where verification happens ───────────────────────────────────────────
+ * Pure crypto, no I/O, no product knowledge — and now two services need exactly the same dialect:
+ * chats verifies channel deliveries, auth verifies staff-provisioning calls (ADR 0043 §6). It moved
+ * rather than being copied, for the reason the mail transport moved: two copies of a verifier is one
+ * copy that is wrong, and the wrong one is the copy nobody re-reads.
+ *
+ * ⚠️ **The gateway still verifies nothing.** In both surfaces the secret belongs to the owning
+ * service's data (a channel's, an API key's), so the gateway forwards the raw bytes and the header
+ * and decides nothing (Principle VIII). Verifying at the edge would mean a second secret store or a
+ * symmetric key shipped to a service with no other use for it.
  *
  * ── The scheme, and why this one ────────────────────────────────────────────────────────────────
  * `X-CRM-Signature: t=<unix-seconds>,v1=<hex>` where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`.

@@ -148,6 +148,13 @@ describe('list — ordering, paging, and pushed-down filters', () => {
         // no permission, but it redirects the work the system gives a named person without their
         // involvement — so "show me every privilege change" must surface it too.
         'presence.override',
+        // ⭐ W31 / feature 038 (roadmap 3.17, ADR 0043 §5): the provisioning key's lifecycle. Filed
+        // under `privilege` because issuing a credential that can mint staff accounts IS a grant of
+        // authority — to a machine rather than to a person, which is precisely why "show me every
+        // permission change" must surface it. The list did its job: widening the class failed here.
+        'api_key.issued',
+        'api_key.rotated',
+        'api_key.revoked',
       ].sort(),
     );
   });

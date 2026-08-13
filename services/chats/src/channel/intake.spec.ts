@@ -3,7 +3,7 @@ import { ChannelIntakeService } from './intake.service';
 import { ChannelRepository } from './channel.repository';
 import { IntakeLedger } from './intake.ledger';
 import { ApiChannelAdapter } from './adapters/api.adapter';
-import { computeDigest, parseSignatureHeader, verifySignature } from './signature';
+import { computeDigest, parseSignatureHeader, verifySignature } from '@crm/common';
 import type { ChannelConfig } from '../config';
 import { fakeRealtime } from '../realtime/realtime.fake';
 

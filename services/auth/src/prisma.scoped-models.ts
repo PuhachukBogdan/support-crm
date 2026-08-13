@@ -36,4 +36,16 @@ export const SCOPED_MODELS = [
   // ⓘ Enrolled by a guard, not by hand: `account-scope-coverage.spec.ts` failed the moment the
   // table appeared, which is exactly the point of writing that cross-check in feature 007.
   'OutboundEmail',
+  // ⭐ W31 / feature 038 (ADR 0043): the provisioning trio. All three declare `account_id`, so all
+  // three are enrolled — `account-scope-coverage.spec.ts` fails the build the moment one is not,
+  // which is exactly how they got here. FR-019 is the reason it matters: a key belongs to one
+  // account, and every read and write it performs is confined to that account.
+  //
+  // ⚠️ Enrolment scopes the paths that go through `forAccount`. Two reads deliberately do not: the
+  // machine caller presenting `<id>.<secret>` HAS no account context yet — the account is a property
+  // of the row it is about to be verified against (see `api-keys.repository.ts`). Same audited
+  // escape hatch as the 009 login lookup and the invite-by-token read.
+  'ApiKey',
+  'ProvisioningRequest',
+  'StaffIdentity',
 ] as const;

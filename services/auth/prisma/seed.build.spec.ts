@@ -66,10 +66,15 @@ describe('auth seed builder', () => {
     });
   });
 
-  it('seeds the full 7-role set + a permission catalogue (feature 011)', () => {
+  it('seeds the full role set + a permission catalogue (011, plus 038’s newcomer)', () => {
     const keys = seed.roles.map((r) => r.key).sort();
+    // ⭐ W31 / 038 added `newcomer` — the ONLY role the staff-provisioning API can produce, and
+    // deliberately the weakest one in the catalogue (a machine holding a shared secret mints it).
+    // The exact-membership assertion is why this line had to be edited rather than merely passing:
+    // a role appearing in this product is a visible act, and one that arrives with a machine path
+    // doubly so.
     expect(keys).toEqual(
-      ['admin', 'am', 'shift_am', 'super_admin', 'support_agent', 'teamlead', 'vip_support'].sort(),
+      ['admin', 'am', 'newcomer', 'shift_am', 'super_admin', 'support_agent', 'teamlead', 'vip_support'].sort(),
     );
     expect(seed.permissions.length).toBeGreaterThan(0);
     for (const p of seed.permissions) expect(p.account_id).toBe(SEED_ACCOUNT_ID);

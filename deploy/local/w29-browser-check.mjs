@@ -227,7 +227,9 @@ try {
     for (let i = 0; i < pages.length; i += 1) {
       await pages[i].screenshot({ path: `${SHOTS}/w29-FAIL-${i}.png` });
     }
-  } catch {}
+  } catch {
+    // Screenshotting a failure is best-effort — a page that already died cannot be shot.
+  }
 } finally {
   await browser.close().catch(() => {});
 }

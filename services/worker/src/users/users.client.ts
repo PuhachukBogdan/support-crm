@@ -1,6 +1,6 @@
 import { Inject, Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { ClientsModule, type ClientGrpc } from '@nestjs/microservices';
-import { Metadata } from '@grpc/grpc-js';
+import { Metadata, status as GrpcStatus } from '@grpc/grpc-js';
 import { firstValueFrom, type Observable } from 'rxjs';
 import {
   USERS_PACKAGE,
@@ -58,9 +58,20 @@ interface UploadsGrpc {
   ): Observable<{ id?: string }>;
 }
 
+/** ⭐ W31 / feature 038: the operator half of an offboarding. */
+export interface SetOperatorActiveResult {
+  changed: boolean;
+  /** The `users.Operator.id` — the id CHATS knows an assignee by. Empty when there is no row. */
+  operatorId: string;
+}
+
 interface UsersMaintenanceGrpc {
   purgeExpiredArtefacts(data: { limit: number }, md?: Metadata): Observable<PurgeResult>;
   sweepIdlePresence(data: { limit: number }, md?: Metadata): Observable<SweepPresenceResult>;
+  setOperatorActive(
+    data: { authUserId: string; active: boolean },
+    md?: Metadata,
+  ): Observable<{ changed?: boolean; operatorId?: string }>;
 }
 
 @Injectable()
@@ -95,6 +106,33 @@ export class UsersMaintenanceClient implements OnModuleInit {
     const md = new Metadata();
     md.set('x-actor-kind', 'system');
     return firstValueFrom(this.svc.sweepIdlePresence({ limit }, md));
+  }
+
+  /**
+   * ⭐ W31 / feature 038 (ADR 0043 §3): take a departed colleague out of every routing pool.
+   *
+   * ⚠️ **The account travels in the METADATA**, unlike the two ticks above, because this call names a
+   * person rather than sweeping a batch — and `users` composes that account into the query itself.
+   * The sweep learns it from auth's own answer; a machine has no account of its own to default to.
+   *
+   * ⓘ `NOT_FOUND` is a real and ordinary answer: plenty of accounts belong to nobody who ever took a
+   * conversation. The caller treats it as «nothing to do here», never as a failed offboarding.
+   */
+  async setOperatorActive(
+    accountId: string,
+    authUserId: string,
+    active: boolean,
+  ): Promise<SetOperatorActiveResult | null> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    md.set('x-actor-account-id', accountId);
+    try {
+      const res = await firstValueFrom(this.svc.setOperatorActive({ authUserId, active }, md));
+      return { changed: res.changed === true, operatorId: String(res.operatorId ?? '') };
+    } catch (e) {
+      if ((e as { code?: number })?.code === GrpcStatus.NOT_FOUND) return null;
+      throw e;
+    }
   }
 }
 

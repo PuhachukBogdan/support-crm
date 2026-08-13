@@ -37,6 +37,7 @@ function build(rows: { operatorId: string; authUserId: string; state: string; bl
         throw new Error('the routing rpc must not touch the participant path');
       },
     } as unknown as import('../channel/channel-participant.service').ChannelParticipantService,
+    {} as never,
   );
   return { ctrl, resolveByAuthUserIds };
 }

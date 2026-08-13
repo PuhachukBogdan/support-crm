@@ -43,6 +43,15 @@ export * from './channels';
 // TICKET fields on `Conversation`, never `Player.custom_attributes` (the customer's tiered
 // portfolio data) — "the roadmap-4.15 failure shape" was exactly that confusion.
 export * from './fields';
+// Feature 033 (channels) + 038 (staff provisioning): the ONE signed-request verifier. Moved here
+// when the second consumer arrived — a verifier that exists twice drifts, and the copy that drifts
+// is the one nobody re-reads. ⚠️ The gateway still verifies nothing: the secret belongs to the
+// owning service's data, so the edge forwards raw bytes and decides nothing.
+export * from './signing';
+// Feature 038 (roadmap 3.15, ADR 0043 §5): the fail-closed inbound address allow-list. ⚠️ Its empty
+// list DENIES, unlike the outbound mail guard's — an inbound credential nobody configured addresses
+// for is one nobody decided to trust. Both defaults are right for their own boundary.
+export * from './net';
 // Feature 034 (roadmap 7.1, subpoint 2.2a — MVP block W4): the realtime event vocabulary and the ONE
 // account-channel builder. ⚠️ The payload is four identifiers and carries no content, deliberately: a
 // socket is a second read path, and the only way it cannot bypass the REST read rules is by not being

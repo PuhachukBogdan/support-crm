@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   createSmtpSender,
   parseAllowedRecipientDomains,
@@ -30,7 +30,15 @@ export class SmtpMailTransport implements MailTransport {
 
   constructor(
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
-    /** Seam for tests: a fake `sendMail` keeps the suite off the network entirely. */
+    /**
+     * Seam for tests: a fake `sendMail` keeps the suite off the network entirely.
+     *
+     * ⚠️ `@Optional()` is REQUIRED, not decoration. Without it Nest reads the emitted metadata
+     * (`Function`) as a dependency to resolve and refuses to construct the provider — which the
+     * production build happened to survive and `ts-jest` did not, so the two environments disagreed
+     * about whether this service can start. Found while adding `app.module.boot.spec.ts` (W31).
+     */
+    @Optional()
     sendMail?: (message: {
       from: string;
       to: string;

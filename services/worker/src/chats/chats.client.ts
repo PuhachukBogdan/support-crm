@@ -121,6 +121,20 @@ interface MaintenanceGrpc {
   drainBacklog(data: { limit: number }, md?: Metadata): Observable<DrainResult>;
   // ⭐ Feature 033 (roadmap 6.5): claim and send due conversation replies. Counts out — never a recipient.
   sendDueChannelMessages(data: { limit: number }, md?: Metadata): Observable<SendDueCounts>;
+  // ⭐ W31 / feature 038: return one departed colleague's open work to the routing backlog. Named,
+  // not swept — the account and the operator are both in the request.
+  returnOperatorWorkToBacklog(
+    data: { accountId: string; operatorId: string; limit: number },
+    md?: Metadata,
+  ): Observable<HandoverCounts>;
+}
+
+/** ⭐ W31 / feature 038: what one offboarding handover managed. Counts only — never a conversation. */
+export interface HandoverCounts {
+  moved: number;
+  noDesk: number;
+  skippedShelved: number;
+  remaining: number;
 }
 
 @Injectable()
@@ -202,6 +216,30 @@ export class ChatsMaintenanceClient implements OnModuleInit {
    */
   async sendDueChannelMessages(limit: number): Promise<SendDueCounts> {
     return firstValueFrom(this.svc.sendDueChannelMessages({ limit }, systemMetadata()));
+  }
+
+  /**
+   * ⭐ W31 / feature 038 (ADR 0043 §4, SEC-PV2): return a departed colleague's open work to the queue.
+   *
+   * ⚠️ `operatorId` is a **`users.Operator.id`**, not the auth user id the sweep started from. The
+   * two id spaces look alike and the wrong one matches nothing — reporting a clean «no open work»
+   * for somebody holding all of it, which is precisely the silent failure this call exists to
+   * prevent. The sweep gets the right id from users' own answer rather than assuming they are one.
+   */
+  async returnOperatorWorkToBacklog(
+    accountId: string,
+    operatorId: string,
+    limit: number,
+  ): Promise<HandoverCounts> {
+    const res = await firstValueFrom(
+      this.svc.returnOperatorWorkToBacklog({ accountId, operatorId, limit }, systemMetadata()),
+    );
+    return {
+      moved: Number(res.moved ?? 0),
+      noDesk: Number(res.noDesk ?? 0),
+      skippedShelved: Number(res.skippedShelved ?? 0),
+      remaining: Number(res.remaining ?? 0),
+    };
   }
 
   /** Claim and run due exports; also recover stale claims (feature 017). Counts only. */

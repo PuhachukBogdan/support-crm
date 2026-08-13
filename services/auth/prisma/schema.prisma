@@ -412,3 +412,96 @@ model AuditEntry {
   @@index([account_id, actor_user_id, created_at]) // "what did this user do"
   @@index([account_id, target_ref, created_at]) // "what happened to this record" / "who accessed this player"
 }
+
+// ── ⭐ W31 / feature 038 (roadmap 3.15/3.17, ADR 0043): the machine path into the account system ──
+//
+// Three tables, one purpose: let another team's system hire and offboard staff WITHOUT ever holding
+// a password, and leave a trail that survives the integration being wrong.
+//
+// ⚠️ Why they live in auth_db and not at the gateway: a provisioning key MINTS ACCOUNTS. The channel
+// precedent (chats owns channel secrets, the gateway verifies nothing) says the check belongs beside
+// the thing it protects — and nothing is closer to an account than the service that owns accounts.
+
+/// One credential held by one external consumer (ADR 0043 §5). SEC-PV1's subject.
+///
+/// ⚠️ **The VALUE is not a column and cannot become one.** The caller sends `<id>.<secret>`; `id`
+/// finds this row and argon2 verifies the rest — the same shape `Invitation.token_hash` and
+/// `RefreshToken.token_hash` already use, for the same reason (argon2 is unsearchable). A structural
+/// test asserts this model has no value-bearing column beyond `secret_hash`.
+///
+/// ⚠️ Rotation does NOT overwrite: it writes a new row and revokes this one, with `rotated_from_id`
+/// pointing back. An overwritten secret would erase the answer to «which key was in use last
+/// Tuesday», which is precisely what an incident asks.
+model ApiKey {
+  id              String    @id @default(uuid())
+  account_id      String
+  /// Who holds it, in a human's words («HR platform»). One live key per consumer per account.
+  consumer        String
+  secret_hash     String
+  /// A short, non-reversible label for the screen and the audit trail. Never the value.
+  fingerprint     String
+  /// ⚠️ EMPTY DENIES EVERYTHING (fail-closed — `@crm/common` ip-allow-list). The opposite default
+  /// from the outbound mail guard, deliberately: an inbound credential nobody configured addresses
+  /// for is one nobody decided to trust.
+  ip_allow_list   String[]  @default([])
+  rate_per_hour   Int       @default(60)
+  active          Boolean   @default(true)
+  rotated_from_id String?
+  /// Written on ACCEPTED calls only — a refused call must not make a dead key look alive.
+  last_used_at    DateTime?
+  created_by      String // the admin's user id (soft ref)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  requests ProvisioningRequest[]
+
+  /// One ACTIVE key per consumer is enforced in the service (a partial unique cannot be expressed
+  /// here); this pair stays unique across the lineage because a rotation renames nothing.
+  @@index([account_id, active])
+  @@index([account_id, consumer])
+}
+
+/// The idempotency ledger (ADR 0043 §6). One row per accepted call, holding the ANSWER.
+///
+/// ⚠️ The channel intake ledger is the shape (INSERT-FIRST, P2002 means «already seen»), with the
+/// two things ADR 0043 needs and it does not have: the stored RESPONSE, so a retry replays rather
+/// than re-runs, and `body_hash`, so the same key with a different body is a conflict instead of a
+/// silent overwrite. Retention: 30 days — past that a retry is not a retry.
+model ProvisioningRequest {
+  id              String   @id @default(uuid())
+  account_id      String
+  api_key_id      String
+  idempotency_key String
+  operation       String // create | deactivate
+  /// Digest of the exact bytes that were signed — never the body itself (it carries an email).
+  body_hash       String
+  status_code     Int
+  response_json   Json
+  outcome         String // invited | reactivated | noop_active | deactivated | noop_inactive
+  created_at      DateTime @default(now())
+
+  api_key ApiKey @relation(fields: [api_key_id], references: [id], onDelete: Cascade)
+
+  /// The claim. A retry loses this race and reads the winner's answer.
+  @@unique([api_key_id, idempotency_key])
+  /// Rate counting reads this window; housekeeping trims by it.
+  @@index([account_id, created_at])
+}
+
+/// The HR employee id ↔ our user, so one human never becomes two accounts (ADR 0043 §7).
+///
+/// ⚠️ A TABLE, not a column on `User`: the mapping belongs to one external system, and a nullable
+/// `hr_employee_id` on the account table is an invitation to add a second such column for the next
+/// integration — at which point «which id is this person» stops having one answer.
+model StaffIdentity {
+  id             String   @id @default(uuid())
+  account_id     String
+  hr_employee_id String
+  user_id        String
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@unique([account_id, hr_employee_id])
+  @@unique([account_id, user_id])
+  @@index([account_id])
+}

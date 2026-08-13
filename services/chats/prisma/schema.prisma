@@ -244,6 +244,14 @@ model Conversation {
   // index on the largest table in the system; this one earns it because that read is foreseeable and
   // narrow, and because without it the query is a scan every time an agent opens the queue.
   @@index([account_id, identity_state])
+  // ── ⭐ W31 / feature 038 (ADR 0043 §4, SEC-PV2): the offboarding handover's one query ───────────
+  //
+  // «Every open conversation this operator holds» had no index: the assignee is written on every
+  // ticket and read by the capacity counters, but always alongside an account+status predicate that
+  // could carry the plan. The handover asks the question the other way round — one operator, all of
+  // their work — and at 3.6–4.5 k rows per account that is a scan at exactly the moment somebody is
+  // being offboarded and a human is waiting for the answer.
+  @@index([account_id, assignee_operator_id])
   // ── W27 / feature 036: the shelf buckets ────────────────────────────────────────────────────────
   //
   // Serves ONLY the two bucket lists (`shelved_state = 'suspended'|'deleted'`). The common path — the

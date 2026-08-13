@@ -1,5 +1,6 @@
 import { Inject, Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { ClientsModule, type ClientGrpc } from '@nestjs/microservices';
+import { Metadata } from '@grpc/grpc-js';
 import { firstValueFrom, type Observable } from 'rxjs';
 import { AUTH_PACKAGE, AUTH_PROTO, grpcClientOptions } from '@crm/common';
 
@@ -25,6 +26,52 @@ export interface SendDueEmailsResult {
 
 interface AuthMailGrpc {
   sendDueEmails(data: { batch: number }): Observable<SendDueEmailsResult>;
+}
+
+/** ⭐ W31 / feature 038: one closed account the sweep must finish propagating. */
+export interface DisabledStaffMember {
+  accountId: string;
+  userId: string;
+}
+
+interface AuthMaintenanceGrpc {
+  listDisabledStaff(
+    data: { limit: number; withinDays: number },
+    md?: Metadata,
+  ): Observable<{ staff?: { accountId?: string; userId?: string }[] }>;
+}
+
+/**
+ * ⭐ W31 / feature 038 (ADR 0043 §3/§4): the offboarding sweep's first question.
+ *
+ * A separate client from the mail one above because it speaks to a different gRPC service on the
+ * same host — `AuthMaintenanceService`, which is system-actor gated and has no gateway route.
+ */
+@Injectable()
+export class AuthStaffClient implements OnModuleInit {
+  private svc!: AuthMaintenanceGrpc;
+
+  constructor(@Inject(WORKER_AUTH_CLIENT) private readonly client: ClientGrpc) {}
+
+  onModuleInit(): void {
+    this.svc = this.client.getService<AuthMaintenanceGrpc>('AuthMaintenanceService');
+  }
+
+  /**
+   * Who has been offboarded lately.
+   *
+   * ⚠️ Identifiers only — no email, no name. This list crosses a service boundary every tick, and a
+   * name on it would put «who left the company recently» into the worker's memory and failure paths
+   * for no purpose: the two follow-up calls address people by id.
+   */
+  async listDisabledStaff(limit: number, withinDays: number): Promise<DisabledStaffMember[]> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    const res = await firstValueFrom(this.svc.listDisabledStaff({ limit, withinDays }, md));
+    return (res.staff ?? [])
+      .map((s) => ({ accountId: String(s.accountId ?? ''), userId: String(s.userId ?? '') }))
+      .filter((s) => s.accountId !== '' && s.userId !== '');
+  }
 }
 
 @Injectable()
@@ -64,7 +111,7 @@ export class AuthMailClient implements OnModuleInit {
       },
     ]),
   ],
-  providers: [AuthMailClient],
-  exports: [AuthMailClient],
+  providers: [AuthMailClient, AuthStaffClient],
+  exports: [AuthMailClient, AuthStaffClient],
 })
 export class WorkerAuthModule {}

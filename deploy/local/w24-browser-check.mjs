@@ -126,7 +126,6 @@ try {
     const ref = document.querySelector('[data-testid="ticket-reference"]');
     const subj = document.querySelector('[data-testid="ticket-subject"]');
     if (!ref || !subj) return 'missing';
-    // eslint-disable-next-line no-bitwise
     return ref.compareDocumentPosition(subj) & Node.DOCUMENT_POSITION_FOLLOWING ? 'ref-first' : 'subject-first';
   });
   const refText = (await p.textContent('[data-testid="ticket-reference"]'))?.trim();

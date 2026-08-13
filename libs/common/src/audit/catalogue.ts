@@ -35,6 +35,14 @@ export const AUDIT_CLASSES = [
   // exists, keeps its history, and comes back. A class is added by decision, never by reflex — this
   // one arrived with spec 036, whose criterion ④ is exactly that these acts stay readable.
   'lifecycle',
+  // ⭐ W31 / 038 (roadmap 3.15/3.17, ADR 0043): acts upon a COLLEAGUE'S ACCOUNT performed by a
+  // machine holding a key — provisioning, offboarding, the work handover, and every refusal. The
+  // catalogue's own comment above `presence.override` predicted this class would earn its existence
+  // «at 3.15/3.16», and it does: `privilege` answers «who may do what», while these entries answer
+  // «who was hired, who was let go, and what happened to their work» — a different question, asked
+  // by a different reader (HR reconciliation and an offboarding audit), and the one class where the
+  // ACTOR is normally not a person at all.
+  'staffing',
 ] as const;
 
 export type AuditClass = (typeof AUDIT_CLASSES)[number];
@@ -519,6 +527,69 @@ export const AUDIT_ACTIONS = {
     writer: 'chats',
     status: 'live',
     label: 'A ticket form was created or its composition changed',
+  },
+
+  // ── ⭐ W31 / 038 (roadmap 3.17, ADR 0043 §5): the provisioning KEY's own lifecycle ─────────────
+  //
+  // Class `privilege` by the honest reuse this catalogue keeps making: issuing a key that can mint
+  // staff accounts IS a grant of authority — to a machine rather than to a person, which is exactly
+  // why it must be as readable as granting a permission. `target_ref` is the key id; the detail
+  // carries a FINGERPRINT and never the value (there is no code path that could produce one — the
+  // value exists for one response and is never stored).
+  'api_key.issued': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'An API key was issued to a consumer',
+  },
+  // ⚠️ Rotation writes ONE entry, not a revoke plus an issue: the reader's question is «when did
+  // this consumer's credential change», and splitting it into two rows invites the answer «twice».
+  'api_key.rotated': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'An API key was rotated (the previous value stopped working)',
+  },
+  'api_key.revoked': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'An API key was revoked',
+  },
+
+  // ── ⭐ W31 / 038 (roadmap 3.15, ADR 0043 §1–§7): the machine path into the account system ──────
+  //
+  // ⚠️ `provisioning.rejected` is the one this block exists for as much as the successes: ADR 0043
+  // §5 requires EVERY call audited «including rejected ones», because a probing integration that
+  // leaves no trace is indistinguishable from no integration at all. It ships WITH its writer —
+  // the cautionary case one screen up is `channel.intake_refused`, marked live with nothing writing
+  // it, and this catalogue does not want a second of those.
+  'provisioning.create': {
+    class: 'staffing',
+    writer: 'auth',
+    status: 'live',
+    label: 'A staff invitation was created through the provisioning API',
+  },
+  'provisioning.deactivate': {
+    class: 'staffing',
+    writer: 'auth',
+    status: 'live',
+    label: 'A staff account was deactivated through the provisioning API',
+  },
+  'provisioning.rejected': {
+    class: 'staffing',
+    writer: 'auth',
+    status: 'live',
+    label: 'A provisioning call was refused',
+  },
+  // Written by CHATS, not auth: the work moves where the work lives. It is a separate action rather
+  // than detail on the deactivation because the handover can fail on its own (research D5) and a
+  // reader must be able to see «the account closed, the work did not move».
+  'staff.handover': {
+    class: 'staffing',
+    writer: 'chats',
+    status: 'live',
+    label: "A deactivated operator's open work was returned to the queue",
   },
 
   // ── retention (roadmap 7.3 + ADR 0015) ──

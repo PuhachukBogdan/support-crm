@@ -325,7 +325,9 @@ try {
     document.documentElement.classList.add('dark');
     try {
       localStorage.setItem('theme', 'dark');
-    } catch {}
+    } catch {
+      // A stand with storage blocked still renders; the theme just stays default.
+    }
   });
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForSelector('[data-testid="ticket-fields"]', { timeout: 20000 });

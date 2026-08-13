@@ -6,6 +6,7 @@ import { MaintenanceService } from './maintenance.service';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
 import { OperatorRepository } from '../operator/operator.repository';
 import { ChannelParticipantService } from '../channel/channel-participant.service';
+import { StaffLifecycleRepository } from './staff-lifecycle.repository';
 import type { PresenceState } from '@crm/common';
 import { loadUsersConfig } from '../config';
 
@@ -86,7 +87,58 @@ export class MaintenanceController {
     // ⭐ Feature 033 (roadmap 6.4): the reply envelope. Here for the same three properties — system
     // actor only, no gateway route, and a caller that is a machine with no credentials to forward.
     @Inject(ChannelParticipantService) private readonly participants: ChannelParticipantService,
+    // ⭐ W31 / feature 038: the ONE write this service gained. It is deliberately not a method on the
+    // repository above — that one is read-only by design and a structural guard says so (FR-027).
+    @Inject(StaffLifecycleRepository) private readonly lifecycle: StaffLifecycleRepository,
   ) {}
+
+  /**
+   * ⭐ W31 / feature 038 (ADR 0043 §3) — **the operator half of deactivation.**
+   *
+   * Here, on the maintenance service, for its three standing reasons: system actor only, no gateway
+   * route, an ack rather than records. A route any session could call would let one colleague switch
+   * another off without holding the key that governs exactly that — the argument feature 025 already
+   * recorded for lowering somebody's presence, applied to something with teeth.
+   *
+   * ⚠️ **The account comes from the METADATA and is refused when absent** (the `ResolveRoutingOperators`
+   * rule): the caller is a machine with no account of its own, and defaulting one would deactivate a
+   * stranger in another tenant.
+   *
+   * ⚠️ **An unknown identity is NOT_FOUND, never a quiet `changed: false`** — see the repository
+   * method's own note. An offboarding that reports success while the person keeps taking work is
+   * precisely SEC-PV2.
+   *
+   * ⓘ Nothing is audited here. The act is on the record once, as auth's `provisioning.deactivate`
+   * (catalogue: writer `auth`); a second entry from users would double-count one deactivation and
+   * make the staffing trail's «how many people were offboarded» wrong.
+   */
+  @GrpcMethod('UsersMaintenanceService', 'SetOperatorActive')
+  async setOperatorActive(req: { authUserId?: string; active?: boolean }, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const accountId = readMeta(metadata, 'x-actor-account-id').trim();
+    const authUserId = String(req?.authUserId ?? '').trim();
+    if (!accountId || !authUserId) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'account context and auth_user_id are required',
+      });
+    }
+    // ⓘ proto3 cannot tell an absent bool from `false`, so an omitted `active` deactivates. That is
+    // the contract's own limit rather than a choice made here, and it is survivable exactly because
+    // this surface is system-only with no route: the callers are our own provisioning path.
+    const { outcome, operatorId } = await this.lifecycle.setActive(
+      accountId,
+      authUserId,
+      req?.active === true,
+    );
+    if (outcome === 'not_found') {
+      // One refusal for «not yours» and «does not exist» — the uploads surface's rule.
+      throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    }
+    return { changed: outcome === 'changed', operatorId };
+  }
 
   @GrpcMethod('UsersMaintenanceService', 'PurgeExpiredArtefacts')
   async purgeExpiredArtefacts(req: BatchWire, metadata: Metadata) {

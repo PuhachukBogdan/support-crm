@@ -400,6 +400,20 @@ message DescribeUploadsResponse {
 // flag that says "expired" while the bytes sit in a bucket is SEC-27 rather than a fix for it.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 service UsersMaintenanceService {
+  // ── ⭐ W31 / feature 038 (ADR 0043 §3): the operator half of deactivation ────────────────────────
+  //
+  // `Operator.active` has been read since feature 018 — the assignable list, the routing pool and
+  // the participant resolver all honour it — and until now NOTHING WROTE IT. This is the writer.
+  //
+  // Here, on the maintenance service, for this service's three standing reasons: system actor only,
+  // no gateway route, counts (here: an ack) rather than records. A route any session could call
+  // would let one colleague switch another off without holding the key that governs exactly that —
+  // the same argument feature 025 recorded for lowering somebody's presence.
+  //
+  // ⚠️ Reactivation uses the same rpc with `active = true`: one writer, two directions, so «who can
+  // turn a person back on» has one answer rather than a second path nobody audited.
+  rpc SetOperatorActive(SetOperatorActiveRequest) returns (SetOperatorActiveResult);
+
   // Delete the bytes of ephemeral artefacts past their expiry, then their rows. Idempotent by
   // predicate: a purged row leaves the predicate because the row is gone. Counts only in the response.
   rpc PurgeExpiredArtefacts(MaintenanceBatchRequest) returns (PurgeResult);
@@ -953,3 +967,26 @@ message SetMyAvatarRequest {
 // A name arrives here only when something actually knows one: HR-driven provisioning (roadmap 3.15)
 // supplies one, and it can add a field then, additively, with a populated caller on day one.
 message EnsureOwnOperatorRequest {}
+
+// ── ⭐ W31 / feature 038: the operator lifecycle write ───────────────────────────────────────────
+message SetOperatorActiveResult {
+  // false when the flag already held that value — a repeated offboarding is a no-op (ADR 0043 §3),
+  // and the caller must be able to tell «changed» from «was already so» without a second read.
+  bool changed = 1;
+  // ⭐ The operator row this auth user maps to — the id CHATS knows an assignee by.
+  //
+  // ⚠️ It is answered here because this service owns the mapping and has just done the lookup. The
+  // offboarding sweep must name the departed person to two services that use two different id
+  // spaces: auth answers a user id, `Conversation.assignee_operator_id` is a `users.Operator.id`.
+  // Without this field the sweep would have to ask a second rpc for a row this one already read —
+  // or, far worse, pass the auth id to chats, where it would match nothing and report a clean
+  // «no open work» for somebody holding all of it. That is SEC-PV2's exact shape.
+  string operator_id = 2;
+}
+
+message SetOperatorActiveRequest {
+  // The AUTH user id — the id auth holds and the only one it can name. Users resolves its own
+  // operator row from it, exactly as the profile path does.
+  string auth_user_id = 1;
+  bool active = 2;
+}

@@ -1353,6 +1353,26 @@ service ChatsMaintenanceService {
   // customer work in a maintenance log that nobody reads with customer eyes.
   rpc DrainBacklog(MaintenanceBatchRequest) returns (DrainResult);
 
+  // ── ⭐ W31 / feature 038 (ADR 0043 §4, SEC-PV2): give a departed colleague's work back ──────────
+  //
+  // Deactivating an account without this is the failure that looks like nothing: the person vanishes
+  // from every routing pool (users stops returning inactive operators), their conversations stay
+  // assigned to them, and the customer writes to nobody. No error, no alert.
+  //
+  // ⚠️ Per conversation this does BOTH halves in one transaction — clears the assignee AND enqueues
+  // it with a desk. Doing only the first is the trap the code already contains: `AssignConversation`
+  // with an empty operator nulls the assignee and nothing more, and the drain only ever looks at
+  // rows carrying `backlog_at`. Half the operation produces a ticket that is nobody's AND invisible.
+  //
+  // ⚠️ A conversation whose desk cannot be resolved is NOT unassigned: it keeps its owner and is
+  // counted in `no_desk`, because «nobody's and unqueued» is precisely the state this rpc exists to
+  // prevent — and a human reading the count can act, where a silent skip leaves nothing to read.
+  //
+  // Every property of the sweeps above: system actor only, no gateway route, counts in the answer.
+  // The transition it writes carries `systemActor('staff-handover')`, so the trail says a machine
+  // moved this work and why.
+  rpc ReturnOperatorWorkToBacklog(ReturnOperatorWorkRequest) returns (ReturnOperatorWorkResult);
+
   // ⭐ Feature 033 (roadmap 6.4): **which tenant owns this channel key.**
   //
   // ── Why the worker has to ask, and must not be configured with the answer ────────────────────────
@@ -1745,4 +1765,18 @@ message SetConversationFieldValueRequest {
   // TRUE = explicit clear (allowed even for required fields — required gates solve, not editing).
   // An empty `value` with `clear` unset is refused: absence must be an act, never an accident.
   bool clear = 4;
+}
+
+// ── ⭐ W31 / feature 038: the offboarding handover ───────────────────────────────────────────────
+message ReturnOperatorWorkRequest {
+  string account_id = 1;
+  string operator_id = 2;
+  int32 limit = 3; // 0 = the server's cap; the remainder is reported, never silently dropped
+}
+
+message ReturnOperatorWorkResult {
+  int32 moved = 1;            // unassigned AND queued
+  int32 no_desk = 2;          // could not be queued — kept their owner, reported, audited
+  int32 skipped_shelved = 3;  // suspended/deleted: not work, and not this rpc's business
+  int32 remaining = 4;        // beyond the cap — call again
 }

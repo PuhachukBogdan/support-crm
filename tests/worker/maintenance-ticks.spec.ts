@@ -120,6 +120,12 @@ const CALLER_KIND: Readonly<Record<string, 'tick' | 'service' | 'reader'>> = {
   // for an honest reason, and the tempting fix — widening that assertion's directory predicate — would
   // have weakened it for the eight rpcs it exists to protect. A new kind of caller gets a new kind.
   'ChatsMaintenanceService.ResolveIntakeChannel': 'reader',
+  // ⭐ W31 / feature 038: the three steps of an offboarding, all ticked by the same job. They are
+  // `tick` and not `service` even though two of them name a PERSON rather than sweeping a batch: the
+  // kind records who may call, and the answer for all three is the worker and nothing else.
+  'AuthMaintenanceService.ListDisabledStaff': 'tick',
+  'UsersMaintenanceService.SetOperatorActive': 'tick',
+  'ChatsMaintenanceService.ReturnOperatorWorkToBacklog': 'tick',
 };
 
 const TICKED = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'tick');
@@ -145,6 +151,14 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
     // Pinned: a NEW maintenance RPC should have to appear here, which is the review moment where somebody
     // asks "and what calls it?".
     expect(names).toEqual([
+      // ⭐ W31 / feature 038 (roadmap 3.15). The review moment this pin exists for did its best work
+      // yet. The answer to "what calls it?" was going to be **the gateway**, inside the HR platform's
+      // own DELETE — and this suite's last assertion refused that outright. Rewriting it as a tick
+      // exposed a second, worse defect the guard was not even looking for: the gateway draft passed
+      // an AUTH user id to a chats rpc that matches on `users.Operator.id`, so it would have reported
+      // a clean handover while moving nothing, for ever. Now: `jobs/staff-offboarding.job.ts` asks
+      // this first, then names the person to users and chats.
+      'AuthMaintenanceService.ListDisabledStaff',
       // ⭐ Feature 031 (roadmap 4.20). The review moment this pin exists for happened again: declaring
       // `DrainBacklog` turned this suite red, and the answer to "what calls it?" is the 30-second SLA
       // tick — the same granularity the subject sweep rides, so a conversation waits at most one tick
@@ -160,6 +174,10 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // calls it?" is the mailbox reader — which is neither a tick nor another service, so the CALLER_KIND
       // map above gained a third value rather than this rpc being filed under a kind it is not.
       'ChatsMaintenanceService.ResolveIntakeChannel',
+      // ⭐ W31 / feature 038 (ADR 0043 §4, SEC-PV2): the departed colleague's open work. Ticked by the
+      // offboarding sweep, once per person it finds — the one rpc here that is neither a batch sweep
+      // nor a per-message question, which is why it takes an account AND a person in its request.
+      'ChatsMaintenanceService.ReturnOperatorWorkToBacklog',
       'ChatsMaintenanceService.RunDueExports',
       // Feature 023 (roadmap 4.18). Same review moment, second time: the answer to "what calls it?" is
       // the SLA tick and NOT the expiry tick — the title window is ten minutes, and a five-minute
@@ -191,6 +209,9 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // OWN — the interval is added directly to the away threshold as lag, so a five-minute
       // heartbeat would make a ten-minute threshold mean "ten to fifteen". A separate queue also
       // stops a stuck presence pass from delaying artefact deletion, or the reverse.
+      // ⭐ W31 / feature 038 (ADR 0043 §3): take a departed colleague out of every routing pool. The
+      // second of the sweep's three steps, and the one that answers the operator id the third needs.
+      'UsersMaintenanceService.SetOperatorActive',
       'UsersMaintenanceService.SweepIdlePresence',
     ]);
   });

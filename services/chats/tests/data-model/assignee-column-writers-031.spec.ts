@@ -78,6 +78,12 @@ describe('writers of assignee_operator_id (T016)', () => {
       // must still be unowned. On the list for the same per-FILE reason as `backlog.ts`.
       'assignment/backlog-sweep.repository.ts',
       'assignment/group-pool.ts',
+      // ⭐ W31 / feature 038 (ADR 0043 §4, SEC-PV2): the offboarding handover — the newest writer, and
+      // the only one that CLEARS the column deliberately. It obeys both terms of this guard's own
+      // instruction: it records a `conversation.assigned` transition inside the same transaction, and
+      // it respects capacity by not assigning at all — the work goes back to the queue, which is where
+      // capacity is decided (the drain re-reads it per item).
+      'assignment/handover.repository.ts',
       'assignment/round-robin-state.repository.ts',
       // ⭐ Automations and macros ASSIGN too — the two writers a search for "the routing path" misses,
       // and precisely the shape feature 023's guard was built to surface.

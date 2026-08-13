@@ -85,11 +85,27 @@ export class RefreshService {
     return true;
   }
 
-  private async revokeUserChain(userId: string): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
+  /**
+   * Revoke EVERY live refresh token of one person, and answer how many died.
+   *
+   * ⭐ W31 / 038 (ADR 0043 §3): promoted from private. It has always done the right thing and had
+   * exactly one caller — the reuse detector one screen up, which reads a stolen token as a reason to
+   * end every session that person has. Offboarding is the same statement with a different trigger:
+   * this account stops being a way in, now.
+   *
+   * ⚠️ What this DOES and does not buy, stated because the difference is the whole honesty of the
+   * feature: the refresh chain dies here, so no session can renew itself. An ACCESS token already in
+   * a browser keeps working until it expires (15 minutes), except on routes that check a permission
+   * — those consult the effective-permission cache, which the deactivation path drops. Making it
+   * instant everywhere means a per-request cross-service hop, a product-wide decision this block has
+   * no mandate to take (research D4). The bound is stated in the spec rather than implied to be zero.
+   */
+  async revokeUserChain(userId: string): Promise<number> {
+    const result = await this.prisma.refreshToken.updateMany({
       where: { user_id: userId, revoked_at: null },
       data: { revoked_at: this.clock.now() },
     });
+    return result.count ?? 0;
   }
 
   private parse(raw: string): { id: string; secret: string } | null {

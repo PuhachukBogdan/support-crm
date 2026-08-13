@@ -718,6 +718,43 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['create', 'update'],
   },
   /**
+   * ⭐ W31 (спек №2 / feature 038, roadmap 3.17; ADR 0043 §5) — the API keys an administrator issues
+   * for the machines that call us, and the one lifecycle that makes them operable: issue, rotate,
+   * revoke. All three ride `platform.settings.manage`, enforced server-side (FR-004).
+   *
+   * ⚠️ **The list can never leak a secret, because the listing message has no field for one**
+   * (contracts §C: `ApiKey` carries id/consumer/fingerprint/allow-list/rate/state/times and nothing
+   * else). Exactly one answer in the whole product carries a value — the POST that mints it — and
+   * it is a WRITE's answer, never a read's. That is what makes «a lost key is rotated, not
+   * recovered» a fact about the system rather than a policy the screen promises.
+   */
+  {
+    resource: 'admin-api-keys',
+    path: '/admin/api-keys',
+    collection: 'keys',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list', 'create', 'remove'],
+  },
+  {
+    // POST /admin/api-keys/{id}/rotate. A CHILD singleton: the key is the parent (`within`), and the
+    // act it names has no id of its own, so there is no second thing an id could address. POST
+    // rather than PATCH because rotation MINTS — it returns a value that did not exist before,
+    // which is not the shape of a field being changed.
+    resource: 'admin-api-key-rotate',
+    path: '/admin/api-keys/{within}/rotate',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'POST' },
+    ops: ['update'],
+  },
+  /**
    * ⭐ W18 (subpoints 5.2/5.3) — the operator's OWN UI preferences (`/me/ui-preferences`, feature
    * 021). A SINGLETON like `/me/operator`: the subject is the session, an id would be a place to
    * name somebody else. The PATCH body is `{values: {theme_mode: 'dark'}}` — keys from the closed

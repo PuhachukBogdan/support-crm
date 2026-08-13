@@ -119,6 +119,7 @@ describe('the rpc refuses before it registers anything', () => {
       {} as never,
       {} as never,
       service,
+      {} as never,
     );
     return { ctrl, calls };
   };
@@ -170,7 +171,13 @@ describe('the address never reaches a log (FR-047, research R10)', () => {
     );
     try {
       const { service } = harness();
-      const ctrl = new MaintenanceController({} as never, {} as never, {} as never, service);
+      const ctrl = new MaintenanceController(
+        {} as never,
+        {} as never,
+        {} as never,
+        service,
+        {} as never,
+      );
       await ctrl.resolveChannelParticipant(
         { accountId: 'acc-1', brandId: 'brand-1', channelKind: 'email', value: 'Player@Mail.TEST' },
         system(),

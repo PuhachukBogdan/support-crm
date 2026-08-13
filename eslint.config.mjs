@@ -47,6 +47,25 @@ export default tseslint.config(
       },
     },
   },
+  {
+    /**
+     * The live-check scripts (W31, 2026-08-13). They are Node scripts that ALSO carry callbacks
+     * Playwright evaluates inside the page, where `document` and `window` are the real globals — so
+     * `no-undef` fired on correct code in every one of them.
+     *
+     * ⚠️ This was found while running the repo-wide lint for a block gate and discovering it had been
+     * RED on unchanged committed files. A gate nobody can pass is a gate nobody runs, which is the
+     * actual damage: the two genuine findings in this run were buried under ~80 of these.
+     */
+    files: ['deploy/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    rules: {
+      // `condition ? pass('…') : fail('…')` is the idiom every one of these scripts is written in,
+      // and it reads better than the `if/else` the rule wants for an assertion list. Relaxed HERE
+      // only — these are throwaway verification scripts, not product code.
+      '@typescript-eslint/no-unused-expressions': 'off',
+    },
+  },
   // Config/CJS files use require/module.
   {
     files: ['**/*.cjs', '**/*.config.*'],

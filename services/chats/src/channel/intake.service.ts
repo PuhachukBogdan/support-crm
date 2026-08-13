@@ -15,7 +15,9 @@ import { ChannelRepository, type ChannelRow } from './channel.repository';
 import { IntakeLedger, type IntakeRefusal } from './intake.ledger';
 import { ChannelParticipantClient, type ResolvedParticipant } from './participant.client';
 import { decideThreadOutcome, type ThreadDecision } from './reopen';
-import { verifySignature } from './signature';
+// ⭐ Feature 038: the verifier moved to @crm/common when staff provisioning became its second
+// consumer. Same dialect, same window, same constant-time compare — one copy.
+import { verifySignature } from '@crm/common';
 import { ThreadResolver } from './threading';
 
 export interface IntakeOutcome {

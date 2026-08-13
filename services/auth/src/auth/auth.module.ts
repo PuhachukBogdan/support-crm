@@ -62,6 +62,28 @@ import { AuthGrpcController } from './auth.grpc.controller';
     RegistrationService,
     RateLimiter,
   ],
-  exports: [PrismaService, AUTH_CONFIG, EMAIL_PORT, ADMIN_NOTIFICATION_PORT, CLOCK, JwtModule],
+  // ⭐ W31 / 038: `TokenService` is exported so the API-key module can hash and verify a key secret
+  // with the SAME argon2id parameters a password uses. A second implementation beside it would be a
+  // second place for the cost parameters to drift — and the weaker of the two would be the one
+  // guarding the credential that mints staff accounts (SEC-PV1).
+  exports: [
+    PrismaService,
+    AUTH_CONFIG,
+    EMAIL_PORT,
+    ADMIN_NOTIFICATION_PORT,
+    CLOCK,
+    JwtModule,
+    TokenService,
+    // ⭐ W31 / feature 038: the machine provisioning path reuses BOTH of these rather than growing a
+    // second way to invite somebody or to end their sessions. That reuse is the point — one invite
+    // pipeline means one place where a credential comes into being (ADR 0033), and one revocation
+    // path means «who can end a session» has one answer.
+    //
+    // ⚠️ Exporting them is not a formality: without it the auth service does not BOOT, and nothing in
+    // the unit suite can see that — every spec constructs these classes directly. It was found by the
+    // first live run (rule 10's corollary), which is exactly what a live run is for.
+    InviteService,
+    RefreshService,
+  ],
 })
 export class AuthModule {}

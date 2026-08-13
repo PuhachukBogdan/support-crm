@@ -20,13 +20,15 @@ import {
  * for the same reason.
  */
 describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
-  it('covers every class ADR 0019 names, plus the 0032 extension — plus 036’s lifecycle', () => {
+  it('covers every class ADR 0019 names, plus 0032, 036’s lifecycle and 038’s staffing', () => {
     // exports · permission/role changes · deletions · access to customer records (0019)
     // + player↔AM assignment changes (0032/SEC-AP3) + retention (whatever can delete history)
     // + lifecycle (W27/036: WHERE a conversation is — the shelf's four verbs; not a deletion,
     //   because a shelved conversation exists, keeps its history and comes back)
+    // + staffing (W31/038: acts upon a colleague's ACCOUNT by a machine holding a key — hiring,
+    //   offboarding, the work handover and every refusal; the one class whose actor is not a person)
     expect([...AUDIT_CLASSES].sort()).toEqual(
-      ['access', 'assignment', 'deletion', 'export', 'lifecycle', 'privilege', 'retention'].sort(),
+      ['access', 'assignment', 'deletion', 'export', 'lifecycle', 'privilege', 'retention', 'staffing'].sort(),
     );
   });
 
@@ -44,6 +46,15 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'field.config_changed',
     'option_set.config_changed',
     'form.config_changed',
+    // ⭐ Feature 038 (W31): the provisioning key's lifecycle and the machine path's four acts.
+    // Every one ships with its writer — the `channel.intake_refused` lesson (live, unwritten).
+    'api_key.issued',
+    'api_key.rotated',
+    'api_key.revoked',
+    'provisioning.create',
+    'provisioning.deactivate',
+    'provisioning.rejected',
+    'staff.handover',
     'automation.delete',
     'contact.reveal',
     'audit.read',
@@ -241,6 +252,11 @@ describe('actionsOfClass', () => {
         'permission.grant',
         'permission.revoke',
         'permission.reset',
+        // ⭐ Feature 038 (W31): issuing a key that can mint staff accounts IS a grant of authority —
+        // to a machine rather than a person, which is why it belongs beside the human grants.
+        'api_key.issued',
+        'api_key.rotated',
+        'api_key.revoked',
         // Feature 024. Deleting a group is here rather than under `deletion` on purpose: what matters
         // about it is that every member LOSES the group's grants, not that a row went away.
         'group.create',

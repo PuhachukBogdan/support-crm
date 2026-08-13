@@ -123,7 +123,6 @@ try {
   if (!(await p.$(inRail('bucket-suspended'))) && !(await p.$(inRail('bucket-deleted'))))
     pass('the agent (no shelf.view) sees NO shelf buckets — the section ends at «Весь архив»');
   else fail('agent rail', 'a shelf bucket rendered without the permission');
-  const onList = await p.textContent('[data-testid="bucket-rail"] ~ * , main').catch(() => '');
   if ((await p.textContent('body'))?.includes(subject)) pass('…and the ticket is on their Inbox list before the shelf');
   else fail('baseline list', 'the manufactured ticket is not on the Inbox');
 

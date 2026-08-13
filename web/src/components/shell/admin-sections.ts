@@ -57,6 +57,15 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     href: '/admin/channels',
   },
   {
+    key: 'api-keys',
+    label: 'API keys',
+    summary: 'Keys the systems that call us hold: issue, rotate, revoke — the value is shown once.',
+    point: '3.17',
+    // ⭐ W31 (спек №2): the seventh section that stopped being a promise — next to Channels because
+    // both answer one question: how does anything outside this product reach it?
+    href: '/admin/api-keys',
+  },
+  {
     key: 'statuses',
     label: 'Ticket statuses',
     summary: 'The nine statuses, their categories and their two names — agent-facing and customer-facing.',

@@ -38,6 +38,10 @@ import { RoundRobinStateRepository } from './assignment/round-robin-state.reposi
 import { BacklogRepository } from './assignment/backlog';
 import { BacklogSweepRepository } from './assignment/backlog-sweep.repository';
 import { BacklogMaintenanceController } from './assignment/backlog.grpc.controller';
+// ⭐ W31 / feature 038 (ADR 0043 §4, SEC-PV2): the offboarding handover — a departed colleague's
+// open work goes back to the queue instead of sitting on somebody who no longer exists.
+import { HandoverRepository } from './assignment/handover.repository';
+import { HandoverMaintenanceController } from './assignment/handover.grpc.controller';
 import { GroupPoolService } from './assignment/group-pool';
 import { AutoAssignController } from './assignment/auto-assign.grpc.controller';
 // Feature 014 (roadmap 4.6/4.7): automations + first-reply SLA.
@@ -113,6 +117,10 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     HealthGrpcController,
     ConversationReadController,
     BacklogMaintenanceController,
+    // ⭐ W31 / feature 038: `ReturnOperatorWorkToBacklog`. A controller nobody registers answers
+    // UNIMPLEMENTED while looking perfectly healthy (feature 015's single live-only defect) — and an
+    // offboarding that silently does nothing is the exact shape SEC-PV2 describes.
+    HandoverMaintenanceController,
     ConversationWriteController,
     MessageReadController,
     MessageWriteController,
@@ -222,6 +230,9 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     BacklogRepository,
     // Feature 031: the drain has no caller and therefore no account — see the file header.
     BacklogSweepRepository,
+    // ⭐ W31 / feature 038: unassign AND enqueue in ONE transaction (research D6) — doing only the
+    // first is the trap `AssignConversation('')` already contains.
+    HandoverRepository,
     LabelsRepository,
     MacrosRepository,
     CannedRepository,

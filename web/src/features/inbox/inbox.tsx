@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/composites/page-header/page-header';
 import { BulkActions, useMayExport } from './bulk-actions';
 import { FilterBar } from './filter-bar';
@@ -57,6 +58,14 @@ export function Inbox() {
    */
   useLiveRefresh(query, list.refetch);
   const [selected, setSelected] = useState<string[]>([]);
+  // W7: a row opens its ticket. The id goes into the URL, so the window is linkable and the back
+  // button returns to the queue — the same navigation the operator has in Zendesk's tabs, minus
+  // the tabs (W10). Stable identity: DataTable's row props stay referentially quiet.
+  const router = useRouter();
+  const openTicket = useCallback(
+    (id: string) => router.push(`/tickets/${encodeURIComponent(id)}`),
+    [router],
+  );
   // Row selection exists only where the actions it feeds do. An agent gets no checkboxes rather than
   // checkboxes that lead nowhere.
   const mayExport = useMayExport();
@@ -134,6 +143,7 @@ export function Inbox() {
           statusOptions={statusOptions}
           filters={filters}
           onFilterChange={setFilter}
+          onRowOpen={openTicket}
         />
       </div>
     </div>

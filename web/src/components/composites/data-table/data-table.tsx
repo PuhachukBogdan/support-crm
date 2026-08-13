@@ -231,6 +231,13 @@ export type DataTableProps<T> = {
    * arrives. Omitted ⇒ no optional column renders.
    */
   optionalColumns?: readonly string[];
+  /**
+   * W7: the whole row opens its record (the Inbox row opens the ticket window). A DOM event handler
+   * on the row — NOT a component type through a render prop, so the stable-reference freeze rule is
+   * not in play; still, pass a `useCallback` so the row's props stay referentially quiet.
+   * The selection checkbox's cell stops propagation itself — ticking a row must not open it.
+   */
+  onRowOpen?: (id: string) => void;
 };
 
 /** Stable identity so an omitted `optionalColumns` cannot invalidate the memo on every render. */
@@ -254,6 +261,7 @@ export function DataTable<T>({
   emptyLabel = 'Nothing here yet.',
   height,
   optionalColumns = NO_OPTIONAL,
+  onRowOpen,
 }: DataTableProps<T>) {
   /** Fills its parent unless a caller pinned a height. See the prop's note. */
   const fills = height === undefined;
@@ -415,9 +423,10 @@ export function DataTable<T>({
                 <TableRow
                   key={id}
                   // Pinned so no cell can make a row taller than the row-height contract.
-                  className={ROW_HEIGHT_CLASS}
+                  className={cn(ROW_HEIGHT_CLASS, onRowOpen && 'cursor-pointer')}
                   data-index={index}
                   data-selected={isSelected}
+                  onClick={onRowOpen ? () => onRowOpen(id) : undefined}
                 >
                   {allColumns.map((col) => {
                     const colId = col.id ?? '';
@@ -428,6 +437,9 @@ export function DataTable<T>({
                         // ⓘ Not on the checkbox column: `overflow-hidden` there clips its focus ring,
                         // and a checkbox has nothing to truncate anyway.
                         className={colId === '__select' ? undefined : 'truncate'}
+                        // Ticking a row is not opening it: the selection cell swallows the click
+                        // before the row-level open handler sees it.
+                        onClick={colId === '__select' ? (e) => e.stopPropagation() : undefined}
                       >
                         {colId === '__select' ? (
                           <Checkbox

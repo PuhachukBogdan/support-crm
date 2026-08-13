@@ -6,6 +6,11 @@ import { getDataAccess, setDataAccess } from '@/data/provider';
 import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { stubConversations } from '@/features/inbox/test-support';
 
+// jsdom mounts no Next app router — W7's row-open navigation asks for one (same move as shell.test).
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
+
 /**
  * T017 (feature 029, FR-001) — **the landing route IS the Inbox.**
  *

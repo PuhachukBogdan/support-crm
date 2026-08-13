@@ -230,6 +230,28 @@ describe('DataTable', () => {
     expect(onChange).toHaveBeenCalledWith(['00000001']);
   });
 
+  it('W7: a row click opens the row; ⛔ a selection tick does not', () => {
+    const onRowOpen = jest.fn();
+    const onChange = jest.fn();
+    render(
+      <DataTable
+        columns={columns}
+        state={ready(makeDemoRecords(3))}
+        getRowId={(r) => r.id}
+        rowSelection={{ selected: [], onChange }}
+        onRowOpen={onRowOpen}
+      />,
+    );
+    // Clicking anywhere on the row opens it (rows[0] is the header row)…
+    fireEvent.click(screen.getAllByRole('row')[1]!);
+    expect(onRowOpen).toHaveBeenCalledWith('00000001');
+    // …while the selection cell swallows its click: ticking is not opening.
+    onRowOpen.mockClear();
+    fireEvent.click(screen.getByLabelText('Select row 00000002'));
+    expect(onChange).toHaveBeenCalledWith(['00000002']);
+    expect(onRowOpen).not.toHaveBeenCalled();
+  });
+
   it('renders shared loading / empty / error states', () => {
     const { rerender } = render(
       <DataTable columns={columns} state={{ status: 'loading' }} getRowId={(r) => r.id} />,

@@ -18,6 +18,11 @@ import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { chooseOption, stubConversations } from './test-support';
 import { BUCKETS, BUCKET_OWNED_KEYS } from './buckets';
 
+// jsdom mounts no Next app router — W7's row-open navigation asks for one (same move as shell.test).
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
+
 afterEach(() => setDataAccess(new MockDataAccess()));
 
 function renderInbox() {

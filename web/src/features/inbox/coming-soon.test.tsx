@@ -5,6 +5,11 @@ import { getDataAccess, setDataAccess } from '@/data/provider';
 import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { stubConversations } from './test-support';
 
+// jsdom mounts no Next app router — W7's row-open navigation asks for one (same move as shell.test).
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
+
 /**
  * ⭐ The placeholder the operator asked for so a coming feature is not forgotten (2026-08-03):
  * a **search bar** across ticket fields.

@@ -5,6 +5,11 @@ import { getDataAccess, setDataAccess } from '@/data/provider';
 import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { chooseOption, stubConversations } from './test-support';
 
+// jsdom mounts no Next app router — W7's row-open navigation asks for one (same move as shell.test).
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
+
 /**
  * T018 (feature 029, FR-003) — **empty, filtered-to-nothing and failed-to-load are three different
  * facts and must read as three different things.**

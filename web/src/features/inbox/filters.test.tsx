@@ -5,6 +5,11 @@ import { getDataAccess, setDataAccess } from '@/data/provider';
 import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { chooseOption, optionsOf, stubConversations } from './test-support';
 
+// jsdom mounts no Next app router — W7's row-open navigation asks for one (same move as shell.test).
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
+
 /**
  * The header funnels (restored 2026-08-06 — *«Мы зачем по-твоему их добавляли? Верни»*) +
  * T031's transience rule (FR-013) + ⭐⭐ the self-scope.

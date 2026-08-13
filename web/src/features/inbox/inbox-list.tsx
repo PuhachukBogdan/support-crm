@@ -179,6 +179,7 @@ export function InboxList({
   statusOptions = [],
   filters,
   onFilterChange,
+  onRowOpen,
 }: {
   state: AsyncState<PaginatedResult<ConversationRow>>;
   onLoadMore?: () => void;
@@ -186,6 +187,8 @@ export function InboxList({
   emptyLabel: string;
   /** Omitted for anyone without a bulk action to perform — no checkboxes leading nowhere. */
   rowSelection?: { selected: string[]; onChange: (ids: string[]) => void };
+  /** W7: a row click opens the ticket window. Stable (useCallback) — see DataTable's prop note. */
+  onRowOpen?: (id: string) => void;
   /** The order in force, so a sortable header can show which way it points. */
   order: string;
   onOrderChange: (order: string) => void;
@@ -218,6 +221,7 @@ export function InboxList({
       onRetry={onRetry}
       emptyLabel={emptyLabel}
       rowSelection={rowSelection}
+      onRowOpen={onRowOpen}
     />
       </StatusLabelsProvider>
     </HeaderControlsProvider>

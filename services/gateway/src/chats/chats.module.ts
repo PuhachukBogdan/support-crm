@@ -19,6 +19,8 @@ import { ChannelsController } from '../channels/channels.controller';
 // deliberately a different prefix from the public intake route above (two authentication stories
 // must not share one).
 import { ChannelsAdminController } from '../channels/channels-admin.controller';
+// ⭐ W15a (subpoint 3.14): the status authoring writes — the read stays on /conversations/statuses.
+import { StatusesAdminController } from './statuses-admin.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -31,6 +33,7 @@ import { ChannelsAdminController } from '../channels/channels-admin.controller';
   controllers: [
     ChannelsController,
     ChannelsAdminController,
+    StatusesAdminController,
     ConversationsController,
     MessagesController,
     FeedController,

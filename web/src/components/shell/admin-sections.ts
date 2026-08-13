@@ -59,6 +59,8 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     label: 'Ticket statuses',
     summary: 'The nine statuses, their categories and their two names — agent-facing and customer-facing.',
     point: '3.14',
+    // ⭐ W15a: the third section that stopped being a promise.
+    href: '/admin/statuses',
   },
   {
     key: 'macros',

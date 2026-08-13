@@ -627,6 +627,16 @@ build when a key literal appears in this service's product code, or when any of 
 (`statusToWire` · `wireToStatus` · `isValidStatusWire` · `DbStatus`) comes back. They were **deleted**
 rather than deprecated in place: a mapper left behind is how the old four-value vocabulary regrows.
 
+### The authoring surface (MVP block W15a — subpoint 3.14)
+
+`status/status-admin.grpc.controller.ts` — `CreateConversationStatus` + `UpdateConversationStatus`,
+gated `platform.settings.manage` (the READ stays `crm.inbox.view`: seeing the vocabulary is an inbox
+fact, changing what it means is tenant configuration). The KEY is derived from the agent-facing name
+and immutable; creation is the INSERT the model promised (proven live: a new status is settable on a
+real conversation immediately); retirement is `active: false` via the same update; a duplicate name
+CONFLICTS even against a retired row. Every write audited `status.config_changed` in-transaction.
+No delete, no key edit, no reorder — each said in the controller header.
+
 ### What asks the account instead
 
 | consumer | asks |

@@ -150,6 +150,72 @@ export class StatusRepository {
   }
 
   /**
+   * W15a: one definition BY KEY, active or retired — the authoring screen's read-before-write.
+   * Retired rows must be reachable here: restoring one IS an edit (`active: true`).
+   */
+  async byKey(accountId: string, key: string): Promise<StatusDefRow | null> {
+    if (!key) return null;
+    return (await this.prisma.forAccount(accountId).conversationStatus.findFirst({
+      where: { key },
+      select: DEF_SELECT,
+    })) as StatusDefRow | null;
+  }
+
+  /**
+   * W15a (subpoint 3.14) — create a definition, its audit entry in the same transaction.
+   *
+   * `order` = max + 10, read just before the write: the seed numbers by tens for exactly this
+   * insert, and a race on the max costs only display order — never identity, which is the key's.
+   * A duplicate key dies on `@@unique([account_id, key])` (P2002) and the caller maps it: the
+   * seeded vocabulary and a custom status must not silently share a key.
+   */
+  async createDefinition(
+    accountId: string,
+    def: { key: string; category: string; agentName: string; endUserName: string },
+    auditStatement: unknown,
+  ): Promise<void> {
+    const db = this.prisma.forAccount(accountId);
+    const top = (await db.conversationStatus.findFirst({
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    })) as { order: number } | null;
+    await db.$transaction([
+      db.conversationStatus.create({
+        data: {
+          account_id: accountId,
+          key: def.key,
+          category: def.category,
+          agent_name: def.agentName,
+          end_user_name: def.endUserName,
+          order: (top?.order ?? 0) + 10,
+        },
+      }),
+      auditStatement,
+    ] as never);
+  }
+
+  /**
+   * W15a — change a definition's names, category or active flag, audit entry in the same
+   * transaction (the `setBrand` shape: the caller read first and refuses a no-op; `updateMany`
+   * reporting 0 means the row vanished between read and write, and the caller must treat that as
+   * NOT_FOUND rather than success). The KEY is never in `patch`: it is the identity the
+   * conversation FK stands on.
+   */
+  async updateDefinition(
+    accountId: string,
+    key: string,
+    patch: { agent_name?: string; end_user_name?: string; category?: string; active?: boolean },
+    auditStatement: unknown,
+  ): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.conversationStatus.updateMany({ where: { key }, data: patch }),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
+  }
+
+  /**
    * Every key whose category is NOT terminal — i.e. work that still occupies somebody.
    *
    * ⚠️ This replaces a hard-coded `['open','pending']` in two load counters, and that was not a tidy-up:

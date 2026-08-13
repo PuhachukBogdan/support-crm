@@ -418,6 +418,22 @@ export const AUDIT_ACTIONS = {
     status: 'live',
     label: 'A channel was created or its configuration changed',
   },
+  /**
+   * ⭐ W15a (subpoint 3.14) — an admin created or changed a ticket status definition.
+   *
+   * The same reasoning as `channel.config_changed` one entry up: a status's CATEGORY decides which
+   * bucket and which report a ticket appears in, so a quiet edit re-files work with nothing to point
+   * at — and retiring one changes what every agent may set. Class `assignment` by the same honest
+   * reuse; `target_ref` is the status KEY (the identity the conversation FK stands on). NO detail:
+   * the row holds its current state and the trail references it rather than copying it — the group
+   * rename precedent.
+   */
+  'status.config_changed': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'A ticket status was created or its definition changed',
+  },
 
   // ── retention (roadmap 7.3 + ADR 0015) ──
   'audit.trim': {

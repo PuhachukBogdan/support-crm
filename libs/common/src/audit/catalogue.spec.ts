@@ -97,6 +97,9 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // an admin created or changed a channel row. Audited because that row decides which tenant and
     // brand an arriving delivery belongs to; written by `chats` inside the upsert's own transaction.
     'channel.config_changed',
+    // ⭐ W15a (subpoint 3.14) — an admin created or changed a status definition. A status's category
+    // decides which bucket and report a ticket appears in; retiring one changes what agents may set.
+    'status.config_changed',
     // ── W9 / spec 035 (ADR 0044 §4/§5) — the anti-pitching inversion and its reversible pair ──
     // `contact.lookup` records EVERY attempt (found / none / ambiguous / rate_capped) with the
     // salted HASH of the searched value — the trail is the anomaly signal, so a refused attempt is

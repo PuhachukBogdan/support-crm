@@ -427,6 +427,23 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['update'],
   },
   /**
+   * ⭐ W15a (subpoint 3.14) — the status authoring WRITES. The read has no row here on purpose: the
+   * screen reads the catalogue through `conversation-statuses` above (feature 032's route already
+   * returns retired rows), so there is exactly one projection to keep honest. `create` POSTs the
+   * three fields; `update` PATCHes by KEY (names / category / active — sending `active` is what
+   * makes it a retire/restore, the edge translates absence into "unchanged").
+   */
+  {
+    resource: 'admin-statuses',
+    path: '/admin/statuses',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create', 'update'],
+  },
+  /**
    * ⭐ W11 (roadmap 9.17) — the account's brands. It exists because every player read REQUIRES a
    * brand and the browser had no way to learn which ones there are. ⚠️ A brand is a FILTER, not a
    * wall (ADR 0038 §1): this list decides nothing about access, and no screen may treat it as if

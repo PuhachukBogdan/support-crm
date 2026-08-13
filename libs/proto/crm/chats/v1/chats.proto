@@ -628,6 +628,45 @@ service ChatsWriteService {
   // both tiers; audited as `channel.config_changed` inside the write's own transaction. Declared WITH
   // its handler (`channel/channel-admin.grpc.controller.ts`), per the standing rule above.
   rpc UpsertEmailChannel(UpsertEmailChannelRequest) returns (ChannelConfig);
+
+  // ── ⭐ W15a (subpoint 3.14 — O6 reversed R21) — the status authoring screen's writes ──────────────
+  // The write counterpart the StatusReadController's header promised to 3.14. Feature 032 made these an
+  // INSERT/UPDATE by design (the six categories live in code; statuses are rows), which is why neither
+  // needs a migration. Gated `platform.settings.manage` at both tiers; audited `status.config_changed`
+  // inside the write's own transaction. Declared WITH their handler
+  // (`status/status-admin.grpc.controller.ts`).
+  rpc CreateConversationStatus(CreateConversationStatusRequest) returns (ConversationStatusDef);
+  rpc UpdateConversationStatus(UpdateConversationStatusRequest) returns (ConversationStatusDef);
+}
+
+// ── ⭐ W15a — creating a status (subpoint 3.14) ──────────────────────────────────────────────────────
+//
+// ⚠️ `category` is the STORED key (`new | open | pending | on_hold | solved | closed`), not the wire
+// enum above: UNSPECIFIED means "no arrival channel" on a conversation read, which is not a state a
+// status definition can be created in, and the service validates against the closed catalogue in
+// `libs/common/src/statuses/categories.ts` either way.
+//
+// There is deliberately NO `key` field: the key is derived from the agent-facing name by the server
+// (lowercased, word characters only) and is immutable afterwards — it is what the conversation FK
+// stands on, and letting a caller choose it invites collisions with the seeded vocabulary.
+message CreateConversationStatusRequest {
+  string category = 1;
+  string agent_name = 2;
+  string end_user_name = 3;
+}
+
+// W15a — editing a status. `key` names WHICH; the key itself never changes. Empty string = unchanged
+// for the three text fields. `active` needs a tri-state proto3 cannot express with a bare bool, so
+// `set_active` marks whether `active` is meant at all — retiring a status is `set_active + active:false`
+// (it stays readable on old tickets and stops being settable; feature 032's rule, now reachable from
+// the screen).
+message UpdateConversationStatusRequest {
+  string key = 1;
+  string agent_name = 2;
+  string end_user_name = 3;
+  string category = 4;
+  bool set_active = 5;
+  bool active = 6;
 }
 
 // ── Feature 033 (roadmap 6.1) — one signed delivery from an API channel ───────────────────────────

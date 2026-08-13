@@ -54,10 +54,26 @@ describe('*** a coming-soon module renders a static screen that reads as RESERVE
 });
 
 describe('an active module still renders its placeholder until its real screen lands', () => {
-  it('/contacts renders, titled from the catalogue rather than from the URL', async () => {
-    await renderModule('contacts');
-    // Titled "Contacts" from the catalogue — not "Contacts" capitalised out of the path, which is
-    // how "Knowledge" used to appear instead of "Knowledge Base".
-    expect(screen.getByRole('heading', { name: 'Contacts' })).toBeInTheDocument();
+  /**
+   * ⚠️ This used to use `/contacts`, and W11 gave that module a REAL page — a file route takes
+   * precedence over this catch-all, so the assertion described a screen no browser reaches any
+   * more. Moved to `/settings`, which is genuinely still waiting for its own file.
+   */
+  it('/settings renders, titled from the catalogue rather than from the URL', async () => {
+    await renderModule('settings');
+    // Titled from the catalogue — not capitalised out of the path, which is how "Knowledge" used to
+    // appear instead of "Knowledge Base".
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
   });
+});
+
+describe('W13 (3.13) — the two new reserved slots behave like reserved slots', () => {
+  for (const key of ['escalations', 'workforce']) {
+    it(`/${key} says it is reserved, not that something is broken`, async () => {
+      await renderModule(key);
+      expect(screen.getByTestId('module-coming-soon')).toHaveTextContent('reserved and not built yet');
+      // ⛔ And it must not read as a permission problem — "nothing is missing from your account".
+      expect(screen.getByTestId('module-coming-soon')).toHaveTextContent('nothing is missing');
+    });
+  }
 });

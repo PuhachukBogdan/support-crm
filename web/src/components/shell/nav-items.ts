@@ -6,6 +6,8 @@ import {
   BookOpen,
   Phone,
   ShieldCheck,
+  AlertTriangle,
+  CalendarClock,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -96,6 +98,23 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
     permission: 'analytics.dashboard.view',
     state: 'coming_soon',
   },
+  /**
+   * ⭐ W13 (subpoint 3.13) — the two remaining TOP-LEVEL surfaces the operator approved, each given
+   * a labelled place before it exists.
+   *
+   * **Escalations** replaces their Notion register (`cowork/escalations.md`); **Workforce** is the
+   * WFM layer he kept with *«оставляем, только UX поправить»*. Both are `coming_soon` rather than
+   * absent for R13's reason: a reserved slot is a promise a person can see, and adding one later is
+   * a code change every time somebody changes their mind.
+   *
+   * ⓘ The rest of 3.13's list — Access Management, Macros, Automations, Retention, ticket statuses —
+   * are NOT top-level modules: they live inside the Admin Center (§14 of the reference puts the rail
+   * at Support · Knowledge · Analytics · WFM · Admin), so their slots are sections of `/admin`.
+   * Putting each on the rail would answer the operator's own complaint — too many entries to scroll
+   * — with exactly the thing he complained about.
+   */
+  { key: 'escalations', label: 'Escalations', href: '/escalations', icon: AlertTriangle, state: 'coming_soon' },
+  { key: 'workforce', label: 'Workforce', href: '/workforce', icon: CalendarClock, state: 'coming_soon' },
   /**
    * ⭐ R13's reserved slot, and the reason `coming_soon`/`hidden` are states rather than a deletion.
    * Removing this entry is precisely what the operator asked us not to do.

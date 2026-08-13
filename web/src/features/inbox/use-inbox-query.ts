@@ -24,12 +24,17 @@ export const INBOX_ORDERS = rowFor('conversations').orders ?? [];
  * (research R7), which our own relabelling and resolving bump. "Last activity" would claim the
  * customer acted.
  *
- * ⛔ There is no third entry. Nothing computes urgency (roadmap 4.20 is unbuilt), and a "Recommended"
- * option would assert a property the data does not have — invisible to the agent trusting it.
+ * ⭐ The third entry arrived with feature 031 (roadmap 4.19). This block used to say there was none,
+ * because nothing computed urgency and a "Recommended" option would assert a property the data lacked.
+ *
+ * ⚠️ Its label is **"Most urgent"**, not "Recommended": the server sorts by a stated key — priority rank
+ * first, longest wait within it — and nothing recommends anything. "Recommended" would promise a judgement
+ * no code makes, which is the 029 refusal by another name.
  */
 export const ORDER_LABELS: Readonly<Record<string, string>> = {
   updated_desc: 'Newest updated',
   updated_asc: 'Oldest updated',
+  urgency_desc: 'Most urgent',
 };
 
 export const DEFAULT_ORDER = 'updated_desc';

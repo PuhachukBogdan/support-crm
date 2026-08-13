@@ -134,7 +134,9 @@ describe('applyWithRun — atomicity + at-most-once', () => {
     const updates = scoped.conversation.updateMany.mock.calls.map((c) => (c[0] as { data: unknown }).data);
     expect(updates).toEqual([
       { status: 'resolved' }, // wire name → storage scalar
-      { priority: 'high' },
+      // ⭐ Feature 031: the word AND its urgency rank, from one call. A rule that set the word alone would
+      // leave the queue ordered by the priority it just replaced, and the list would look right.
+      { priority: 'high', priority_rank: 3 },
       { assignee_operator_id: 'op-1' },
     ]);
   });

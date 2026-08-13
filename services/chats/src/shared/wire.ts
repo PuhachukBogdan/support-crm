@@ -58,6 +58,8 @@ const WIRE_TO_SLA_OUTCOME: Record<string, string> = {
 const WIRE_TO_CONVERSATION_ORDER: Record<string, string> = {
   CONVERSATION_ORDER_UPDATED_DESC: 'updated_desc',
   CONVERSATION_ORDER_UPDATED_ASC: 'updated_asc',
+  // Feature 031 (FR-019): the urgency rank. See `conversation/urgency.ts`.
+  CONVERSATION_ORDER_URGENCY_DESC: 'urgency_desc',
 };
 
 export function wireToConversationOrder(wire: string | undefined): string | undefined | null {

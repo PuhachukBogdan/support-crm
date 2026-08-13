@@ -27,6 +27,15 @@ model Conversation {
   reference            String? // human-facing ticket id (format id–date–channel TBD) — reserved
   status               String   @default("open") // open | pending | resolved | snoozed
   priority             String?
+  /// Feature 031 (roadmap 4.19): the URGENCY rank of `priority`, stored so the queue can be ordered by
+  /// meaning rather than by the alphabet (`high < low < normal` is correct as strings and nonsense as
+  /// urgency). 0 = no priority, or a word the product does not recognise — deliberately NOT "normal".
+  ///
+  /// ⚠️ Contains NO time. The other half of urgency (how long this has waited) is read at query time from
+  /// `updated_at`, so there is no stored value that can go stale as the clock moves — see
+  /// `src/conversation/urgency.ts`. Written only via `priorityWrite()`; a structural guard fails when any
+  /// path writes the word by hand.
+  priority_rank        Int      @default(0)
   channel              String?
   assignee_operator_id String? // soft ref to users.Operator.id
   // Reserved classification (ADR 0027) — all nullable (unclassified is valid, FR-012):
@@ -118,6 +127,15 @@ model Conversation {
   // Account-scoped leading, like the other list indexes here: every read is confined to one account
   // (Principle I), so `account_id` is the first thing the planner can use.
   @@index([account_id, updated_at])
+  // Feature 031 (roadmap 4.20): the drain reads `backlog_at IS NOT NULL` oldest-first. Declared here to
+  // match the shipped migration — the column arrived with its index and the model said so only in prose.
+  @@index([account_id, backlog_at])
+  // ── Feature 031 (roadmap 4.19): the URGENCY order ──────────────────────────────────────────────
+  //
+  // `(priority_rank DESC, updated_at ASC, id)` under a keyset predicate on the same columns. Without the
+  // index this third order is a sort over a scan of the largest table in the system — the same budget
+  // argument as the `updated_at` index above, and the reason the rank is stored at all.
+  @@index([account_id, priority_rank, updated_at])
 }
 
 /// An entry within a conversation. `private` flags an internal note; realtime-scoping so it

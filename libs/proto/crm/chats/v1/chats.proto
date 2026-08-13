@@ -56,14 +56,20 @@ enum ThreadProjection {
 // column, so OUR OWN relabelling, reassigning and resolving bump it. A queue sorted by it and labelled
 // "last activity" reports our bookkeeping as customer contact — and looks right doing so.
 //
-// True customer contact is `last_inbound_at` (feature 022) — nullable, deliberately unindexed, and an
-// input to URGENCY, which is roadmap 4.20. There is deliberately NO "recommended"/urgency value here:
-// nothing computes urgency, and a sort asserting a property the data lacks is invisible to the person
-// trusting it.
+// True customer contact is `last_inbound_at` (feature 022) — nullable and deliberately unindexed.
+//
+// ⭐ Feature 031 (roadmap 4.19/4.20) adds the URGENCY order this enum previously refused. The refusal read:
+// "nothing computes urgency, and a sort asserting a property the data lacks is invisible to the person
+// trusting it." A maintained rank now exists (`Conversation.priority_rank`), so the order says something
+// true: highest priority first, longest wait first within a priority.
+//
+// ⚠️ It is NOT SLA proximity and NOT a model of anything, and the screen's label must stay inside that
+// claim — the same discipline that made the other two options say "Updated" rather than "last activity".
 enum ConversationOrder {
   CONVERSATION_ORDER_UNSPECIFIED = 0; // = UPDATED_DESC (the default), never "no order"
   CONVERSATION_ORDER_UPDATED_DESC = 1;
   CONVERSATION_ORDER_UPDATED_ASC = 2;
+  CONVERSATION_ORDER_URGENCY_DESC = 3;
 }
 
 // Lean list item (no thread) — ListConversations / player feed.

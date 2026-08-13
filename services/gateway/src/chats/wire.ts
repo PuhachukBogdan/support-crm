@@ -209,13 +209,16 @@ const SLA_OUTCOME: Record<string, string> = {
  * Feature 029 — the Inbox's order. A CLOSED vocabulary, so fail-closed like status: an unknown value
  * is a 400, never the default.
  *
- * ⛔ There is no `recommended`. Roadmap 4.20 (the routing engine) is unbuilt and nothing computes
- * urgency, so a sort of that name would assert a property the data does not have — and unlike a
- * dropped filter, nobody can see it is wrong by looking at the list.
+ * ⭐ Feature 031 (roadmap 4.19/4.20) adds the third order. This comment used to end: *"there is no
+ * `recommended` — roadmap 4.20 is unbuilt and nothing computes urgency, so a sort of that name would assert
+ * a property the data does not have, and unlike a dropped filter nobody can see it is wrong by looking at
+ * the list."* The rank now exists and is maintained, so the order is honest. The name is `urgency_desc`
+ * rather than `recommended`: it says what it sorts by, and it does not imply a recommendation nothing made.
  */
 const CONVERSATION_ORDER: Record<string, string> = {
   updated_desc: 'CONVERSATION_ORDER_UPDATED_DESC',
   updated_asc: 'CONVERSATION_ORDER_UPDATED_ASC',
+  urgency_desc: 'CONVERSATION_ORDER_URGENCY_DESC',
 };
 
 export function toConversationOrderWire(order?: string): string {

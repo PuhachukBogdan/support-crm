@@ -5,6 +5,7 @@ import type { AutomationTrigger } from '../events/events.types';
 import type { MacroAction } from '../macros/macro-definition';
 import { parseDefinition, toStoredDefinition, type RuleDefinition } from './rule-definition';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { priorityWrite } from '../conversation/urgency';
 import {
   assigned,
   statusChanged,
@@ -321,7 +322,9 @@ export class AutomationsRepository {
         case 'MACRO_ACTION_TYPE_SET_PRIORITY':
           return db.conversation.updateMany({
             where: { id: conversationId },
-            data: { priority: a.value },
+            // Feature 031: the word and its urgency rank land together. A rule that set the word alone
+            // would leave the queue ordered by the PREVIOUS priority, and the list would look right.
+            data: { ...priorityWrite(a.value) },
           });
         case 'MACRO_ACTION_TYPE_ASSIGN':
           if (before) {

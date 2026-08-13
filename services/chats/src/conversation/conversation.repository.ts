@@ -28,6 +28,8 @@ interface TxCapableClient {
   $transaction<T>(fn: (tx: TransactionScope) => Promise<T>): Promise<T>;
 }
 import type { OrderedCursor } from '../shared/cursor';
+import { keysetPredicate, orderByFor, sortKeyOf, type OrderPart } from './order-parts';
+import { priorityWrite, urgencyOrderParts } from './urgency';
 
 /**
  * The orders the conversation list can be asked for (feature 029, roadmap 9.2).
@@ -37,10 +39,17 @@ import type { OrderedCursor } from '../shared/cursor';
  * R7). Consequently the screen labels this "Updated", never "last activity": our own relabelling and
  * resolving bump the value, so the second name would claim customer contact that never happened.
  *
- * ⛔ There is deliberately NO urgency/"recommended" order. Nothing computes urgency (roadmap 4.20 is
- * unbuilt), and a sort asserting a property the data lacks is a wrong answer nobody can see by looking.
+ * ⭐ **Feature 031 adds the third order that 029 refused.** The comment here used to read *"there is
+ * deliberately NO urgency order — nothing computes urgency (roadmap 4.20 is unbuilt), and a sort asserting
+ * a property the data lacks is a wrong answer nobody can see by looking."* 4.20 is this feature; the rank
+ * now exists and is maintained (`urgency.ts`), so the order says something true. The refusal was right, and
+ * lifting it required building the thing rather than renaming a sort.
  */
-export type ConversationOrderKey = 'created_desc' | 'updated_desc' | 'updated_asc';
+export type ConversationOrderKey =
+  | 'created_desc'
+  | 'updated_desc'
+  | 'updated_asc'
+  | 'urgency_desc';
 
 /**
  * ⚠️ The REPOSITORY default is the pre-029 behaviour, and deliberately so.
@@ -58,13 +67,22 @@ export const DEFAULT_CONVERSATION_ORDER: ConversationOrderKey = 'created_desc';
 /** What `ListConversations` uses when the caller names no order (feature 029, FR-002). */
 export const DEFAULT_INBOX_ORDER: ConversationOrderKey = 'updated_desc';
 
-const ORDERS: Record<
-  ConversationOrderKey,
-  { column: 'created_at' | 'updated_at'; direction: 'asc' | 'desc' }
-> = {
-  created_desc: { column: 'created_at', direction: 'desc' },
-  updated_desc: { column: 'updated_at', direction: 'desc' },
-  updated_asc: { column: 'updated_at', direction: 'asc' },
+/**
+ * Every order the server implements, as an ordered list of key parts (`id` is appended by
+ * {@link orderByFor}). Exported so the tests can assert the whole set — and so nothing else has to
+ * restate it.
+ *
+ * ⚠️ The `orderBy` and the cursor predicate are BOTH derived from these parts (see `order-parts.ts`).
+ * They cannot drift apart, which for a two-column order is not a tidiness point: a predicate that
+ * disagrees with the sort produces a plausible page two with rows repeated and rows missing.
+ */
+export const ORDERS: Record<ConversationOrderKey, readonly OrderPart[]> = {
+  created_desc: [{ column: 'created_at', direction: 'desc', type: 'time' }],
+  updated_desc: [{ column: 'updated_at', direction: 'desc', type: 'time' }],
+  updated_asc: [{ column: 'updated_at', direction: 'asc', type: 'time' }],
+  // Feature 031 (FR-019/FR-020): the stored rank, then the longest wait. See `urgency.ts` for why the
+  // rank holds no time and therefore cannot go stale.
+  urgency_desc: urgencyOrderParts(),
 };
 
 export function isConversationOrderKey(v: string): v is ConversationOrderKey {
@@ -88,6 +106,9 @@ const SUMMARY_SELECT = {
   updated_at: true,
   // Feature 023 (roadmap 4.18): the title rides the SUMMARY, because the list is what it exists to fix.
   subject: true,
+  // Feature 031: selected because the URGENCY order's page token has to carry it — a cursor cannot name
+  // a row's position in a sequence whose leading column the query did not read. Not on the wire.
+  priority_rank: true,
 } as const;
 
 const DETAIL_SELECT = {
@@ -186,7 +207,7 @@ export class ConversationRepository {
     f: ListFilters,
   ): Promise<{ rows: ConversationSummaryRow[]; nextCursor: OrderedCursor | null }> {
     const orderKey = f.order ?? DEFAULT_CONVERSATION_ORDER;
-    const { column, direction } = ORDERS[orderKey];
+    const parts = ORDERS[orderKey];
 
     const where: Record<string, unknown> = {};
     if (f.status) where.status = f.status;
@@ -226,25 +247,21 @@ export class ConversationRepository {
     }
 
     if (f.cursor) {
-      // ⭐ The keyset predicate MUST name the same column and the same direction as the `orderBy`
-      // below. If they ever disagree, page two is drawn from a different sequence than page one — and
-      // the result is not an error but a plausible list with rows repeated and rows missing. Both are
-      // derived from the one `ORDERS` entry above so they cannot drift apart.
-      const at = new Date(f.cursor.sortKey);
-      const beyond = direction === 'desc' ? { lt: at } : { gt: at };
-      const tieBreak = direction === 'desc' ? { lt: f.cursor.id } : { gt: f.cursor.id };
-      and.push({
-        OR: [{ [column]: beyond }, { AND: [{ [column]: at }, { id: tieBreak }] }],
-      });
+      // ⭐ The keyset predicate MUST name the same columns and directions as the `orderBy` below. If they
+      // ever disagree, page two is drawn from a different sequence than page one — and the result is not
+      // an error but a plausible list with rows repeated and rows missing. Feature 031: both are now
+      // GENERATED from the one `ORDERS` entry, because the urgency order has two columns and the
+      // hand-written version of that predicate is three clauses no review can check.
+      and.push(keysetPredicate(parts, f.cursor.sortKey, f.cursor.id));
     }
 
     if (and.length > 0) where.AND = and;
 
     const rows = (await this.prisma.forAccount(accountId).conversation.findMany({
       where,
-      // The tie-breaker follows the primary direction: a stable keyset needs the whole ordering to
-      // point one way, or the `id` comparison above contradicts the sort.
-      orderBy: [{ [column]: direction }, { id: direction }],
+      // The tie-breaker follows the INNERMOST part's direction: a stable keyset needs the ordering to
+      // point one way at the level it compares, or the `id` comparison above contradicts the sort.
+      orderBy: orderByFor(parts),
       take: f.limit + 1,
       select: SUMMARY_SELECT,
     })) as ConversationSummaryRow[];
@@ -254,7 +271,7 @@ export class ConversationRepository {
     const last = kept[kept.length - 1];
     const nextCursor =
       hasMore && last
-        ? { sortKey: last[column].toISOString(), id: last.id, order: orderKey }
+        ? { sortKey: sortKeyOf(last as unknown as Record<string, unknown>, parts), id: last.id, order: orderKey }
         : null;
     return { rows: kept, nextCursor };
   }
@@ -274,7 +291,9 @@ export class ConversationRepository {
         account_id: accountId,
         brand_id: input.brandId,
         player_id: input.playerId ?? null,
-        priority: input.priority ?? null,
+        // Feature 031: the word and its rank together, always — see `urgency.ts` and the structural
+        // guard that fails when any path writes the column by hand.
+        ...priorityWrite(input.priority),
         channel: input.channel ?? null,
         assignee_operator_id: input.assigneeOperatorId ?? null,
       },

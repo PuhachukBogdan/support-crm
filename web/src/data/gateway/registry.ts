@@ -92,11 +92,12 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     required: [],
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
-    // Feature 029: the two orders the server actually implements, and the whole list of them.
-    // ⛔ There is no `recommended`: roadmap 4.20 is unbuilt and nothing computes urgency, so a sort of
-    // that name would assert a property the data does not have — invisible to whoever trusts it.
+    // The orders the server actually implements, and the whole list of them.
+    // ⭐ Feature 031 (roadmap 4.19) adds `urgency_desc`. The list previously carried a note that there was
+    // no urgency option because nothing computed urgency; the rank exists now, so the third option is
+    // truthful. ⚠️ Still no `recommended`: nothing recommends anything, and this sorts by a stated key.
     orderParam: 'order',
-    orders: ['updated_desc', 'updated_asc'],
+    orders: ['updated_desc', 'updated_asc', 'urgency_desc'],
     ops: ['list', 'get'],
   },
   {

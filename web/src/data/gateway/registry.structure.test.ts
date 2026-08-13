@@ -125,21 +125,35 @@ describe('the registry is well formed', () => {
     }
   });
 
-  it('I-4c: `conversations` declares exactly the two orders the server implements', () => {
+  it('I-4c: `conversations` declares exactly the orders the server implements', () => {
     const row = rowFor('conversations');
     expect(row.orderParam).toBe('order');
-    expect([...row.orders!].sort()).toEqual(['updated_asc', 'updated_desc']);
+    // ⭐ Three since feature 031 (roadmap 4.19): the urgency order the server now genuinely has.
+    expect([...row.orders!].sort()).toEqual(['updated_asc', 'updated_desc', 'urgency_desc']);
   });
 
-  it('⛔ I-4d: NO row offers an urgency/"recommended" order — nothing computes one (roadmap 4.20)', () => {
-    // The sort control renders from this list, so an order named here is an order a person can pick.
-    // A label asserting priority with nothing behind it is the one failure this screen must not ship:
+  it('⛔ I-4d: no order promises a JUDGEMENT nothing makes', () => {
+    // The sort control renders from this list, so an order named here is an order a person can pick, and a
+    // label asserting something with nothing behind it is the one failure this screen must not ship:
     // unlike a broken filter, an agent working top-down cannot see that it is wrong.
+    //
+    // ⚠️ This assertion CHANGED with feature 031 and the change is the interesting part. It used to forbid
+    // `urgen|priorit` as well, because nothing computed urgency. A maintained rank now exists, so an order
+    // may sort BY a stated key — what stays forbidden is a name implying a recommendation, a model or a
+    // "best": those describe a judgement, and no code in this product makes one.
     for (const row of ROUTE_REGISTRY) {
       for (const order of row.orders ?? []) {
-        expect(order).not.toMatch(/recommend|priorit|urgen|smart|best/i);
+        expect(order).not.toMatch(/recommend|smart|best|ai/i);
       }
     }
+  });
+
+  it('⭐ I-4e: an order that CLAIMS urgency is only allowed because the server maintains a rank', () => {
+    // The one such order is `urgency_desc`, and the receipt for it is `Conversation.priority_rank` plus the
+    // structural guard in chats that fails when the word is written without its rank. If a future order
+    // matching this pattern appears, that receipt is what it needs — not an entry here.
+    const claiming = ROUTE_REGISTRY.flatMap((r) => (r.orders ?? []).filter((o) => /urgen|priorit/i.test(o)));
+    expect(claiming).toEqual(['urgency_desc']);
   });
 
   it('the players row declares no order — it has none, and asking is refused client-side', () => {

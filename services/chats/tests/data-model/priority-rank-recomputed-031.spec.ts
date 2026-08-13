@@ -107,6 +107,11 @@ describe('nothing writes the priority word without its rank (T036)', () => {
         // ⭐ The macro / automation action applier — SET_PRIORITY. The writer a search for "the
         // conversation write path" misses, and the same shape as feature 023's fifth assignment writer.
         'automation/automations.repository.ts',
+        // ⭐ W29: the MACRO applier joined the sanctioned writers — and its absence until now was a
+        // LATENT DEFECT this guard helped surface: SET_PRIORITY sat in the shared vocabulary since
+        // 014, the automation applier had a case, the macro applier mapped it to `undefined` and the
+        // whole apply batch died. The fix is the case; this row is its licence.
+        'macros/macros.repository.ts',
         // The helper itself.
         'conversation/urgency.ts',
       ].sort(),

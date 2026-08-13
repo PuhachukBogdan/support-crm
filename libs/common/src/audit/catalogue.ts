@@ -264,6 +264,16 @@ export const AUDIT_ACTIONS = {
     label: 'Conversation detached from its player',
   },
 
+  // ⭐ W29 (R46): a macro's removal. `deletion` class — its `name` detail key exists exactly for
+  // this: after the row is gone, the trail is the only place the name survives. Deletion is why the
+  // authoring screen can be trusted with ~97 hand-entered macros: a typo is removable, on record.
+  'macro.delete': {
+    class: 'deletion',
+    writer: 'chats',
+    status: 'live',
+    label: 'Macro deleted',
+  },
+
   // ── W27 / feature 036 (roadmap 9.16) — the shelf: the four verbs of the third place ───────────
   //
   // ⚠️ The DELETE here is criterion ④'s subject: it removes a conversation from every list and it

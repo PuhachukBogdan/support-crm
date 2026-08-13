@@ -388,7 +388,9 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     required: [],
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
-    ops: ['list'],
+    // ⭐ W29 (R46): the authoring screen — create (POST) and remove (DELETE /macros/:id) joined the
+    // list. Both `crm.templates.manage` at the gateway; the list stays the agents' picker read.
+    ops: ['list', 'create', 'remove'],
   },
   {
     resource: 'canned-responses',

@@ -103,6 +103,15 @@ export class GroupService {
     return rows.map((r) => r.user_id);
   }
 
+  /** ⭐ W29 — the INVERSE read: which groups is this user in. The same indexed `GroupMember` lookup
+   *  the resolver has run since 024, exposed for macro availability («кому доступен»). */
+  async groupsOf(accountId: string, userId: string): Promise<string[]> {
+    const rows = await this.prisma
+      .forAccount(accountId)
+      .groupMember.findMany({ where: { user_id: userId } });
+    return rows.map((r) => r.group_id);
+  }
+
   // ── mutations ───────────────────────────────────────────────────────────────────────────────────
 
   async create(accountId: string, actor: Actor, rawName: string): Promise<GroupOutcome> {

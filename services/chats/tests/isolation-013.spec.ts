@@ -138,6 +138,14 @@ function scopedFor(acc: string) {
         return Promise.resolve({ id: 'new', name: a.data.name });
       },
     },
+    // ⭐ W29: the usage fact — a statement in the apply batch, and the weekly counter's one read.
+    macroApplication: {
+      create: (a: { data: Row }) => {
+        writes.push({ table: 'macroApplication', account: acc, data: a.data });
+        return Promise.resolve({});
+      },
+      groupBy: () => Promise.resolve([]),
+    },
     cannedResponse: {
       findMany: () => Promise.resolve(own(canned)),
       create: (a: { data: Row }) => {
@@ -222,6 +230,9 @@ const macrosCtrl = () =>
     new LabelsRepository(prisma),
     conversationRepo(),
     fakeStatusRepository(),
+    // W29: memberships play no part in an isolation claim — the silent stub keeps it that way.
+    { listUserGroups: async () => null } as never,
+    { statement: () => Promise.resolve({}) } as never,
   );
 const cannedCtrl = () => new CannedController(new CannedRepository(prisma));
 

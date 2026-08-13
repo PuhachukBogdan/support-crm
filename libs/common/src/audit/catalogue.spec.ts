@@ -61,6 +61,8 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'conversation.release',
     'conversation.delete',
     'conversation.restore',
+    // ⭐ W29 (R46): macro deletion — the trail keeps the name the row no longer has.
+    'macro.delete',
     // Feature 024 (roadmap 5.3, ADR 0039): groups. All seven are `privilege`, because adding someone
     // to a group GRANTS ACCESS — that is the premise of the whole decision, and filing them anywhere
     // else would split "who gained rights, and how?" across two filters.

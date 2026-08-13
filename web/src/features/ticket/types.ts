@@ -81,6 +81,13 @@ export interface MacroWire {
   id: string;
   name: string;
   actions: { type: string; value?: string }[];
+  /** ⭐ W29: the reply TEXT — inserted into the draft on apply (the canned-response rule: the
+   *  person still reads and sends it; the server never sends text by itself). */
+  text?: string;
+  /** ⭐ W29: «кому доступен» — group ids; the SERVER already filtered the list by them. */
+  groupIds?: string[];
+  /** ⭐ W29: applications in the last 7 days (the authoring screen's counter). */
+  appliedLast7?: number;
 }
 
 /** W8 — a canned response (`GET /canned-responses`): text a lead wrote for agents to insert. */

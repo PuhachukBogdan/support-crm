@@ -559,6 +559,19 @@ model Macro {
   @@index([account_id])
 }
 
+/// ⭐ W29 (R46): one row per macro APPLICATION — the raw fact under the operator's weekly usage
+/// counter. Written inside the apply batch (all-or-nothing with the actions), read as a grouped
+/// count over the last 7 days. Deliberately not a counter column: a column answers one window,
+/// rows answer any window the operator asks for next.
+model MacroApplication {
+  id         String   @id @default(uuid())
+  account_id String
+  macro_id   String
+  applied_at DateTime @default(now())
+
+  @@index([account_id, macro_id, applied_at])
+}
+
 /// Reusable reply text an agent inserts while composing (feature 013, roadmap 4.5).
 /// Account-shared library (not per-operator). TEXT ONLY — it never sends a message itself (FR-009).
 model CannedResponse {

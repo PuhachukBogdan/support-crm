@@ -74,4 +74,7 @@ export const SCOPED_MODELS = [
   // account. A cross-account increment would leak one tenant's ticket volume into another's numbers,
   // which is the exact reason this is a per-account table and not a global sequence.
   'ConversationReferenceCounter',
+  // ⭐ W29 (R46): one row per macro application — the weekly usage counter's raw fact. Scoped like
+  // everything else; written inside the apply batch, so a failed macro counts nothing.
+  'MacroApplication',
 ] as const;

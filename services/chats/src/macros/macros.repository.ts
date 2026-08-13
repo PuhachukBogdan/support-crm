@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import type { MacroAction } from './macro-definition';
-import { parseDefinition, toDefinition } from './macro-definition';
+import type { MacroAction, MacroExtras } from './macro-definition';
+import { extrasOfDefinition, parseDefinition, toDefinition } from './macro-definition';
+import { priorityWrite } from '../conversation/urgency';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { StatusRepository } from '../status/status.repository';
 import {
@@ -16,6 +17,11 @@ export interface MacroRow {
   id: string;
   name: string;
   actions: MacroAction[];
+  /** ⭐ W29: the reply TEXT (inserted into the composer, never sent) and «кому доступен». */
+  text: string;
+  groupIds: string[];
+  /** ⭐ W29: applications in the last 7 days — the operator's counter. */
+  appliedLast7: number;
 }
 
 /**
@@ -48,15 +54,51 @@ export class MacrosRepository {
     // "understood" — a macro naming a retired status lists with NO actions rather than with a step the
     // apply path would refuse, so the screen and the button agree.
     const keys = await this.statuses.activeKeys(accountId);
-    return rows.map((r) => ({ id: r.id, name: r.name, actions: safeActions(r.definition, keys) }));
+    // ⭐ W29: the weekly counter — ONE grouped count for the whole page, never one query per macro.
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const counts = (await this.prisma.forAccount(accountId).macroApplication.groupBy({
+      by: ['macro_id'],
+      where: { applied_at: { gte: since } },
+      _count: { macro_id: true },
+    } as never)) as unknown as { macro_id: string; _count: { macro_id: number } }[];
+    const applied = new Map(counts.map((c) => [c.macro_id, c._count.macro_id]));
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      actions: safeActions(r.definition, keys),
+      ...extrasOfDefinition(r.definition),
+      appliedLast7: applied.get(r.id) ?? 0,
+    }));
   }
 
-  async create(accountId: string, name: string, actions: MacroAction[]): Promise<MacroRow> {
+  async create(
+    accountId: string,
+    name: string,
+    actions: MacroAction[],
+    extras?: MacroExtras,
+  ): Promise<MacroRow> {
     const row = (await this.prisma.forAccount(accountId).macro.create({
-      data: { account_id: accountId, name, definition: toDefinition(actions) as never },
+      data: { account_id: accountId, name, definition: toDefinition(actions, extras) as never },
       select: { id: true, name: true },
     })) as { id: string; name: string };
-    return { id: row.id, name: row.name, actions };
+    return {
+      id: row.id,
+      name: row.name,
+      actions,
+      text: extras?.text ?? '',
+      groupIds: extras?.groupIds ?? [],
+      appliedLast7: 0,
+    };
+  }
+
+  /** ⭐ W29: deletion — the audit statement rides the same transaction (act + entry, together). */
+  async delete(accountId: string, id: string, auditStatement: unknown): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.macro.deleteMany({ where: { id } }),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
   }
 
   /** The stored macro, or null when it is not in this account. */
@@ -77,6 +119,7 @@ export class MacrosRepository {
   async applyActions(
     accountId: string,
     conversationId: string,
+    macroId: string,
     actions: MacroAction[],
     actor: TransitionActor,
   ): Promise<void> {
@@ -136,10 +179,45 @@ export class MacrosRepository {
             where: { id: conversationId },
             data: { assignee_operator_id: a.value },
           });
+        /**
+         * ⚠️ W29 fixed a LATENT defect here: `SET_PRIORITY` had been in the shared vocabulary since
+         * feature 014 — validated at define, permission-checked at apply — and this switch had no
+         * case for it. The AUTOMATION applier had one; the macro applier mapped it to `undefined`
+         * and the whole batch died. Found by reading, pinned by a test that fails on the old code.
+         * `priorityWrite`: the word and its urgency rank land together, the setPriority rule.
+         */
+        case 'MACRO_ACTION_TYPE_SET_PRIORITY':
+          return db.conversation.updateMany({
+            where: { id: conversationId },
+            data: { ...priorityWrite(a.value) },
+          });
+        /**
+         * ⭐ W29 (R46/U9): the classification pair. `classified_by` lands WITH the value and names
+         * the OPERATOR, not the macro — an explicit human act (invoking a macro is one, feature
+         * 023's own rule) wins over the autoclassifier and LOCKS the field: the classifier's
+         * contract is that it never overwrites a human's word (`classified_by !== 'ai'`).
+         */
+        case 'MACRO_ACTION_TYPE_SET_CATEGORY':
+          return db.conversation.updateMany({
+            where: { id: conversationId },
+            data: { category: a.value, classified_by: actor.kind === 'user' ? actor.ref : 'ai' },
+          });
+        case 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY':
+          return db.conversation.updateMany({
+            where: { id: conversationId },
+            data: { sub_category: a.value, classified_by: actor.kind === 'user' ? actor.ref : 'ai' },
+          });
       }
     });
+    /**
+     * ⭐ W29 — the usage fact rides the SAME batch: the operator's weekly counter counts real
+     * applications, and an application that failed writes no row (all-or-nothing, FR-008).
+     */
+    const usage = db.macroApplication.create({
+      data: { account_id: accountId, macro_id: macroId, applied_at: now },
+    });
     // The transitions ride the SAME batch: either the macro and its record both land, or neither does.
-    await db.$transaction([...statements, ...transitionStatements] as never);
+    await db.$transaction([...statements, ...transitionStatements, usage] as never);
   }
 }
 

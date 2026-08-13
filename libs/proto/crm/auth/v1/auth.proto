@@ -129,6 +129,10 @@ service AuthService {
   // The routing seam: feature 013's `GROUP_ROUTING_NOT_AVAILABLE` finally has a source. Returns AUTH
   // user ids; chats maps them to assignable operator profiles through users (spec 024 research R3).
   rpc ListGroupMembers(ListGroupMembersRequest) returns (ListGroupMembersResponse);
+  // ⭐ W29 — additive: the INVERSE read (which groups is this user in). The resolver has answered
+  // this internally since 024; macro AVAILABILITY («кому доступен») is the first cross-service
+  // consumer. Ids only — names live on ListGroups.
+  rpc ListUserGroups(UserGroupsRequest) returns (UserGroupsResponse);
   rpc SetGroupPermission(SetGroupPermissionRequest) returns (GroupMutationResult);
 
   // ── Feature 015 (audit trail, roadmap 4.8) — additive. One RPC per source; the gateway fans out
@@ -567,6 +571,18 @@ message ListGroupMembersResponse {
   // ⚠️ proto3 omits a false bool, so an ABSENT value means NOT routable. That is the safe direction and it
   // matches the column's default: a desk nobody has marked does not receive pushed work.
   bool routable = 2;
+}
+
+// ⭐ W29 — the inverse membership read (see the rpc note).
+message UserGroupsRequest {
+  string account_id = 1;
+  string user_id = 2;
+}
+
+message UserGroupsResponse {
+  // An empty list is a valid answer ("this user is in no group") — a caller that needs to tell it
+  // apart from an outage fails closed with a named error, the membership client's standing rule.
+  repeated string group_ids = 1;
 }
 
 message SetGroupPermissionRequest {

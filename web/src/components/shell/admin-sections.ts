@@ -66,15 +66,13 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
   },
   {
     key: 'macros',
-    label: 'Macros & canned responses',
-    summary: 'Authoring the bundles agents apply. Only supervisors may write them.',
-    point: '14.4',
-  },
-  {
-    key: 'automations',
-    label: 'Automations',
-    summary: 'Rules that react to a ticket without a person — the engine exists, the screen does not.',
-    point: '4.6',
+    // ⭐ W29 (R46): ONE screen, three tabs — the operator's own composition («Автоматизации,
+    // макросы и триггеры — всё это в одном окне»). The former separate `automations` card folded
+    // in here: two cards answering one question were the R45 defect shape, one section over.
+    label: 'Macros, automations & triggers',
+    summary: 'Macro authoring works (the ~97 re-enter here); the two rule engines say Coming Soon.',
+    point: '14.4 / 4.6',
+    href: '/admin/macros',
   },
   {
     key: 'tags',

@@ -694,6 +694,8 @@ service ChatsWriteService {
   rpc DetachLabel(LabelLinkRequest) returns (Ack);
   rpc CreateLabel(CreateLabelRequest) returns (Label);
   rpc DefineMacro(DefineMacroRequest) returns (Macro);
+  // ⭐ W29 (R46) — additive; `crm.templates.manage` at both tiers, audited as `macro.delete`.
+  rpc DeleteMacro(MacroIdRequest) returns (Ack);
   rpc ApplyMacro(ApplyMacroRequest) returns (Conversation);
   rpc CreateCannedResponse(CreateCannedResponseRequest) returns (CannedResponse);
   // ── Feature 014 (automations + first-reply SLA, roadmap 4.6–4.7) — additive ──
@@ -1011,6 +1013,12 @@ enum MacroActionType {
   MACRO_ACTION_TYPE_ASSIGN = 3;       // value = operator_id
   // Feature 014: the shared action vocabulary is used by macros AND automation rules.
   MACRO_ACTION_TYPE_SET_PRIORITY = 4; // value = priority name (research R9)
+  // ⭐ W29 (R46) — the classification pair the operator's macros carry («категория, подуровень»).
+  // Appended, never reordered. Written WITH `classified_by = the applying operator` (U9): an
+  // explicit human act — and a macro is one — wins over the autoclassifier and locks the field.
+  // «форма» waits for W30: an action cannot set a field that does not exist yet.
+  MACRO_ACTION_TYPE_SET_CATEGORY = 5;      // value = category text
+  MACRO_ACTION_TYPE_SET_SUB_CATEGORY = 6;  // value = sub-category text
 }
 
 message MacroAction {
@@ -1029,6 +1037,15 @@ message Macro {
   string id = 1;
   string name = 2;
   repeated MacroAction actions = 3;
+  // ⭐ W29 (R46) — additive. The macro's reply TEXT: inserted into the agent's composer draft on
+  // apply, never sent by the server (the CannedResponse rule, FR-009, holds here too).
+  string text = 4;
+  // ⭐ W29 — «кому доступен»: group ids. EMPTY = every agent sees it in the picker. Availability is
+  // a VISIBILITY convenience, not a security boundary — applying still re-checks the permission of
+  // every bundled action; authors (crm.templates.manage) always see the full list.
+  repeated string group_ids = 5;
+  // ⭐ W29 — how many times this macro was applied in the last 7 days (the operator's counter).
+  int32 applied_last7 = 6;
 }
 message MacroList { repeated Macro macros = 1; }
 
@@ -1096,6 +1113,15 @@ message CreateLabelRequest {
 message DefineMacroRequest {
   string name = 1;
   repeated MacroAction actions = 2;
+  // ⭐ W29 — additive; see Macro.text / Macro.group_ids.
+  string text = 3;
+  repeated string group_ids = 4;
+}
+
+// ⭐ W29 — deletion exists because ~97 macros are re-entered BY HAND (R46's own reason for the
+// screen), and a typo that can never be removed is a library that rots. Audited (`macro.delete`).
+message MacroIdRequest {
+  string macro_id = 1;
 }
 message ApplyMacroRequest {
   string conversation_id = 1;

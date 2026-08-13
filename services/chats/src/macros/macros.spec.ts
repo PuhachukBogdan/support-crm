@@ -1,4 +1,4 @@
-import { Metadata } from '@grpc/grpc-js';
+import { Metadata, status as GrpcStatus } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
@@ -93,6 +93,12 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
     findMany: over.statusFindMany ?? jest.fn().mockResolvedValue(KEYS.map((key) => ({ key }))),
     findFirst: over.statusFindFirst ?? jest.fn().mockResolvedValue({ key: 'pending', active: true }),
   };
+  // ⭐ W29: the usage fact — `create` returns a statement (it rides the apply batch), groupBy is
+  // the weekly counter's one read.
+  const macroApplication = {
+    create: over.usageCreate ?? jest.fn().mockReturnValue({ __stmt: 'usage.create' }),
+    groupBy: over.usageGroupBy ?? jest.fn().mockResolvedValue([]),
+  };
   const $transaction = over.$transaction ?? jest.fn().mockResolvedValue([]);
   const forAccount = jest
     .fn()
@@ -103,6 +109,7 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
       conversationLabel,
       conversationTransition,
       conversationStatus,
+      macroApplication,
       $transaction,
     });
   return {
@@ -125,12 +132,32 @@ function md(perms: string[], accountId = 'acc-1'): Metadata {
   return m;
 }
 
-const build = (prisma: PrismaService) =>
+/** W29: availability degrades to «unscoped only» when auth is silent — this stub IS that outage. */
+const noAuthority = {
+  listUserGroups: async () => null,
+} as unknown as import('../auth/auth.client').AuthorAuthorityClient;
+
+const fakeAudit = () => {
+  const entries: Array<Record<string, unknown>> = [];
+  return {
+    entries,
+    repo: {
+      statement: (_a: string, input: Record<string, unknown>) => {
+        entries.push(input);
+        return Promise.resolve({});
+      },
+    } as unknown as import('../audit/audit.repository').AuditRepository,
+  };
+};
+
+const build = (prisma: PrismaService, audit = fakeAudit().repo, authority = noAuthority) =>
   new MacrosController(
     new MacrosRepository(prisma, new TransitionRecorder(), new StatusRepository(prisma)),
     new LabelsRepository(prisma),
     new ConversationRepository(prisma, new TransitionRecorder()),
     new StatusRepository(prisma),
+    authority,
+    audit,
   );
 
 const ALL_PERMS = [
@@ -247,14 +274,17 @@ describe('ApplyMacro — all-or-nothing (FR-008 / SC-004)', () => {
 
     expect($transaction).toHaveBeenCalledTimes(1);
     const batch = $transaction.mock.calls[0][0] as unknown[];
-    // Feature 023: THREE now — set status + add label + the transition that records the status
-    // change. The transition riding this same batch is the guarantee: either the macro and its
-    // record both land, or neither does.
-    expect(batch).toHaveLength(3);
+    // Feature 023 made it three (status + label + the transition recording the change); W29 makes
+    // it FOUR — the usage fact rides the same batch, so the weekly counter counts only macros that
+    // actually landed. All-or-nothing covers the record of the act exactly as it covers the act.
+    expect(batch).toHaveLength(4);
     const transition = (batch as Array<Record<string, unknown>>).find(
       (b) => b.__stmt === 'transition.create',
     );
     expect(transition).toBeDefined();
+    expect(
+      (batch as Array<Record<string, unknown>>).find((b) => b.__stmt === 'usage.create'),
+    ).toBeDefined();
     expect(conversation.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1' },
       data: { status: 'pending' }, // wire name → storage scalar
@@ -385,5 +415,134 @@ describe('W8 — the list gate is the USE key, structurally', () => {
   it('ListMacros requires crm.macros.use; DefineMacro stays crm.templates.manage', () => {
     expect(required(MacrosController.prototype.listMacros)).toBe('crm.macros.use');
     expect(required(MacrosController.prototype.defineMacro)).toBe('crm.templates.manage');
+  });
+});
+
+/**
+ * ⭐⭐ W29 (R46) — the authoring upgrades, and the LATENT DEFECT the block surfaced.
+ */
+describe('W29 — apply: the priority case that never existed, and the U9 classification lock', () => {
+  it('⭐ SET_PRIORITY applies — word AND rank in one statement (the 014 gap, pinned)', async () => {
+    // Before W29 this action validated at define, passed the permission check at apply, and then
+    // mapped to `undefined` in the batch: the whole apply died. The automation applier had the
+    // case; the macro applier did not. This test fails on the old code.
+    const { prisma, conversation } = fakePrisma({
+      macroFindFirst: jest.fn().mockResolvedValue({
+        id: 'm1',
+        name: 'urgent',
+        definition: { actions: [{ type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'high' }] },
+      }),
+    });
+    await build(prisma).applyMacro({ conversationId: 'c1', macroId: 'm1' }, md(ALL_PERMS));
+    expect(conversation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ priority: 'high', priority_rank: expect.any(Number) }),
+      }),
+    );
+  });
+
+  it('⭐ SET_CATEGORY lands WITH classified_by = the OPERATOR — U9: a macro is a human act', async () => {
+    const { prisma, conversation } = fakePrisma({
+      macroFindFirst: jest.fn().mockResolvedValue({
+        id: 'm1',
+        name: 'classify',
+        definition: {
+          actions: [
+            { type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'payments' },
+            { type: 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY', value: 'deposit' },
+          ],
+        },
+      }),
+    });
+    await build(prisma).applyMacro({ conversationId: 'c1', macroId: 'm1' }, md(ALL_PERMS));
+    expect(conversation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { category: 'payments', classified_by: 'u1' } }),
+    );
+    expect(conversation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { sub_category: 'deposit', classified_by: 'u1' } }),
+    );
+  });
+});
+
+describe('W29 — availability («кому доступен») and the weekly counter on the list read', () => {
+  const THREE = [
+    { id: 'm1', name: 'for-everyone', definition: { actions: DEF_STATUS_LABEL.actions } },
+    { id: 'm2', name: 'vip-only', definition: { actions: DEF_STATUS_LABEL.actions, groupIds: ['g-vip'] } },
+    { id: 'm3', name: 'other-desk', definition: { actions: DEF_STATUS_LABEL.actions, groupIds: ['g-x'] } },
+  ];
+
+  it('an AGENT sees unscoped macros plus their groups’; an AUTHOR sees everything', async () => {
+    const { prisma } = fakePrisma({ macroFindMany: jest.fn().mockResolvedValue(THREE) });
+    const membership = {
+      listUserGroups: jest.fn(async () => ['g-vip']),
+    } as unknown as import('../auth/auth.client').AuthorAuthorityClient;
+
+    const asAgent = await build(prisma, fakeAudit().repo, membership).listMacros(
+      {},
+      md(['crm.macros.use']),
+    );
+    expect(asAgent.macros.map((m: { id: string }) => m.id)).toEqual(['m1', 'm2']);
+
+    const asAuthor = await build(prisma, fakeAudit().repo, membership).listMacros(
+      {},
+      md(['crm.macros.use', 'crm.templates.manage']),
+    );
+    expect(asAuthor.macros.map((m: { id: string }) => m.id)).toEqual(['m1', 'm2', 'm3']);
+  });
+
+  it('⚠️ a silent auth degrades to UNSCOPED ONLY — the narrow direction, never a raise', async () => {
+    const { prisma } = fakePrisma({ macroFindMany: jest.fn().mockResolvedValue(THREE) });
+    const res = await build(prisma).listMacros({}, md(['crm.macros.use'])); // noAuthority → null
+    expect(res.macros.map((m: { id: string }) => m.id)).toEqual(['m1']);
+  });
+
+  it('the weekly counter rides the list from ONE grouped read', async () => {
+    const { prisma } = fakePrisma({
+      macroFindMany: jest.fn().mockResolvedValue([THREE[0]]),
+      usageGroupBy: jest.fn().mockResolvedValue([{ macro_id: 'm1', _count: { macro_id: 4 } }]),
+    });
+    const res = await build(prisma, fakeAudit().repo, noAuthority).listMacros(
+      {},
+      md(['crm.macros.use', 'crm.templates.manage']),
+    );
+    expect(res.macros[0]).toMatchObject({ id: 'm1', appliedLast7: 4 });
+  });
+});
+
+describe('W29 — define carries text + scope; delete is audited with the NAME', () => {
+  it('define stores the extras and answers them back', async () => {
+    const { prisma } = fakePrisma();
+    const res = await build(prisma).defineMacro(
+      {
+        name: 'refund',
+        actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' }],
+        text: 'Ваш возврат оформлен.',
+        groupIds: ['g-vip', 'g-vip', ''],
+      },
+      md(ALL_PERMS),
+    );
+    expect(res).toMatchObject({ text: 'Ваш возврат оформлен.', groupIds: ['g-vip'] });
+  });
+
+  it('⭐ delete: the audit entry rides the SAME transaction and keeps the name the row loses', async () => {
+    const deleteMany = jest.fn().mockResolvedValue({ count: 1 });
+    const tx = jest.fn(async (batch: unknown[]) => {
+      expect(batch).toHaveLength(2); // the delete AND its record — together or not at all
+      return [{ count: 1 }];
+    });
+    const { prisma } = fakePrisma({ $transaction: tx });
+    (prisma.forAccount('acc-1') as unknown as { macro: Record<string, unknown> }).macro.deleteMany =
+      deleteMany;
+    const audit = fakeAudit();
+    const res = await build(prisma, audit.repo).deleteMacro({ macroId: 'm1' }, md(ALL_PERMS));
+    expect(res).toEqual({ ok: true });
+    expect(audit.entries[0]).toMatchObject({ action: 'macro.delete', detail: { name: 'triage' } });
+  });
+
+  it('deleting a macro another account owns is NOT_FOUND — same words as an absent one', async () => {
+    const { prisma } = fakePrisma({ macroFindFirst: jest.fn().mockResolvedValue(null) });
+    await expect(
+      build(prisma).deleteMacro({ macroId: 'm-foreign' }, md(ALL_PERMS)),
+    ).rejects.toMatchObject({ error: { code: GrpcStatus.NOT_FOUND } });
   });
 });

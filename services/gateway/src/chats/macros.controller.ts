@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   OnModuleInit,
@@ -34,6 +35,8 @@ interface ChatsReadGrpc {
 interface ChatsWriteGrpc {
   defineMacro(d: Record<string, unknown>, md?: unknown): Observable<MacroWire>;
   applyMacro(d: Record<string, unknown>, md?: unknown): Observable<ConversationWire>;
+  // ⭐ W29 (R46): deletion — audited chats-side as `macro.delete`.
+  deleteMacro(d: { macroId: string }, md?: unknown): Observable<unknown>;
 }
 
 type ChatsReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -77,14 +80,38 @@ export class MacrosController implements OnModuleInit {
   @Post('macros')
   @RequiresPermission('crm.templates.manage')
   async define(
-    @Body() body: { name?: string; actions?: { type?: string; value?: string }[] },
+    @Body()
+    body: {
+      name?: string;
+      actions?: { type?: string; value?: string }[];
+      /** ⭐ W29 — the reply text and «кому доступен» (group ids). */
+      text?: string;
+      groupIds?: string[];
+    },
     @Req() req: ChatsReq,
   ) {
     // Throws 400 before the RPC when any action type/value is not recognised.
     const actions = toMacroActionsWire(body?.actions);
     return callChats(
-      this.write.defineMacro({ name: (body?.name ?? '').trim(), actions }, this.meta(req)),
+      this.write.defineMacro(
+        {
+          name: (body?.name ?? '').trim(),
+          actions,
+          text: typeof body?.text === 'string' ? body.text : '',
+          groupIds: Array.isArray(body?.groupIds)
+            ? body.groupIds.filter((g): g is string => typeof g === 'string')
+            : [],
+        },
+        this.meta(req),
+      ),
     );
+  }
+
+  /** ⭐ W29 (R46) — deletion: ~97 hand-entered macros need a way to remove a typo. Audited. */
+  @Delete('macros/:id')
+  @RequiresPermission('crm.templates.manage')
+  async remove(@Param('id') id: string, @Req() req: ChatsReq) {
+    return callChats(this.write.deleteMacro({ macroId: id }, this.meta(req)));
   }
 
   @Post('conversations/:id/macros/:macroId')

@@ -56,6 +56,8 @@ interface AuthGrpc {
     previewRole: string;
   }): Observable<ResolveResponseWire>;
   listGroupMembers(data: { accountId: string; groupId: string }): Observable<ListGroupMembersWire>;
+  // ⭐ W29: the inverse membership read — macro availability («кому доступен»).
+  listUserGroups(data: { accountId: string; userId: string }): Observable<{ groupIds?: string[] }>;
 }
 
 export interface AuthorResolution {
@@ -134,6 +136,26 @@ export class AuthorAuthorityClient implements OnModuleInit {
     if (ids === undefined || ids === null) return { userIds: [], routable };
     if (!Array.isArray(ids)) throw new AuthorityUnavailableError('unreadable response');
     return { userIds: ids.filter((id) => typeof id === 'string' && id !== ''), routable };
+  }
+
+  /**
+   * ⭐ W29 — which groups is this user in (macro availability). ⚠️ UNLIKE its two siblings, this
+   * one does NOT raise on an unreachable auth: availability is a picker CONVENIENCE, not a security
+   * boundary (applying re-checks every action's permission), and a picker that empties on an
+   * outage would take a working control down with a decoration. `null` = could not establish —
+   * the caller then shows only UNSCOPED macros: degraded in the narrow direction, and honest.
+   */
+  async listUserGroups(accountId: string, userId: string): Promise<string[] | null> {
+    if (!accountId || !userId) return null;
+    try {
+      const res = await firstValueFrom(this.auth.listUserGroups({ accountId, userId }));
+      const ids = res?.groupIds;
+      if (ids === undefined || ids === null) return []; // proto3: empty repeated = absent
+      if (!Array.isArray(ids)) return null;
+      return ids.filter((id) => typeof id === 'string' && id !== '');
+    } catch {
+      return null;
+    }
   }
 }
 

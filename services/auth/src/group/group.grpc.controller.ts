@@ -174,6 +174,12 @@ export class GroupGrpcController {
     return { userIds: members ?? [], routable };
   }
 
+  /** ⭐ W29 — the inverse membership read; ids only, account-scoped (see the proto note). */
+  @GrpcMethod('AuthService', 'ListUserGroups')
+  async listUserGroupsRpc(req: { accountId: string; userId: string }) {
+    return { groupIds: await this.groups.groupsOf(req.accountId, req.userId) };
+  }
+
   /**
    * ⚠️ The only handler that needs the caller's KEYS and not just a yes/no. A caller may confer only
    * what they already hold — otherwise `platform.group.manage` becomes a route to

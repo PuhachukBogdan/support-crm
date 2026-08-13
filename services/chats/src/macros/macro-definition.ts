@@ -32,6 +32,11 @@ export const MACRO_ACTION_TYPES = [
   // Feature 014 (roadmap 4.6/4.7): the vocabulary is now SHARED by macros and automation rules.
   // Appended, never reordered — a stored definition must keep its meaning.
   'MACRO_ACTION_TYPE_SET_PRIORITY',
+  // ⭐ W29 (R46): the classification pair the operator's macros carry. Applied WITH
+  // `classified_by = the applying operator` — U9's lock: an explicit human act (a macro is one)
+  // wins over the autoclassifier. «форма» waits for W30.
+  'MACRO_ACTION_TYPE_SET_CATEGORY',
+  'MACRO_ACTION_TYPE_SET_SUB_CATEGORY',
 ] as const;
 
 export type MacroActionType = (typeof MACRO_ACTION_TYPES)[number];
@@ -56,6 +61,9 @@ export const ACTION_PERMISSION: Readonly<Record<MacroActionType, string | null>>
   // Feature 014: changing priority is the same class of act as changing status, so it reuses the
   // same key rather than fragmenting the catalogue with `crm.conversation.priority` (research R9).
   MACRO_ACTION_TYPE_SET_PRIORITY: 'crm.conversation.reply',
+  // W29: classifying the ticket one is handling is everyday work — the same key, same reasoning.
+  MACRO_ACTION_TYPE_SET_CATEGORY: 'crm.conversation.reply',
+  MACRO_ACTION_TYPE_SET_SUB_CATEGORY: 'crm.conversation.reply',
 };
 
 const isActionType = (t: unknown): t is MacroActionType =>
@@ -99,9 +107,45 @@ export function parseDefinition(
   return parseActions(d.actions, statusKeys);
 }
 
-/** The storage shape for a validated action list. */
-export function toDefinition(actions: MacroAction[]): { actions: MacroAction[] } {
-  return { actions };
+/** ⭐ W29 — the macro's reply TEXT and its availability, both OPTIONAL and both riding the same
+ *  Json `definition` (absent = no text, visible to everyone — every pre-W29 macro reads exactly as
+ *  it always did). The text is length-capped for the same reason a subject is: an unbounded blob in
+ *  a list read is a cheap way to make the picker sweat. */
+export const MAX_MACRO_TEXT = 10_000;
+
+export interface MacroExtras {
+  text: string;
+  groupIds: string[];
+}
+
+export function parseExtras(input: { text?: unknown; groupIds?: unknown }): MacroExtras {
+  const text = typeof input.text === 'string' ? input.text.trim() : '';
+  if (text.length > MAX_MACRO_TEXT) throw new MacroDefinitionError('macro text too long');
+  const raw = Array.isArray(input.groupIds) ? input.groupIds : [];
+  const groupIds = [...new Set(raw.filter((g): g is string => typeof g === 'string' && g.trim() !== ''))];
+  return { text, groupIds };
+}
+
+export function extrasOfDefinition(definition: unknown): MacroExtras {
+  const d = (definition ?? {}) as { text?: unknown; groupIds?: unknown };
+  try {
+    return parseExtras(d);
+  } catch {
+    // A stored blob that fails the cap still lists — truncated view beats a picker that crashes.
+    return { text: String(d.text ?? '').slice(0, MAX_MACRO_TEXT), groupIds: [] };
+  }
+}
+
+/** The storage shape for a validated action list (+ W29's optional extras). */
+export function toDefinition(
+  actions: MacroAction[],
+  extras?: MacroExtras,
+): { actions: MacroAction[]; text?: string; groupIds?: string[] } {
+  return {
+    actions,
+    ...(extras?.text ? { text: extras.text } : {}),
+    ...(extras?.groupIds?.length ? { groupIds: extras.groupIds } : {}),
+  };
 }
 
 /** Every distinct permission an action list requires (deduplicated, order-stable). */

@@ -112,6 +112,9 @@ const MACRO_ACTION_TYPE: Record<string, string> = {
   assign: 'MACRO_ACTION_TYPE_ASSIGN',
   // Feature 014: the vocabulary is shared by macros and automation rules.
   set_priority: 'MACRO_ACTION_TYPE_SET_PRIORITY',
+  // ⭐ W29 (R46): the classification pair — applied with the U9 lock chats-side.
+  set_category: 'MACRO_ACTION_TYPE_SET_CATEGORY',
+  set_sub_category: 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY',
 };
 
 /** The closed priority set an action may SET (the list filter stays free-form — see chats wire). */

@@ -13,23 +13,37 @@ import { assertNotShelved } from '../conversation/shelf';
 import { LabelsRepository } from '../labels/labels.repository';
 import { StatusRepository } from '../status/status.repository';
 import { MacrosRepository, type MacroRow } from './macros.repository';
+import { AuthorAuthorityClient } from '../auth/auth.client';
+import { AuditRepository } from '../audit/audit.repository';
 import {
   MacroDefinitionError,
   parseActions,
   parseDefinition,
+  parseExtras,
   requiredPermissions,
 } from './macro-definition';
 
 interface DefineMacroRequestWire {
   name?: string;
   actions?: { type?: string; value?: string }[];
+  /** ⭐ W29 — additive: the reply text and «кому доступен». */
+  text?: string;
+  groupIds?: string[];
 }
 interface ApplyMacroRequestWire {
   conversationId?: string;
   macroId?: string;
 }
 
-const toMacroWire = (m: MacroRow) => ({ id: m.id, name: m.name, actions: m.actions });
+const toMacroWire = (m: MacroRow) => ({
+  id: m.id,
+  name: m.name,
+  actions: m.actions,
+  // ⭐ W29: the text the composer inserts, the availability scope, the weekly counter.
+  text: m.text,
+  groupIds: m.groupIds,
+  appliedLast7: m.appliedLast7,
+});
 
 /**
  * Macros (feature 013, US2 — roadmap 4.5). Authoring (`DefineMacro`/`ListMacros`) needs
@@ -50,6 +64,9 @@ export class MacrosController {
     @Inject(ConversationRepository) private readonly conversations: ConversationRepository,
     // Feature 032: a macro's SET_STATUS value is validated against THIS account's configured statuses.
     @Inject(StatusRepository) private readonly statuses: StatusRepository,
+    // ⭐ W29: availability needs the caller's memberships; deletion needs its audit entry.
+    @Inject(AuthorAuthorityClient) private readonly authority: AuthorAuthorityClient,
+    @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
   @GrpcMethod('ChatsReadService', 'ListMacros')
@@ -62,7 +79,23 @@ export class MacrosController {
   async listMacros(_req: unknown, metadata: Metadata) {
     const ctx = readActorContext(metadata);
     const rows = await this.macros.list(ctx.accountId);
-    return { macros: rows.map(toMacroWire) };
+    /**
+     * ⭐ W29 — «кому доступен». AUTHORS see everything (a scoping tool that hides rows from the
+     * person maintaining them would be unusable); everyone else sees unscoped macros plus those
+     * scoped to a group they are in. Availability is picker CONVENIENCE, not a boundary — applying
+     * re-checks every action's permission — so an unreachable auth degrades to «unscoped only»
+     * (the narrow direction) instead of raising: see `listUserGroups`' own note.
+     */
+    const perms = readActorPermissions(metadata);
+    if (hasPermission(perms, 'crm.templates.manage')) {
+      return { macros: rows.map(toMacroWire) };
+    }
+    const mine = await this.authority.listUserGroups(ctx.accountId, ctx.userId);
+    const memberOf = new Set(mine ?? []);
+    const visible = rows.filter(
+      (m) => m.groupIds.length === 0 || m.groupIds.some((g) => memberOf.has(g)),
+    );
+    return { macros: visible.map(toMacroWire) };
   }
 
   @GrpcMethod('ChatsWriteService', 'DefineMacro')
@@ -74,10 +107,15 @@ export class MacrosController {
       throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'name is required' });
     }
     let actions;
+    let extras;
     try {
       // Unknown action types are rejected HERE, at define time (research R4) — and, since feature 032,
       // so is a status this account has not configured or has retired.
       actions = parseActions(req.actions, await this.statuses.activeKeys(ctx.accountId));
+      // ⭐ W29: the reply text (capped) and «кому доступен». Group ids arrive from the authoring
+      // screen's own picker (the groups list) — an id no group carries hides the macro from every
+      // non-author, which the author sees at once because their own list shows everything.
+      extras = parseExtras({ text: req.text, groupIds: req.groupIds });
     } catch (err) {
       throw new RpcException({
         code: GrpcStatus.INVALID_ARGUMENT,
@@ -85,7 +123,7 @@ export class MacrosController {
       });
     }
     try {
-      const row = await this.macros.create(ctx.accountId, name, actions);
+      const row = await this.macros.create(ctx.accountId, name, actions, extras);
       return toMacroWire(row);
     } catch {
       throw new RpcException({
@@ -93,6 +131,36 @@ export class MacrosController {
         message: 'macro name already used',
       });
     }
+  }
+
+  /**
+   * ⭐ W29 (R46) — deletion, because ~97 macros are re-entered BY HAND and a typo that can never be
+   * removed is a library that rots. Same key as authoring at both tiers; the audit entry (the
+   * `deletion` class, whose `name` key exists exactly for this — after the row is gone the trail
+   * is the only place the name survives) rides the delete's own transaction.
+   */
+  @GrpcMethod('ChatsWriteService', 'DeleteMacro')
+  @RequiresChatsPermission('crm.templates.manage')
+  async deleteMacro(req: { macroId?: string }, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const macroId = (req.macroId ?? '').trim();
+    if (!macroId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'macro_id is required' });
+    }
+    const existing = await this.macros.getById(ctx.accountId, macroId);
+    if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    const statement = this.audit.statement(ctx.accountId, {
+      actorUserId: ctx.userId,
+      actorKind: 'user',
+      underPreview: ctx.underPreview,
+      action: 'macro.delete',
+      targetRef: macroId,
+      detail: { name: existing.name },
+    });
+    const count = await this.macros.delete(ctx.accountId, macroId, statement);
+    if (count === 0) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    return { ok: true };
   }
 
   @GrpcMethod('ChatsWriteService', 'ApplyMacro')
@@ -156,7 +224,7 @@ export class MacrosController {
     // 6. All actions in ONE transaction (FR-008).
     // Feature 023: a macro is an explicit HUMAN action (U9) — the agent invoked it deliberately, so
     // the transition names them, not the macro.
-    await this.macros.applyActions(ctx.accountId, conversationId, actions, userActor(ctx.userId));
+    await this.macros.applyActions(ctx.accountId, conversationId, macroId, actions, userActor(ctx.userId));
 
     const updated = await this.conversations.getById(ctx.accountId, conversationId);
     if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });

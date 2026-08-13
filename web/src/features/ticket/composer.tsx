@@ -187,7 +187,17 @@ export function Composer({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 {macros.map((m) => (
-                  <DropdownMenuItem key={m.id} onSelect={() => onApplyMacro(m.id)}>
+                  <DropdownMenuItem
+                    key={m.id}
+                    // ⭐ W29: the ACTIONS apply server-side; the TEXT inserts into the draft — the
+                    // person still reads and sends it (the canned-response rule, held here too).
+                    onSelect={() => {
+                      onApplyMacro(m.id);
+                      if (m.text) {
+                        setBody((prev) => (prev.trim() === '' ? m.text! : `${prev}\n${m.text}`));
+                      }
+                    }}
+                  >
                     {m.name}
                   </DropdownMenuItem>
                 ))}

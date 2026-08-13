@@ -17,6 +17,22 @@ import { join } from 'node:path';
  *
  * ⇒ **A security property enforced by one participant is a property every participant must be checked
  * against.** The next `@WebSocketGateway()` added to this service fails this suite until it joins the path.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⛔⛔ **THIS GUARD IS CURRENTLY PINNING A SHAPE THAT DOES NOT WORK — READ BEFORE TRUSTING IT.**
+ *
+ * Measured on the stand 2026-08-05: with BOTH gateways declaring `path: '/ws'`, a browser's handshake is
+ * closed and **`handleConnection` never runs** — the gateway logs nothing at all. Two `@WebSocketGateway`
+ * classes on one path, under the native `ws` adapter, do not compose the way this file assumes: the one
+ * that answers is whichever the adapter bound, and `IngressGateway` has no connection handler.
+ *
+ * So the RULE is right (one authorized path, every gateway checked against it) and the IMPLEMENTATION of
+ * that rule is wrong: the two gateways must become **one class** — the ping handler folded into the
+ * authorized gateway — rather than two classes sharing a path. Until that is done, this suite is green over
+ * a broken realtime edge, which is the one thing a guard must never be.
+ *
+ * ⚠️ Left failing-forward rather than deleted: whoever fixes it should have to read this.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════
  */
 const WS_DIR = __dirname;
 const AUTHORIZED_PATH = "path: '/ws'";

@@ -63,6 +63,7 @@ function fakePrisma() {
     prisma: { forAccount } as unknown as PrismaService,
     conversation,
     roundRobinState,
+    conversationTransition,
     forAccount,
   };
 }
@@ -235,5 +236,61 @@ describe('AutoAssignConversation — the pool comes from a group', () => {
     );
     const data = conversation.updateMany.mock.calls[0]?.[0]?.data ?? {};
     expect(Object.keys(data)).not.toContain('routed_group_id');
+  });
+});
+
+/**
+ * T014 (feature 031, FR-004) — **the router names ITSELF, and this is a regression assertion.**
+ *
+ * ⭐ Already satisfied before this feature: `round-robin-state.repository.ts` records the transition with
+ * `systemActor('auto-assign')`, and its comment states the reasoning — *"the actor is the router itself,
+ * because 'the system' is not an answer"*. Pinned here rather than rebuilt, because a routing decision that
+ * cannot be told apart from a person's decision makes the whole stream unreadable for the one question
+ * analytics asks of it: how much work does routing actually move?
+ *
+ * ⚠️ **There is deliberately NO audit ENTRY**, and that is a finding rather than an omission. Conversation
+ * assignment is not an audited action anywhere in this product — the catalogue has `role.assign`,
+ * `player.assign` and `player.unassign`, and no `conversation.assign`. Auto-assignment is therefore not
+ * *less* recorded than a person's assignment; both live in the transition stream. Adding an audit action
+ * only for the automatic path would make the trail assert that the router is more sensitive than a human
+ * doing the same thing, which is backwards.
+ *
+ * ⇒ FR-004's "one audit entry" is out of scope for this feature and belongs with whatever point decides
+ * that conversation assignment is an audited act — for EITHER actor.
+ */
+/**
+ * T014 (feature 031, FR-004) — **a regression assertion, not new behaviour.**
+ *
+ * ⭐ Already satisfied before this feature: the router records the transition with
+ * `systemActor('auto-assign')`, and its own comment gives the reasoning — *"the actor is the router itself,
+ * because 'the system' is not an answer"*. Pinned here because a routing decision that cannot be told apart
+ * from a person's makes the stream unreadable for the one question analytics asks of it.
+ *
+ * ⚠️ **There is deliberately NO audit ENTRY, and that is a finding rather than an omission.** Conversation
+ * assignment is not an audited action anywhere in this product: the catalogue has `role.assign`,
+ * `player.assign` and `player.unassign`, and no `conversation.assign`. So auto-assignment is not *less*
+ * recorded than a person's assignment — both live in the transition stream. Adding an audit action only for
+ * the automatic path would make the trail assert that the router is more sensitive than a human doing the
+ * same thing, which is backwards.
+ *
+ * ⇒ FR-004's "one audit entry" is **out of scope here** and belongs with whatever point decides that
+ * conversation assignment is an audited act — for EITHER actor.
+ */
+describe('T014 — the routing decision names the router as the actor', () => {
+  it('⭐ records exactly one transition, with a SYSTEM actor', async () => {
+    const { prisma, conversationTransition } = fakePrisma();
+    const { controller } = build(prisma, [cand('op-a')]);
+
+    const res = await controller.autoAssignConversation(
+      { conversationId: 'c1', groupId: 'g-1' },
+      md(),
+    );
+    expect(res.assigned).toBe(true);
+
+    expect(conversationTransition.create).toHaveBeenCalledTimes(1);
+    const row = conversationTransition.create.mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(row.actor_kind).toBe('system');
+    // ⚠️ And it names WHICH system — "the system" is not an answer when three of them can assign.
+    expect(String(row.actor_ref)).toContain('auto-assign');
   });
 });

@@ -10,15 +10,23 @@ function makeCtrl() {
   const getConversation = jest.fn().mockReturnValue(of({ id: 'c1' }));
   const setConversationStatus = jest.fn().mockReturnValue(of({ id: 'c1' }));
   const setConversationSubject = jest.fn().mockReturnValue(of({ id: 'c1' }));
+  const setConversationPriority = jest.fn().mockReturnValue(of({ id: 'c1' }));
   const client = {
     getService: (name: string) =>
       name === 'ChatsReadService'
         ? { listConversations, getConversation }
-        : { setConversationStatus, setConversationSubject },
+        : { setConversationStatus, setConversationSubject, setConversationPriority },
   } as unknown as ClientGrpc;
   const ctrl = new ConversationsController(client);
   ctrl.onModuleInit();
-  return { ctrl, listConversations, getConversation, setConversationStatus, setConversationSubject };
+  return {
+    ctrl,
+    listConversations,
+    getConversation,
+    setConversationStatus,
+    setConversationSubject,
+    setConversationPriority,
+  };
 }
 
 const req = () =>
@@ -115,6 +123,57 @@ describe('ConversationsController — the human title write', () => {
     const message = err instanceof Error ? err.message : String(err);
     expect(message).toContain('120');
     expect(message).not.toContain('секретное');
+  });
+});
+
+/**
+ * 2026-08-10 — `PATCH /conversations/:id/priority`, the write that did not exist.
+ *
+ * ⚠️ The load-bearing case is the EMPTY string. It is a legitimate value — "no priority", the state
+ * every conversation is created in — and the obvious edge guard (`if (!priority) 400`) refuses exactly
+ * that one value while passing every other, producing a field that can be set and never cleared.
+ */
+describe('ConversationsController — the priority write', () => {
+  it('forwards a trimmed priority and the actor metadata', async () => {
+    const { ctrl, setConversationPriority } = makeCtrl();
+    await ctrl.setPriority('c1', { priority: '  high  ' }, req());
+    const [arg, md] = setConversationPriority.mock.calls[0] as [
+      { conversationId: string; priority: string },
+      Metadata,
+    ];
+    expect(arg).toEqual({ conversationId: 'c1', priority: 'high' });
+    expect(md.get('x-actor-account-id')[0]).toBe('acc-1');
+  });
+
+  it('⭐ passes the EMPTY string through — clearing a priority is a real act', async () => {
+    const { ctrl, setConversationPriority } = makeCtrl();
+    await ctrl.setPriority('c1', { priority: '' }, req());
+    expect(
+      (setConversationPriority.mock.calls[0][0] as { priority: string }).priority,
+    ).toBe('');
+  });
+
+  it('400s a MISSING field — an absent value never becomes a chosen default', async () => {
+    const { ctrl, setConversationPriority } = makeCtrl();
+    await expect(ctrl.setPriority('c1', {}, req())).rejects.toMatchObject({ status: 400 });
+    expect(setConversationPriority).not.toHaveBeenCalled();
+  });
+
+  it('leaves the VOCABULARY to the owning service — the edge checks shape only', async () => {
+    // Two tiers each holding their own idea of what a priority is, is how they drift apart. An
+    // unknown word travels and is refused there, with one list of priorities in the product.
+    const { ctrl, setConversationPriority } = makeCtrl();
+    await ctrl.setPriority('c1', { priority: 'catastrophic' }, req());
+    expect(
+      (setConversationPriority.mock.calls[0][0] as { priority: string }).priority,
+    ).toBe('catastrophic');
+  });
+
+  it('requires the conversation-write permission, not a key of its own', () => {
+    const reflector = new Reflector();
+    expect(
+      reflector.get(REQUIRED_PERMISSION_KEY, ConversationsController.prototype.setPriority),
+    ).toBe('crm.conversation.reply');
   });
 });
 

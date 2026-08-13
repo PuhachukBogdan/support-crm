@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+// `BookOpen` is the left rail's Knowledge Base glyph — the same destination gets the same icon.
+import { BookOpen, IdCard, ListChecks, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ComingSoonBadge } from '@/features/inbox/coming-soon';
@@ -26,6 +28,34 @@ import { usePlayerCard } from './use-player-card';
  * panel is a region of the application rather than a widget inside the ticket page — which is what
  * "one area" has to mean structurally for W11's customer directory to reuse it.
  */
+/**
+ * ⭐ **2026-08-10 — three panels, three ICONS, and the tab strip is gone.**
+ *
+ * The operator, looking at the built version: *«кнопки Knowledge Base и Active Tickets были помечены
+ * не единичкой или двойкой, а соответствующими значками… чтобы они в самой боковой панельке, которая
+ * выплывающая, чтобы их сверху не было, потому что тут они дублируют друг друга… Active Tickets…
+ * должны быть отдельной иконкой справа, как Player Card и Knowledge Base… И она должна быть самой
+ * первой.»*
+ *
+ * Three things were wrong and they were one thing: **Active tickets was a TAB while the other two
+ * were RAIL BUTTONS**, so the panel had two competing controls for one question ("what am I looking
+ * at"), and the tab strip re-stated whichever rail button was pressed. Promoting Active tickets to
+ * the rail deletes the strip, the duplication and the special case together.
+ *
+ * `1` and `2` became icons for the reason the numbers were never good: a number is a position in a
+ * list nobody sees. The Knowledge Base icon is the SAME one the left rail uses for its Knowledge Base
+ * entry (`BookOpen`) — one destination, one glyph, wherever it appears.
+ */
+type PanelId = 'active' | 'player' | 'kb';
+
+/** The rail, in the order the operator named. Data, so the order is a line rather than a layout. */
+const PANELS: readonly { id: PanelId; label: string; icon: LucideIcon }[] = [
+  // First, deliberately: it is the agent's own work (R17).
+  { id: 'active', label: 'Active tickets', icon: ListChecks },
+  { id: 'player', label: 'Player card', icon: IdCard },
+  { id: 'kb', label: 'Knowledge base', icon: BookOpen },
+];
+
 export function TicketContextPanel({
   playerId,
   brandId,
@@ -37,26 +67,16 @@ export function TicketContextPanel({
   identified: boolean;
   currentConversationId: string;
 }) {
-  const [tab, setTab] = useState<'active' | 'content'>('content');
-  const [button, setButton] = useState<'player' | 'kb'>('player');
+  const [panel, setPanel] = useState<PanelId>('player');
 
   return (
     <div className="flex h-full min-h-0 gap-2" data-testid="ticket-context-panel">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* The tab strip: the agent's own work, above whichever panel is open. */}
-        <div className="mb-2 flex shrink-0 gap-1 border-b border-border pb-2">
-          <TabButton active={tab === 'content'} onClick={() => setTab('content')} testId="panel-tab-content">
-            {button === 'player' ? 'Player' : 'Knowledge'}
-          </TabButton>
-          <TabButton active={tab === 'active'} onClick={() => setTab('active')} testId="panel-tab-active">
-            Active tickets
-          </TabButton>
-        </div>
-
+        {/* No tab strip: the rail says which panel is open, and saying it twice was the complaint. */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {tab === 'active' ? (
+          {panel === 'active' ? (
             <ActiveTickets currentConversationId={currentConversationId} />
-          ) : button === 'player' ? (
+          ) : panel === 'player' ? (
             <PlayerCard playerId={playerId} brandId={brandId} identified={identified} />
           ) : (
             <KnowledgePlaceholder />
@@ -64,57 +84,23 @@ export function TicketContextPanel({
         </div>
       </div>
 
-      {/* The icon rail. Two buttons, and the absence of the other three is a decision. */}
-      <nav className="flex shrink-0 flex-col gap-1 border-l border-border pl-2" aria-label="Context panels">
-        <RailButton
-          active={tab === 'content' && button === 'player'}
-          onClick={() => {
-            setButton('player');
-            setTab('content');
-          }}
-          testId="rail-player"
-          label="Player card"
-        >
-          1
-        </RailButton>
-        <RailButton
-          active={tab === 'content' && button === 'kb'}
-          onClick={() => {
-            setButton('kb');
-            setTab('content');
-          }}
-          testId="rail-kb"
-          label="Knowledge base"
-        >
-          2
-        </RailButton>
+      {/* The icon rail. Three buttons, and the absence of Zendesk's other three is a decision. */}
+      <nav
+        className="flex shrink-0 flex-col gap-1 border-l border-border pl-2"
+        aria-label="Context panels"
+      >
+        {PANELS.map((p) => (
+          <RailButton
+            key={p.id}
+            active={panel === p.id}
+            onClick={() => setPanel(p.id)}
+            testId={`rail-${p.id}`}
+            label={p.label}
+            icon={p.icon}
+          />
+        ))}
       </nav>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  testId,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      data-testid={testId}
-      onClick={onClick}
-      className={`rounded px-2 py-1 text-xs ${active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -123,25 +109,29 @@ function RailButton({
   onClick,
   testId,
   label,
-  children,
+  icon: Icon,
 }: {
   active: boolean;
   onClick: () => void;
   testId: string;
   label: string;
-  children: React.ReactNode;
+  icon: LucideIcon;
 }) {
   return (
     <button
       type="button"
+      // ⚠️ The label survives as `aria-label` and `title`: an icon-only control that names itself
+      // nowhere is unreachable by a screen reader and a guess for everyone else.
       aria-label={label}
       aria-pressed={active}
       title={label}
       data-testid={testId}
       onClick={onClick}
-      className={`h-8 w-8 rounded text-sm ${active ? 'bg-muted font-semibold' : 'text-muted-foreground hover:bg-muted'}`}
+      className={`flex h-8 w-8 items-center justify-center rounded ${
+        active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
+      }`}
     >
-      {children}
+      <Icon className="h-4 w-4" aria-hidden />
     </button>
   );
 }

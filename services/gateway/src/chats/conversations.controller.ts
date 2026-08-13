@@ -69,6 +69,11 @@ interface ChatsWriteGrpc {
     d: { conversationId: string; subject: string },
     md?: unknown,
   ): Observable<ConversationWire>;
+  // ⭐ 2026-08-10: the priority a PERSON sets. `''` clears it; the vocabulary is the service's.
+  setConversationPriority(
+    d: { conversationId: string; priority: string },
+    md?: unknown,
+  ): Observable<ConversationWire>;
   // W9 / spec 035 (ADR 0044 §5): the reversible identity pair, both under crm.contact.lookup.
   setConversationPlayer(
     d: { conversationId: string; playerId: string },
@@ -292,6 +297,37 @@ export class ConversationsController implements OnModuleInit {
    * are soft refs across a service boundary), and whether the conversation exists must not be answerable
    * by an unauthorised caller at all — which is why the permission is on the route rather than after.
    */
+  /**
+   * ⭐ 2026-08-10 — `PATCH /conversations/:id/priority`.
+   *
+   * On the existing conversation surface and behind the existing write permission, for the reason
+   * `subject` gives: changing this conversation is already that key's authority, and a key gating one
+   * field is a key nobody assigns.
+   *
+   * ⚠️ The edge checks the SHAPE and nothing else — an `undefined` body field is a 400 here, while the
+   * closed vocabulary (`low | normal | high`) is the owning service's to enforce, so the two tiers
+   * cannot drift into two different ideas of what a priority is. `''` is a legitimate value (clear it)
+   * and must survive the edge, which is why this tests for `undefined` rather than for falsiness — the
+   * bug that reads `if (!priority)` and silently refuses the one value that means "none".
+   */
+  @Patch(':id/priority')
+  @RequiresPermission('crm.conversation.reply')
+  async setPriority(
+    @Param('id') id: string,
+    @Body() body: { priority?: string },
+    @Req() req: ChatsReq,
+  ) {
+    if (typeof body?.priority !== 'string') {
+      throw new BadRequestException('invalid priority: must be a string');
+    }
+    return callChats(
+      this.write.setConversationPriority(
+        { conversationId: id, priority: body.priority.trim() },
+        this.meta(req),
+      ),
+    );
+  }
+
   @Patch(':id/brand')
   @RequiresPermission('crm.conversation.set_brand')
   async setBrand(@Param('id') id: string, @Body() body: { brandId?: string }, @Req() req: ChatsReq) {

@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { relativeTime } from '@/features/inbox/wire-labels';
 import { useStatuses } from '@/features/inbox/use-statuses';
+import { PRIORITY_OPTIONS } from '@/data/priorities';
+import { EditableChoice, ReadOnlyValue } from './editable';
 import { IdentityPanel } from './identity-panel';
 import type { AsyncState } from '@/data/types';
 import type { TicketState } from '@/store/ticket/ticket.slice';
@@ -20,9 +22,20 @@ import type { ConversationDetail, LabelWire } from './types';
  * operator's caption and INDEX §2: brand · requester · assignee · status · Player ID; the cascading
  * Form/L1/L2/L3/PSP taxonomy is post-MVP 4.15 and gets no placeholder rows).
  *
- * Read-only in this pass — the editors («take it», status, tags) dock here in W7-7. Ids render as
- * ids: no directory read exists yet for operator or brand NAMES, and a made-up word would be a
- * confident wrong answer. An empty value renders as an explicit dash, never as an invented default.
+ * ⭐ **2026-08-10 — the column became editable** (operator: *«все остальные поля… тянутся сами, но мы
+ * их должны иметь возможность редактировать в случае чего»*). Every property that HAS a write is one
+ * now, in place and without a frame around it — see `editable.tsx` for the shape and why.
+ *
+ * ── What stayed read-only, and why each one did ─────────────────────────────────────────────────
+ * Recorded rather than left to look like an oversight, because "this cannot be edited" and "nobody
+ * built the editor" are indistinguishable from the screen — the exact confusion `Priority` caused
+ * until its write was built the same day.
+ *  · **Channel** — a fact about how the ticket ARRIVED, not a property of it. There is no write at any
+ *    tier, and there should not be: editing it would make a mail thread claim to be a chat, and the
+ *    reply path follows the channel.
+ *  · **Created / Updated** — the clock's, not a person's.
+ *  · **Player ID** — changed by ATTACHING a customer, not by typing an id. Typing one would let a
+ *    ticket point at a player nobody verified; the attach flow exists because that check matters.
  */
 export function FieldsColumn({
   detail,
@@ -31,10 +44,15 @@ export function FieldsColumn({
   mutation,
   myOperatorId,
   canLookUp,
+  brands,
+  canSetBrand,
   onTakeIt,
   onAttachLabel,
   onDetachLabel,
   onIdentityChanged,
+  onSetStatus,
+  onSetPriority,
+  onSetBrand,
 }: {
   detail: AsyncState<ConversationDetail>;
   labels: AsyncState<LabelWire[]>;
@@ -44,14 +62,29 @@ export function FieldsColumn({
   myOperatorId: string;
   /** W9: holder of `crm.contact.lookup`? RENDER-only — the server refuses regardless. */
   canLookUp: boolean;
+  /** The account's own brands, for the Brand chooser. Never a list spelled in this file (rule 6). */
+  brands: readonly { brandId: string; name: string }[];
+  /** Holder of `crm.conversation.set_brand`? RENDER-only, like every other key on this screen. */
+  canSetBrand: boolean;
   onTakeIt: (operatorId: string) => void;
   onAttachLabel: (labelId: string) => void;
   onDetachLabel: (labelId: string) => void;
   /** Identity changed (attached/detached) ⇒ the whole window re-reads. */
   onIdentityChanged: () => void;
+  onSetStatus: (statusKey: string) => void;
+  onSetPriority: (priority: string) => void;
+  onSetBrand: (brandId: string) => void;
 }) {
   const { statuses } = useStatuses();
   const busy = mutation.status === 'busy';
+
+  // ⭐ From the ACCOUNT's catalogue, active only: a retired status renders on an old ticket (see
+  // `EditableChoice`) but cannot be chosen again — the unbuildable-contradiction rule the Inbox
+  // funnel learned the hard way.
+  const statusOptions = statuses
+    .filter((s) => s.active)
+    .map((s) => ({ value: s.key, label: s.agentName }));
+  const brandOptions = brands.map((b) => ({ value: b.brandId, label: b.name || b.brandId }));
 
   return (
     <aside
@@ -61,7 +94,23 @@ export function FieldsColumn({
     >
       {detail.status === 'ready' ? (
         <>
-          <Field label="Brand" value={detail.data.brandId} mono />
+          <Labelled label="Brand">
+            {canSetBrand ? (
+              <EditableChoice
+                value={detail.data.brandId}
+                options={brandOptions}
+                placeholder={brandOptions.length === 0 ? 'No brands configured' : 'Choose a brand'}
+                onCommit={onSetBrand}
+                disabled={busy}
+                ariaLabel="Brand"
+                testId="field-brand"
+              />
+            ) : (
+              // Its own permission server-side (R22): an agent may not change the brand, and a
+              // control that 403s is worse than one that is not offered.
+              <ReadOnlyValue value={brandName(brands, detail.data.brandId)} />
+            )}
+          </Labelled>
           <div>
             <div className="text-xs font-medium text-muted-foreground">Requester</div>
             <div
@@ -70,7 +119,10 @@ export function FieldsColumn({
               {detail.data.identityState === 'unidentified' ? 'Not identified' : detail.data.playerId || '—'}
             </div>
             {/* ⭐ W9: the search-and-attach flow lives HERE and nowhere else — inside the ticket that
-                has no player. It renders nothing without `crm.contact.lookup` (render-only gating). */}
+                has no player. It renders nothing without `crm.contact.lookup` (render-only gating).
+                ⭐ 2026-08-10: FOLDED behind one link — the operator asked why a contact search sits on
+                a ticket at all («не вижу в этом смысла»). The capability is the only way to attach a
+                customer (ADR 0044 §4), so it stayed; what went is the box sitting open by default. */}
             <div className="mt-1">
               <IdentityPanel
                 conversationId={detail.data.id}
@@ -105,15 +157,47 @@ export function FieldsColumn({
               {detail.data.assigneeOperatorId || 'Unassigned'}
             </div>
           </div>
-          <Field
-            label="Status"
-            value={statuses.find((s) => s.key === detail.data.statusKey)?.agentName ?? detail.data.statusKey}
-          />
-          <Field label="Priority" value={detail.data.priority} />
-          <Field label="Channel" value={detail.data.channel} />
-          <Field label="Player ID" value={detail.data.playerId} mono />
-          <Field label="Created" value={relativeTime(detail.data.createdAt)} />
-          <Field label="Updated" value={relativeTime(detail.data.updatedAt)} />
+          <Labelled label="Status">
+            <EditableChoice
+              value={detail.data.statusKey}
+              options={statusOptions}
+              placeholder="Choose a status"
+              onCommit={onSetStatus}
+              disabled={busy}
+              ariaLabel="Status"
+              testId="field-status"
+            />
+          </Labelled>
+          <Labelled label="Priority">
+            <EditableChoice
+              value={detail.data.priority}
+              options={PRIORITY_OPTIONS}
+              placeholder="None"
+              onCommit={onSetPriority}
+              disabled={busy}
+              ariaLabel="Priority"
+              testId="field-priority"
+              // ⚠️ Clearing is a real state — it is the one every ticket is created in — so it must
+              // be reachable, or the field becomes a one-way door.
+              allowClear
+              clearLabel="None"
+            />
+          </Labelled>
+          <Labelled label="Channel">
+            <ReadOnlyValue
+              value={detail.data.channel}
+              hint="How this ticket arrived. Not editable — the reply path follows it."
+            />
+          </Labelled>
+          <Labelled label="Player ID">
+            <ReadOnlyValue value={detail.data.playerId} mono hint="Changed by attaching a customer." />
+          </Labelled>
+          <Labelled label="Created">
+            <ReadOnlyValue value={relativeTime(detail.data.createdAt)} />
+          </Labelled>
+          <Labelled label="Updated">
+            <ReadOnlyValue value={relativeTime(detail.data.updatedAt)} />
+          </Labelled>
           <TagsBlock
             labels={labels}
             accountLabels={accountLabels}
@@ -217,13 +301,23 @@ function TagsBlock({
   );
 }
 
-function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+/** Label above, value below — the one layout every row in this column uses. */
+function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className={`truncate text-sm ${mono ? 'font-mono' : ''}`} title={value || undefined}>
-        {value || '—'}
-      </div>
+      {children}
     </div>
   );
+}
+
+/**
+ * ⚠️ The brand's NAME when the account's list has it, and the raw id when it does not.
+ *
+ * Not a guess and not a dash: an id the brands read does not cover is a real state (a brand removed
+ * from the account, or a read that failed), and showing the id is the only honest answer — a dash
+ * would say "no brand", which is a different fact.
+ */
+function brandName(brands: readonly { brandId: string; name: string }[], id: string): string {
+  return brands.find((b) => b.brandId === id)?.name || id;
 }

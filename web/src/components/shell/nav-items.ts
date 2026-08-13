@@ -4,6 +4,7 @@ import {
   BarChart3,
   Settings,
   BookOpen,
+  Crown,
   Phone,
   ShieldCheck,
   AlertTriangle,
@@ -86,7 +87,16 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
     key: 'vip',
     label: 'VIP',
     href: '/vip',
-    icon: Users,
+    /**
+     * ⭐ 2026-08-10 — a CROWN, not the `Users` glyph Contacts wears (operator: *«на VIP и Contacts
+     * одинаковая иконка… хотел бы, чтобы на VIP была какая-то другая иконка, которая стилистически
+     * отвечала бы чему-то типа Premium. Корона, например»*).
+     *
+     * ⓘ Not decoration: two entries sharing one icon makes the rail unreadable at a glance, which is
+     * the whole reason the rail is icons — and these two are genuinely close in meaning (both are
+     * customers), so the glyph was the only thing telling them apart and it was telling them nothing.
+     */
+    icon: Crown,
     permission: 'crm.vip.workspace',
     state: 'active',
   },

@@ -7,7 +7,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/composites/states';
 import { useStatuses } from '@/features/inbox/use-statuses';
 import { useMyOperator } from '@/features/inbox/use-my-operator';
+// One brands read for the product, not a second copy of the same three lines (W11 wrote it).
+import { useBrands } from '@/features/contacts/use-brands';
 import { useSession } from '@/session';
+import { EditableText } from './editable';
 import { useTicket } from './use-ticket';
 import { useTicketLive } from './use-ticket-live';
 import { useTemplates } from './use-templates';
@@ -48,6 +51,20 @@ export function TicketWindow({ id }: { id: string }) {
   const session = useSession();
   const canLookUp =
     session.state.kind === 'authenticated' && session.state.permissionKeys.includes('crm.contact.lookup');
+  /**
+   * ⭐ 2026-08-10 — the Brand chooser's two inputs.
+   *
+   * `crm.conversation.set_brand` is a SUPERVISOR's key (R22: brand is read-only for agents), so the
+   * field renders as a name for most people and as a chooser for the few. RENDER-only, as every
+   * `permissionKeys` read on this screen is — the refusal itself is the server's, three tiers deep.
+   *
+   * ⚠️ The brand list is the ACCOUNT's own (`GET /brands`), never spelled in a screen: rule 6 — this
+   * product carries no company's names in its code, and a hardcoded pair would be exactly that.
+   */
+  const canSetBrand =
+    session.state.kind === 'authenticated' &&
+    session.state.permissionKeys.includes('crm.conversation.set_brand');
+  const { brands } = useBrands();
   // W8 (9.9) — the left column's width: a live CSS value during the drag, a stored number after it.
   const fields = useStoredPanelWidth();
 
@@ -97,10 +114,22 @@ export function TicketWindow({ id }: { id: string }) {
         </Link>
         {t.detail.status === 'ready' ? (
           <>
-            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold" data-testid="ticket-subject">
-              {/* An open derivation window (4.18) means the ticket genuinely has no subject YET —
-                  said as a state, never faked with the first message's text client-side. */}
-              {t.detail.data.subject || 'No subject yet'}
+            {/* ⭐ 2026-08-10 — the title is edited where it is read (operator: «название тикета тоже
+                должно быть как placeholder… можно сделать placeholder без явных рамочек»). Naming a
+                ticket LOCKS it against every automated writer (4.18 / FR-022), which is a property of
+                the write and not of this control — the server owns it either way.
+                ⓘ An open derivation window means the ticket genuinely has no subject YET; that is
+                said as a state, never faked with the first message's text client-side. */}
+            <h1 className="min-w-0 flex-1" data-testid="ticket-subject">
+              <EditableText
+                value={t.detail.data.subject}
+                placeholder="No subject yet"
+                onCommit={t.setSubject}
+                disabled={t.mutation.status === 'busy'}
+                ariaLabel="Ticket subject"
+                testId="ticket-subject-edit"
+                className="text-lg font-semibold"
+              />
             </h1>
             <Badge variant="secondary" data-testid="ticket-status">
               {statusName(t.detail.data.statusKey)}
@@ -134,10 +163,15 @@ export function TicketWindow({ id }: { id: string }) {
             mutation={t.mutation}
             myOperatorId={me.operatorId ?? ''}
             canLookUp={canLookUp}
+            brands={brands}
+            canSetBrand={canSetBrand}
             onTakeIt={t.takeIt}
             onAttachLabel={t.attachLabel}
             onDetachLabel={t.detachLabel}
             onIdentityChanged={t.refresh}
+            onSetStatus={t.setStatus}
+            onSetPriority={t.setPriority}
+            onSetBrand={t.setBrand}
           />
         </div>
         <PanelDivider target={fields} />

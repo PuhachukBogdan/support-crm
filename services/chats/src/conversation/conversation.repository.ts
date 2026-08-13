@@ -465,6 +465,36 @@ export class ConversationRepository {
   }
 
   /**
+   * ⭐ 2026-08-10 — the priority a person sets on the ticket they are reading.
+   *
+   * ⚠️ **`priorityWrite`, never a bare `{ priority }`.** The word and its urgency rank land together
+   * (feature 031, FR-019/020): writing the word alone leaves `priority_rank` describing the PREVIOUS
+   * priority, so the urgency order keeps the ticket where it was while the field on screen says it
+   * moved — a wrong list that looks right. The structural guard on this pairing is why the helper
+   * exists at all, and the macro writer next door uses the same one.
+   *
+   * ⓘ No transition is recorded, and that follows the existing writer rather than inventing a rule:
+   * `MACRO_ACTION_TYPE_SET_PRIORITY` has written this column since feature 014 without one, and the
+   * closed catalogue (ADR 0046) has no `priority_changed` type. Adding one is a deliberate act that
+   * belongs with whatever feature needs to READ the history — recording it here alone would leave a
+   * store where a person's change appears and a macro's does not, which is worse than neither.
+   */
+  async setPriority(
+    accountId: string,
+    id: string,
+    priority: string,
+  ): Promise<ConversationDetailRow | null> {
+    const db = this.prisma.forAccount(accountId);
+    // Empty = clear it, which is the state every conversation starts in (see the proto note).
+    const res = await db.conversation.updateMany({
+      where: { id },
+      data: { ...priorityWrite(priority === '' ? null : priority) },
+    });
+    if (res.count === 0) return null;
+    return this.getById(accountId, id);
+  }
+
+  /**
    * W9 — the transition-dims snapshot of one row, for a caller about to write a transition. Lives
    * HERE so no controller has to name the row's columns (the assignee-writers guard pins the files
    * that may touch them, and this file is one of them).

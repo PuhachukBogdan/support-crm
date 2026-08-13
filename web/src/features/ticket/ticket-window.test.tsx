@@ -66,6 +66,15 @@ describe('the window renders the record (happy path)', () => {
   });
 });
 
+/**
+ * ⭐ 2026-08-10 — **Enter sends, and the send BUTTON is gone** (operator: «убрать кнопку Send Reply и
+ * чтобы просто на Enter отправлялись сообщения»). Every test below drives the keyboard, because that
+ * is now the only way to send without also changing the status.
+ */
+function pressEnter(shift = false) {
+  fireEvent.keyDown(screen.getByTestId('composer-body'), { key: 'Enter', shiftKey: shift });
+}
+
 describe('the composer composes the request (and only the request)', () => {
   it("sends kind:'note' VERBATIM, scoped to this conversation", async () => {
     const stub = stubTicket();
@@ -74,7 +83,7 @@ describe('the composer composes the request (and only the request)', () => {
 
     fireEvent.click(screen.getByTestId('composer-mode-note'));
     fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'internal only' } });
-    fireEvent.click(screen.getByTestId('composer-send'));
+    pressEnter();
 
     await waitFor(() => expect(stub.writes).toHaveLength(1));
     expect(stub.writes[0]).toMatchObject({
@@ -93,7 +102,7 @@ describe('the composer composes the request (and only the request)', () => {
     await screen.findByTestId('ticket-subject');
 
     fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'fixed, closing' } });
-    openMenu('composer-submit-as');
+    openMenu('composer-submit');
     fireEvent.click(await screen.findByText('Submit as Solved'));
 
     await waitFor(() => expect(stub.writes).toHaveLength(2));
@@ -118,7 +127,7 @@ describe('the composer composes the request (and only the request)', () => {
     await screen.findByLabelText('Remove attachment shot.png');
 
     fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'see attached' } });
-    fireEvent.click(screen.getByTestId('composer-send'));
+    pressEnter();
     await waitFor(() => expect(stub.writes.filter((w) => w.resource === 'conversation-messages')).toHaveLength(1));
     expect(stub.writes.find((w) => w.resource === 'conversation-messages')).toMatchObject({
       payload: { body: 'see attached', uploadIds: ['u-1'] },
@@ -131,10 +140,181 @@ describe('the composer composes the request (and only the request)', () => {
     await screen.findByTestId('ticket-subject');
 
     fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'x' } });
-    fireEvent.click(screen.getByTestId('composer-send'));
+    pressEnter();
 
     expect(await screen.findByTestId('composer-error')).toHaveTextContent('refused');
     expect(stub.writes).toHaveLength(1); // the one attempt; no status write followed it
+  });
+});
+
+/** ⭐ 2026-08-10 — the composer the operator asked for: keyboard sends, one button sets the status. */
+describe('the composer after the 2026-08-10 rework', () => {
+  it('⭐ the Send reply button is GONE — the keyboard is how a message is sent', async () => {
+    renderWindow(stubTicket());
+    await screen.findByTestId('ticket-subject');
+    expect(screen.queryByTestId('composer-send')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('composer-submit-as')).not.toBeInTheDocument();
+    expect(screen.getByTestId('composer-submit')).toBeInTheDocument();
+  });
+
+  it('⭐ SHIFT+Enter is a newline, not a send — the multi-line answer stays possible', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'line one' } });
+    pressEnter(true);
+
+    // Nothing left the screen. The old rule (Ctrl+Enter) existed because a half-sent reply to a
+    // customer cannot be retracted; Shift+Enter is what keeps that case one keystroke away.
+    await waitFor(() => expect(stub.writes).toHaveLength(0));
+  });
+
+  it('a bare Enter on an EMPTY box sends nothing', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+    pressEnter();
+    await waitFor(() => expect(stub.writes).toHaveLength(0));
+  });
+
+  it('⭐⭐ «Submit as …» with NOTHING typed changes the status and posts NO message', async () => {
+    // «Close it, nothing to say» is an ordinary act. Before the rework every submit posted first, so
+    // this path would have written an empty message into the customer's thread.
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    openMenu('composer-submit');
+    fireEvent.click(await screen.findByText('Submit as Solved'));
+
+    await waitFor(() => expect(stub.writes).toHaveLength(1));
+    expect(stub.writes[0]).toMatchObject({
+      op: 'update',
+      resource: 'conversation-status',
+      within: 'c1',
+      payload: { status: 'solved' },
+    });
+    expect(stub.writes.filter((w) => w.resource === 'conversation-messages')).toHaveLength(0);
+  });
+});
+
+/**
+ * ⭐ 2026-08-10 — the left column and the title became editable in place (operator: «все поля слева
+ * должны быть плейсхолдерами, то есть их можно было поменять»).
+ *
+ * ⚠️ What these pin is the WRITE each control composes, not that a menu opened. A chooser that
+ * renders perfectly and PATCHes the wrong path is the defect worth a test.
+ */
+describe('the ticket’s own properties are edited in place', () => {
+  it('⭐ the title is a placeholder-style editor that PATCHes the subject', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    fireEvent.click(screen.getByTestId('ticket-subject-edit'));
+    fireEvent.change(screen.getByTestId('ticket-subject-edit-input'), {
+      target: { value: 'выплата задерживается' },
+    });
+    fireEvent.keyDown(screen.getByTestId('ticket-subject-edit-input'), { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(stub.writes.at(-1)).toMatchObject({
+        op: 'update',
+        resource: 'conversation-subject',
+        within: 'c1',
+        payload: { subject: 'выплата задерживается' },
+      }),
+    );
+  });
+
+  it('⚠️ an UNCHANGED title writes nothing — a no-op PATCH is an audit entry saying nothing happened', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    const heading = await screen.findByTestId('ticket-subject');
+    const before = heading.textContent ?? '';
+
+    fireEvent.click(screen.getByTestId('ticket-subject-edit'));
+    fireEvent.change(screen.getByTestId('ticket-subject-edit-input'), { target: { value: before } });
+    fireEvent.keyDown(screen.getByTestId('ticket-subject-edit-input'), { key: 'Enter' });
+
+    await waitFor(() => expect(stub.writes.filter((w) => w.resource === 'conversation-subject')).toHaveLength(0));
+  });
+
+  it('Escape abandons the edit and writes nothing', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    fireEvent.click(screen.getByTestId('ticket-subject-edit'));
+    fireEvent.change(screen.getByTestId('ticket-subject-edit-input'), { target: { value: 'typed then abandoned' } });
+    fireEvent.keyDown(screen.getByTestId('ticket-subject-edit-input'), { key: 'Escape' });
+
+    expect(screen.queryByTestId('ticket-subject-edit-input')).not.toBeInTheDocument();
+    await waitFor(() => expect(stub.writes.filter((w) => w.resource === 'conversation-subject')).toHaveLength(0));
+  });
+
+  it('⭐ Priority is a chooser over the PRODUCT’s three, and it PATCHes its own route', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    openMenu('field-priority');
+    fireEvent.click(await screen.findByTestId('field-priority-option-high'));
+
+    await waitFor(() =>
+      expect(stub.writes.at(-1)).toMatchObject({
+        op: 'update',
+        resource: 'conversation-priority',
+        within: 'c1',
+        payload: { priority: 'high' },
+      }),
+    );
+  });
+
+  it('⭐⭐ Priority can be CLEARED — the state every ticket is created in', async () => {
+    // The one-way-door bug: a field that can be set and never returned to empty. `''` must survive
+    // the whole way down, so nothing on the path may treat it as "absent".
+    const stub = stubTicket({ detail: { priority: 'high' } });
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    openMenu('field-priority');
+    fireEvent.click(await screen.findByTestId('field-priority-clear'));
+
+    await waitFor(() =>
+      expect(stub.writes.at(-1)).toMatchObject({
+        resource: 'conversation-priority',
+        payload: { priority: '' },
+      }),
+    );
+  });
+
+  it('Status is chosen from the ACCOUNT’s catalogue and PATCHes the status route', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    openMenu('field-status');
+    fireEvent.click(await screen.findByTestId('field-status-option-solved'));
+
+    await waitFor(() =>
+      expect(stub.writes.at(-1)).toMatchObject({
+        resource: 'conversation-status',
+        within: 'c1',
+        payload: { status: 'solved' },
+      }),
+    );
+  });
+
+  it('⛔ Channel, Created and Updated are NOT editable — they are facts, not properties', async () => {
+    // Recorded as a claim rather than left to look like an oversight: "cannot be edited" and "nobody
+    // built the editor" are indistinguishable from the screen, which is what made Priority confusing.
+    renderWindow(stubTicket());
+    await screen.findByTestId('ticket-subject');
+    expect(screen.queryByTestId('field-channel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('field-created')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('field-updated')).not.toBeInTheDocument();
   });
 });
 

@@ -294,6 +294,53 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     singleton: true,
     ops: ['update'],
   },
+  /**
+   * ⭐ 2026-08-10 — the three remaining editable properties of a ticket, each a child SINGLETON like
+   * the status above (operator: «все остальные поля… мы должны иметь возможность редактировать»).
+   *
+   * All three routes existed on the gateway before this; only `priority` needed building. They were
+   * absent HERE, which is why the left column rendered them as text: a screen can only reach what the
+   * registry declares, and an undeclared route is indistinguishable from an unbuilt one.
+   */
+  {
+    // The human title (feature 023). Refused when blank or over 120 chars — by the SERVER, so the
+    // screen never has to hold a second copy of the rule.
+    resource: 'conversation-subject',
+    path: '/conversations/{within}/subject',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['update'],
+  },
+  {
+    // ⚠️ `''` is a real value here — "no priority", the state a ticket is created in. Anything that
+    // treats the body as falsy-means-absent breaks exactly the clear case.
+    resource: 'conversation-priority',
+    path: '/conversations/{within}/priority',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['update'],
+  },
+  {
+    // Brand (feature 032 — R22). Its own permission server-side (`crm.conversation.set_brand`): an
+    // agent may not change it, a supervisor corrects it, and the correction is audited.
+    resource: 'conversation-brand',
+    path: '/conversations/{within}/brand',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['update'],
+  },
   {
     // Assignee: PUT places (idempotent), DELETE unassigns — `remove` on the singleton, no id.
     // «take it» is exactly `update` with the caller's own operator id from `/me/operator`.

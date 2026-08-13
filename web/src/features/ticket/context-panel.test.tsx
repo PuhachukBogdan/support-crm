@@ -30,14 +30,44 @@ function renderPanel(stub: TicketStub, props: Partial<React.ComponentProps<typeo
   );
 }
 
-describe('the rail is ONE area with exactly two buttons (R27)', () => {
-  it('offers the player card and the knowledge base — and nothing else', () => {
+describe('the rail is ONE area with exactly three buttons (R27, revised 2026-08-10)', () => {
+  it('⭐ offers active tickets, the player card and the knowledge base — and nothing else', () => {
     renderPanel(stubTicket());
+    const rail = screen.getByLabelText('Context panels');
+    expect(screen.getByTestId('rail-active')).toBeInTheDocument();
     expect(screen.getByTestId('rail-player')).toBeInTheDocument();
     expect(screen.getByTestId('rail-kb')).toBeInTheDocument();
-    // ⛔ Zendesk's 3/4/5 (side conversations, approvals, apps) are not built — the operator's call,
-    // and the space they took is where the active-ticket list went.
-    expect(screen.getByLabelText('Context panels').querySelectorAll('button')).toHaveLength(2);
+    // ⛔ Zendesk's 3/4/5 (side conversations, approvals, apps) are still not built — the operator's
+    // call. What changed is that Active tickets JOINED the rail instead of being a tab above it.
+    expect(rail.querySelectorAll('button')).toHaveLength(3);
+  });
+
+  it('⭐ Active tickets is FIRST — the operator named the order', () => {
+    renderPanel(stubTicket());
+    const buttons = [...screen.getByLabelText('Context panels').querySelectorAll('button')];
+    expect(buttons[0]).toHaveAttribute('data-testid', 'rail-active');
+  });
+
+  it('⭐ every button is an ICON that still NAMES itself — no `1`/`2` left', () => {
+    renderPanel(stubTicket());
+    const rail = screen.getByLabelText('Context panels');
+    // The numbers were positions in a list nobody could see. Their replacement must not be a
+    // different kind of silence: an icon-only control needs an accessible name.
+    for (const b of rail.querySelectorAll('button')) {
+      expect(b.textContent?.trim()).toBe('');
+      expect(b.getAttribute('aria-label')).toBeTruthy();
+      expect(b.querySelector('svg')).toBeInTheDocument();
+    }
+    expect(rail).not.toHaveTextContent('1');
+    expect(rail).not.toHaveTextContent('2');
+  });
+
+  it('⭐ the duplicated tab strip is GONE — the rail is the only control', () => {
+    // The complaint: «в самой боковой панельке… их сверху не было, потому что тут они дублируют друг
+    // друга». Two controls for one question is what made the panel confusing.
+    renderPanel(stubTicket());
+    expect(screen.queryByTestId('panel-tab-content')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('panel-tab-active')).not.toBeInTheDocument();
   });
 
   it('the Knowledge Base button says it is empty rather than pretending (R19)', () => {
@@ -66,11 +96,11 @@ describe('the player card', () => {
   });
 });
 
-describe('the Active tickets tab (R17)', () => {
+describe('the Active tickets panel (R17 — its own rail button since 2026-08-10)', () => {
   it('lists the agent’s own open work and switches ticket on click', async () => {
     const stub = stubTicket();
     renderPanel(stub);
-    fireEvent.click(screen.getByTestId('panel-tab-active'));
+    fireEvent.click(screen.getByTestId('rail-active'));
 
     const list = await screen.findByTestId('active-tickets');
     expect(list).toHaveTextContent('Active one');
@@ -81,7 +111,7 @@ describe('the Active tickets tab (R17)', () => {
   it('⭐ asks for MY tickets that I OPENED, in non-terminal categories — the rail is that view', async () => {
     const stub = stubTicket();
     renderPanel(stub);
-    fireEvent.click(screen.getByTestId('panel-tab-active'));
+    fireEvent.click(screen.getByTestId('rail-active'));
     await screen.findByTestId('active-tickets');
 
     const call = stub.listCalls.find((q) => q.filters?.openedByOperatorId !== undefined);

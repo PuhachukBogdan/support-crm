@@ -44,10 +44,23 @@ const WITH_KEY = ['crm.inbox.view', 'crm.contact.lookup'];
 const WITHOUT_KEY = ['crm.inbox.view', 'crm.contact.view'];
 const UNIDENTIFIED = { detail: { identityState: 'unidentified', playerId: '' } };
 
+/**
+ * ⭐ 2026-08-10 — the box is FOLDED behind one link, so every search test opens it first.
+ *
+ * The operator asked why a contact search sits on a ticket at all («не вижу в этом смысла»). It is
+ * the only route to attaching a customer (ADR 0044 §4), so what went is the clutter, not the
+ * capability — and these tests are what say that out loud: the flow below is unchanged, one click
+ * deeper.
+ */
+function openLookup() {
+  fireEvent.click(screen.getByTestId('lookup-open'));
+}
+
 describe('the lookup box appears only where 0044 allows it', () => {
   it('⛔ NOT RENDERED without the key — even on an unidentified ticket', async () => {
     renderWindow(stubTicket(UNIDENTIFIED), WITHOUT_KEY);
     await screen.findByTestId('ticket-subject');
+    expect(screen.queryByTestId('lookup-open')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lookup-value')).not.toBeInTheDocument();
     expect(screen.queryByTestId('identity-panel')).not.toBeInTheDocument();
   });
@@ -55,15 +68,33 @@ describe('the lookup box appears only where 0044 allows it', () => {
   it('⛔ NOT RENDERED on an IDENTIFIED ticket — the search is for tickets with no player', async () => {
     renderWindow(stubTicket(), WITH_KEY); // the default detail is identified
     await screen.findByTestId('ticket-subject');
+    expect(screen.queryByTestId('lookup-open')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lookup-value')).not.toBeInTheDocument();
     // What IS offered there is the reverse operation.
     expect(screen.getByTestId('detach-start')).toBeInTheDocument();
   });
 
-  it('rendered for a key holder on an unidentified ticket', async () => {
+  it('⭐ a key holder on an unidentified ticket gets a LINK, not a search box sitting open', async () => {
     renderWindow(stubTicket(UNIDENTIFIED), WITH_KEY);
     await screen.findByTestId('ticket-subject');
+    expect(screen.getByTestId('lookup-open')).toBeInTheDocument();
+    // The complaint, pinned: nothing that looks like a search until somebody asks for one.
+    expect(screen.queryByTestId('lookup-value')).not.toBeInTheDocument();
+
+    openLookup();
     expect(screen.getByTestId('lookup-value')).toBeInTheDocument();
+  });
+
+  it('cancel folds it away again and clears what was typed', async () => {
+    renderWindow(stubTicket(UNIDENTIFIED), WITH_KEY);
+    await screen.findByTestId('ticket-subject');
+    openLookup();
+    fireEvent.change(screen.getByTestId('lookup-value'), { target: { value: 'x@y.test' } });
+    fireEvent.click(screen.getByTestId('lookup-close'));
+
+    expect(screen.queryByTestId('lookup-value')).not.toBeInTheDocument();
+    openLookup();
+    expect(screen.getByTestId('lookup-value')).toHaveValue('');
   });
 });
 
@@ -73,6 +104,7 @@ describe('the search composes exactly one request, under the conversation', () =
     renderWindow(stub, WITH_KEY);
     await screen.findByTestId('ticket-subject');
 
+    openLookup();
     fireEvent.click(screen.getByTestId('lookup-kind-phone'));
     fireEvent.change(screen.getByTestId('lookup-value'), { target: { value: '+380501234567' } });
     fireEvent.click(screen.getByTestId('lookup-search'));
@@ -89,6 +121,7 @@ describe('the search composes exactly one request, under the conversation', () =
     const stub = stubTicket(UNIDENTIFIED);
     renderWindow(stub, WITH_KEY);
     await screen.findByTestId('ticket-subject');
+    openLookup();
     fireEvent.change(screen.getByTestId('lookup-value'), { target: { value: 'x@y.test' } });
     fireEvent.click(screen.getByTestId('lookup-search'));
 
@@ -115,6 +148,7 @@ describe('the search composes exactly one request, under the conversation', () =
     });
     renderWindow(stub, WITH_KEY);
     await screen.findByTestId('ticket-subject');
+    openLookup();
     fireEvent.change(screen.getByTestId('lookup-value'), { target: { value: 'x@y.test' } });
     fireEvent.click(screen.getByTestId('lookup-search'));
 
@@ -130,6 +164,7 @@ describe('the search composes exactly one request, under the conversation', () =
     });
     renderWindow(stub, WITH_KEY);
     await screen.findByTestId('ticket-subject');
+    openLookup();
     fireEvent.change(screen.getByTestId('lookup-value'), { target: { value: 'x@y.test' } });
     fireEvent.click(screen.getByTestId('lookup-search'));
 

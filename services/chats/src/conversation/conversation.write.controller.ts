@@ -6,7 +6,7 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
-import { toDetailWire } from '../shared/wire';
+import { isValidPriority, toDetailWire } from '../shared/wire';
 import { MAX_SUBJECT_LENGTH } from '../subject/subject.derive';
 import { DomainEventPublisher } from '../events/events.publisher';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
@@ -38,6 +38,10 @@ interface SetConversationBrandRequestWire {
 interface SetConversationSubjectRequestWire {
   conversationId: string;
   subject?: string;
+}
+interface SetConversationPriorityRequestWire {
+  conversationId: string;
+  priority?: string;
 }
 
 /**
@@ -364,6 +368,54 @@ export class ConversationWriteController {
 
     // No `this.events.*` here: a title is a label for humans, not a trigger. Publishing it would let a
     // rule react to a rename, which is the cascade feature 014 bounded by construction.
+    return toDetailWire(updated);
+  }
+
+  /**
+   * ⭐ 2026-08-10 — a person sets the priority (operator: «все остальные поля… мы должны иметь
+   * возможность редактировать»).
+   *
+   * ── Why it did not exist ────────────────────────────────────────────────────────────────────────
+   * A macro could set this column and a person could not. The field rendered on the ticket window
+   * from the first pass, read-only, which reads as "the product does not let you" rather than "the
+   * write was never built" — the two are indistinguishable from the screen.
+   *
+   * ── No new permission key, for SetSubject's reason ──────────────────────────────────────────────
+   * `crm.conversation.reply` already governs changing this conversation. Priority exposes nothing,
+   * deletes nothing and changes no privilege; a key gating one field is a key nobody assigns (ADR
+   * 0011's closed catalogue exists so adding one is deliberate).
+   *
+   * ── Refused, never coerced ──────────────────────────────────────────────────────────────────────
+   * An unknown word is INVALID_ARGUMENT. Choosing which of three priorities somebody meant is the
+   * same guess feature 032 refused to make for statuses, and it would be wrong in the direction that
+   * matters: silently filing an urgent ticket as normal.
+   *
+   * ⓘ Empty clears it — the state every conversation is created in.
+   */
+  @GrpcMethod('ChatsWriteService', 'SetConversationPriority')
+  @RequiresChatsPermission('crm.conversation.reply')
+  async setConversationPriority(req: SetConversationPriorityRequestWire, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const priority = (req.priority ?? '').trim();
+    if (priority !== '' && !isValidPriority(priority)) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid priority' });
+    }
+
+    // Resource-check the target's brand before mutating — no existence disclosure otherwise, exactly
+    // as the status and subject writes above do.
+    const existing = await this.repo.getById(ctx.accountId, req.conversationId);
+    if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    const updated = await this.repo.setPriority(ctx.accountId, req.conversationId, priority);
+    if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    // The window re-reads itself on this (subpoint 2.6's subscription), the same as every other
+    // field change made from the ticket screen.
+    await this.realtime.conversation('conversation.updated', ctx.accountId, req.conversationId);
+
+    // ⓘ No `this.events.*`: priority is a property automations READ (CONDITION_FIELD_PRIORITY), not a
+    // trigger. Publishing it would let a rule that sets a priority wake a rule that reads one — the
+    // cascade feature 014 bounded by construction.
     return toDetailWire(updated);
   }
 }

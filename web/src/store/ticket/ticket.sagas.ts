@@ -97,18 +97,34 @@ function* sendMessage(action: ReturnType<typeof ticketActions.send>) {
   const { id, kind, body, uploadIds, statusTo } = action.payload;
   try {
     const da = getDataAccess();
-    yield call([da, da.create], 'conversation-messages', {
-      kind,
-      body,
-      ...(uploadIds && uploadIds.length > 0 ? { uploadIds } : {}),
-    }, id);
+    /**
+     * ⭐ 2026-08-10 — **a status-only submit posts NO message.**
+     *
+     * «Submit as Closed» with nothing typed is an ordinary act, and the composer offers it (see
+     * `composer.tsx`). Before this, every submit posted first — so the empty case would have written
+     * an empty message into the customer's thread, or been refused by the server for a reason the
+     * person could not act on. Neither is what "close it, nothing to say" means.
+     *
+     * ⚠️ An attachment with no text is still a message: files are the content.
+     */
+    const hasContent = body.trim() !== '' || (uploadIds?.length ?? 0) > 0;
+    if (hasContent) {
+      yield call([da, da.create], 'conversation-messages', {
+        kind,
+        body,
+        ...(uploadIds && uploadIds.length > 0 ? { uploadIds } : {}),
+      }, id);
+    }
     if (statusTo) {
       yield call([da, da.update], 'conversation-status', '', { status: statusTo }, id);
     }
     yield put(ticketActions.sendSucceeded({ id }));
     // Re-read rather than merge: the server's thread is the record (ids, timestamps, attachment
     // metadata all minted there), and the read path is where every visibility rule lives.
-    yield all([call(loadThread, id), ...(statusTo ? [call(loadDetail, id)] : [])]);
+    yield all([
+      ...(hasContent ? [call(loadThread, id)] : []),
+      ...(statusTo ? [call(loadDetail, id)] : []),
+    ]);
   } catch (e) {
     yield put(ticketActions.sendFailed({ id, error: toDataError(e) }));
   }
@@ -156,6 +172,46 @@ function* detachLabel(action: ReturnType<typeof ticketActions.detachLabel>) {
 }
 
 /**
+ * ⭐ 2026-08-10 — the left column's field writes. Same contract as «take it» above: PATCH the one
+ * property, then RE-READ the detail. Nothing is merged locally, so what the screen shows after a
+ * write is what the server holds — including a value the server normalised (a title's collapsed
+ * whitespace) or refused to change.
+ *
+ * ⚠️ `setPriority` sends the value verbatim, `''` included: clearing is a real act and the empty
+ * string is the state a ticket is created in. A `value || undefined` here would drop exactly that
+ * one case and produce a field that can be set and never cleared.
+ */
+function* setField(
+  resource: 'conversation-subject' | 'conversation-status' | 'conversation-priority' | 'conversation-brand',
+  id: string,
+  body: Record<string, string>,
+) {
+  try {
+    const da = getDataAccess();
+    yield call([da, da.update], resource, '', body, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield call(loadDetail, id);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
+function* setSubject(action: ReturnType<typeof ticketActions.setSubject>) {
+  yield call(setField, 'conversation-subject', action.payload.id, { subject: action.payload.subject });
+}
+function* setStatus(action: ReturnType<typeof ticketActions.setStatus>) {
+  yield call(setField, 'conversation-status', action.payload.id, { status: action.payload.status });
+}
+function* setPriority(action: ReturnType<typeof ticketActions.setPriority>) {
+  yield call(setField, 'conversation-priority', action.payload.id, {
+    priority: action.payload.priority,
+  });
+}
+function* setBrand(action: ReturnType<typeof ticketActions.setBrand>) {
+  yield call(setField, 'conversation-brand', action.payload.id, { brandId: action.payload.brandId });
+}
+
+/**
  * W8 — apply a macro: POST to the macro's path under the conversation, then re-read what a macro
  * can touch (status/priority/assignee → detail; add_label → labels). The thread is untouched by
  * every action type in the catalogue, so it is deliberately not re-read.
@@ -193,5 +249,19 @@ export function* ticketSaga() {
   });
   yield fork(function* () {
     yield takeLeading(ticketActions.applyMacro.type, applyMacro);
+  });
+  // One `takeLeading` per field, not one over all four: they are independent properties, and a
+  // shared guard would drop a priority change because a title write happened to be in flight.
+  yield fork(function* () {
+    yield takeLeading(ticketActions.setSubject.type, setSubject);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.setStatus.type, setStatus);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.setPriority.type, setPriority);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.setBrand.type, setBrand);
   });
 }

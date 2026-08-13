@@ -1,4 +1,5 @@
 import type { ColumnTier } from '@/components/composites/data-table';
+import { PRIORITIES } from '@/data/priorities';
 import type { ConversationRow } from './types';
 
 /**
@@ -83,11 +84,19 @@ export type FilterKey = 'status' | 'channel' | 'priority';
 const CHANNELS = ['api', 'email'] as const;
 
 /**
- * The priority vocabulary the product writes (`priorityWrite`, feature 031). A closed set — unlike
- * statuses, priorities are not per-account configuration, so a static list here cannot rot the way
- * the status list did.
+ * The priority vocabulary the product writes (`priorityWrite`, feature 031).
+ *
+ * ⚠️⚠️ **This list used to be spelled here, and it was WRONG.** It read
+ * `['low', 'normal', 'high', 'urgent']` against a service that has always known three — under a
+ * comment claiming that a closed set "cannot rot the way the status list did". It rotted in the one
+ * way a closed set can: by containing a word the owning service never had. Filtering by `urgent`
+ * matched nothing, forever, and an empty list is exactly what a working filter shows when there is
+ * genuinely no urgent work — a wrong answer with no symptom, found only when the ticket window's
+ * priority EDITOR forced the two lists into the same sentence (2026-08-10).
+ *
+ * It is now imported from one place (see the import at the top of this file), cross-checked against
+ * the service by `priorities-match-the-service.test.ts`.
  */
-const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
 /**
  * ⭐ **Order copied from Zendesk** (`ui-design/screenshots/views_1.png`, 2026-08-03):

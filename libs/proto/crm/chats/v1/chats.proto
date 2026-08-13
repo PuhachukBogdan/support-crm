@@ -625,6 +625,11 @@ service ChatsWriteService {
   // ⭐ Feature 032 (roadmap 4.16 — R22) — additive. The one field an agent may NOT change. Gated by
   // `crm.conversation.set_brand` at both tiers and audited inside the update's own transaction.
   rpc SetConversationBrand(SetConversationBrandRequest) returns (Conversation);
+  // ⭐ 2026-08-10 (operator: «все остальные поля… мы должны иметь возможность редактировать») —
+  // additive. The one editable field on the ticket that had no write at all: a macro could set a
+  // priority and a person could not. Reuses `crm.conversation.reply` for the reason SetSubject gives
+  // — changing this conversation is already that key's authority.
+  rpc SetConversationPriority(SetConversationPriorityRequest) returns (Conversation);
   // ── W9 / spec 035 (ADR 0044 §5) — additive. The reversible identity pair, both under
   // `crm.contact.lookup` (detach requires the same permission as attach). Attach carries the
   // conversation's OWN brand implicitly — the player must exist under it; a bare id names two
@@ -857,6 +862,20 @@ message SetConversationStatusRequest {
 message SetConversationBrandRequest {
   string conversation_id = 1;
   string brand_id = 2;
+}
+
+// ⭐ 2026-08-10 — the priority a PERSON sets. Until now the only writer was a macro action
+// (`MACRO_ACTION_TYPE_SET_PRIORITY`), so the field rendered on the ticket and could not be changed by
+// the person reading it.
+//
+// ⚠️ `priority` is validated against the product's closed vocabulary (`low | normal | high`) and an
+// unknown word is INVALID_ARGUMENT, never a coerced write — the same rule the status key learned in
+// 032. An EMPTY string is the legitimate "no priority" and clears it, because that is the state a
+// conversation is created in and a field that could not return to its own initial value would be a
+// one-way door.
+message SetConversationPriorityRequest {
+  string conversation_id = 1;
+  string priority = 2;
 }
 
 // ── W9 / spec 035 — lookup + the reversible identity pair ──

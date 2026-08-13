@@ -67,7 +67,10 @@ export function Composer({
 
   const submit = (statusTo?: string) => {
     const text = body.trim();
-    if (!text || sending || files.uploading) return;
+    if (sending || files.uploading) return;
+    // ⭐ 2026-08-10: empty is allowed only when a STATUS is being set — "close it, nothing to say".
+    // A bare Enter on an empty box is still nothing, and must stay nothing.
+    if (text === '' && files.attachments.length === 0 && !statusTo) return;
     send({
       kind,
       body: text,
@@ -100,9 +103,25 @@ export function Composer({
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {
-          // Enter sends only with a modifier — a support answer is multi-line prose, and an
-          // accidental half-sent reply to a customer is not undoable.
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit();
+          /**
+           * ⭐ **ENTER SENDS** (operator, 2026-08-10: «нужно… чтобы просто на Enter отправлялись
+           * сообщения»). Shift+Enter is the newline, which is the convention every chat tool this
+           * team already uses.
+           *
+           * ⚠️ This REVERSES the previous rule, and the reversal is deliberate rather than an
+           * oversight — the old comment argued that a support answer is multi-line prose and an
+           * accidental half-sent reply to a customer is not undoable. Both remain true. The operator
+           * weighed them against the cost of reaching for the mouse on every message and chose this;
+           * Shift+Enter is what keeps the multi-line case one keystroke away.
+           *
+           * ⓘ `e.nativeEvent.isComposing` — an IME (any language composed from a candidate list)
+           * fires Enter to COMMIT the word being typed. Sending there would cut a message in half
+           * mid-word, and the person never pressed send.
+           */
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            submit();
+          }
         }}
         aria-label={isNote ? 'Internal note' : 'Public reply'}
         placeholder={isNote ? 'Write an internal note — the customer never sees it' : 'Write a reply to the customer'}
@@ -202,39 +221,49 @@ export function Composer({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-px">
-          <Button
-            data-testid="composer-send"
-            onClick={() => submit()}
-            disabled={sending || body.trim() === ''}
-            variant={isNote ? 'secondary' : 'default'}
-            className={statusOptions.length > 0 ? 'rounded-r-none' : undefined}
-          >
-            {sending ? 'Sending…' : isNote ? 'Add note' : 'Send reply'}
-          </Button>
-          {statusOptions.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  data-testid="composer-submit-as"
-                  disabled={sending || body.trim() === ''}
-                  variant={isNote ? 'secondary' : 'default'}
-                  className="rounded-l-none px-2"
-                  aria-label="Submit as a status"
+        {/**
+         * ⭐ 2026-08-10 — **the send button is gone; `Submit` names a STATUS.**
+         *
+         * The operator's words: *«убрать кнопку Send Reply и чтобы просто на Enter отправлялись
+         * сообщения. И снизу была кнопка вместо Send Reply, собственно, Submit с разными… статусами.
+         * Там Close, например.»* So the keyboard sends, and the one button left answers the question
+         * a person actually has when they finish typing — *what happens to the ticket now* — which is
+         * the split button's second half promoted to be the whole thing.
+         *
+         * ⚠️ **It submits with an EMPTY body too, and that is the point.** "Close this, nothing to
+         * say" is an ordinary act; requiring text would make a status change impossible without
+         * inventing a message. `submit()` already sends `body` and `statusTo` in one call, so an
+         * empty body is a status change with no message rather than a second code path.
+         *
+         * ⓘ No `statusOptions` (the account's catalogue has not loaded, or nothing is active) ⇒ no
+         * button at all. An absent control reads as "not set up", which is the truth; a disabled one
+         * reads as "not for you", which is not.
+         */}
+        {statusOptions.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                data-testid="composer-submit"
+                disabled={sending}
+                variant={isNote ? 'secondary' : 'default'}
+                aria-label="Submit and set a status"
+              >
+                {sending ? 'Sending…' : 'Submit ▾'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {statusOptions.map((s) => (
+                <DropdownMenuItem
+                  key={s.key}
+                  data-testid={`composer-submit-${s.key}`}
+                  onSelect={() => submit(s.key)}
                 >
-                  ▾
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {statusOptions.map((s) => (
-                  <DropdownMenuItem key={s.key} onSelect={() => submit(s.key)}>
-                    Submit as {s.agentName}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+                  Submit as {s.agentName}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </div>
   );

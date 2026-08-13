@@ -22,6 +22,11 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
   attachLabel: (labelId: string) => void;
   detachLabel: (labelId: string) => void;
   applyMacro: (macroId: string) => void;
+  /** 2026-08-10 — the left column's field writes. `priority: ''` clears it. */
+  setSubject: (subject: string) => void;
+  setStatus: (status: string) => void;
+  setPriority: (priority: string) => void;
+  setBrand: (brandId: string) => void;
 } {
   const dispatch = useDispatch<AppDispatch>();
   const state = useSelector((s: RootState) => s.ticket);
@@ -57,6 +62,36 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     [dispatch, id],
   );
 
+  const setSubject = useCallback(
+    (subject: string) => dispatch(ticketActions.setSubject({ id, subject })),
+    [dispatch, id],
+  );
+  const setStatus = useCallback(
+    (status: string) => dispatch(ticketActions.setStatus({ id, status })),
+    [dispatch, id],
+  );
+  const setPriority = useCallback(
+    (priority: string) => dispatch(ticketActions.setPriority({ id, priority })),
+    [dispatch, id],
+  );
+  const setBrand = useCallback(
+    (brandId: string) => dispatch(ticketActions.setBrand({ id, brandId })),
+    [dispatch, id],
+  );
+
   const { send: sendState, ...rest } = state;
-  return { ...rest, sendState, refresh, send, takeIt, attachLabel, detachLabel, applyMacro };
+  return {
+    ...rest,
+    sendState,
+    refresh,
+    send,
+    takeIt,
+    attachLabel,
+    detachLabel,
+    applyMacro,
+    setSubject,
+    setStatus,
+    setPriority,
+    setBrand,
+  };
 }

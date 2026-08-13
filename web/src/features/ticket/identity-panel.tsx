@@ -32,6 +32,21 @@ export function IdentityPanel({
   const [kind, setKind] = useState<'email' | 'phone'>('email');
   const [value, setValue] = useState('');
   const [confirming, setConfirming] = useState(false);
+  /**
+   * ⭐ 2026-08-10 — **folded shut by default** (operator: *«я не понимаю, почему тут… есть поиск.
+   * Он же тикет от конкретного юзера, поэтому не вижу в этом смысла вообще здесь делать поиск по
+   * email или phone»*).
+   *
+   * He is right about what it LOOKED like and wrong about what it is, and both matter. A search box
+   * sitting open in a properties column reads as "search the ticket", which is meaningless. What it
+   * actually does is attach an unidentified conversation to a customer — the only route to that in
+   * the product (ADR 0044 §4), and this ticket is unidentified precisely because it arrived by mail
+   * from an address nobody has matched yet.
+   *
+   * ⇒ The capability stays and the CLUTTER goes: one link, and the box appears when somebody asks
+   * for it. Deleting it outright would have left no way to attach a customer anywhere.
+   */
+  const [searching, setSearching] = useState(false);
 
   if (!canLookUp) return null;
 
@@ -89,8 +104,37 @@ export function IdentityPanel({
     );
   }
 
+  if (!searching) {
+    return (
+      <div data-testid="identity-panel">
+        <button
+          type="button"
+          data-testid="lookup-open"
+          className="text-xs text-primary hover:underline"
+          onClick={() => setSearching(true)}
+        >
+          + Attach a player
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2" data-testid="identity-panel">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Find by contact</span>
+        <button
+          type="button"
+          data-testid="lookup-close"
+          className="text-xs text-muted-foreground hover:underline"
+          onClick={() => {
+            setSearching(false);
+            setValue('');
+          }}
+        >
+          cancel
+        </button>
+      </div>
       <div className="flex gap-1">
         {(['email', 'phone'] as const).map((k) => (
           <button
@@ -144,6 +188,9 @@ export function IdentityPanel({
                 onClick={async () => {
                   if (await lookup.attach(lookup.state.status === 'answered' ? lookup.state.result.playerId : '')) {
                     setValue('');
+                    // Folded shut again on success: the ticket now HAS a player, so the box has
+                    // nothing left to ask and the column goes back to being properties.
+                    setSearching(false);
                     onChanged();
                   }
                 }}

@@ -150,6 +150,41 @@ export const ticketSlice = createSlice({
       prepare: (payload: { id: string; labelId: string }) => ({ payload }),
     },
     /**
+     * ⭐ 2026-08-10 — the left column's remaining writes, one action per field.
+     *
+     * ⚠️ **One action per field rather than a generic `setField({name, value})`.** A generic one
+     * would let a screen name any path it liked, which is how a typo becomes a silent no-op — and
+     * each of these four hits a DIFFERENT permission on the server (brand has its own key). Naming
+     * them separately is what keeps that visible here rather than only in a 403.
+     *
+     * All four are field-mutations, so they share `mutation` and its busy/error state with «take it»
+     * — one write at a time from this column, which is what the person's attention can follow.
+     */
+    setSubject: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; subject: string }) => ({ payload }),
+    },
+    setStatus: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; status: string }) => ({ payload }),
+    },
+    setPriority: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; priority: string }) => ({ payload }),
+    },
+    setBrand: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; brandId: string }) => ({ payload }),
+    },
+    /**
      * W8 — apply a macro. All-or-nothing SERVER-side (FR-008): a refused bundle leaves zero
      * changes, so the re-read after either outcome shows the truth. The service re-checks the
      * permission of every action inside, so this can never widen what the caller may do.

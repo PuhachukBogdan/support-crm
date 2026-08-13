@@ -80,7 +80,18 @@ if (!state) {
 
 const browser = await chromium.launch();
 try {
-  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, storageState: state, ...creds });
+  /**
+   * ⚠️ The operator's monitor is 2K, and column shedding depends on WIDTH: `channel` and `priority` are
+   * `contextual`, so at 1280 px they shed — and their funnels shed with them, because a funnel lives in
+   * its column. That is a real consequence of the header-funnel design, stated here rather than hidden
+   * by a lucky viewport: at his width all three are present, and this check runs at his width.
+   */
+  const ctx = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    storageState: state,
+    viewport: { width: 1920, height: 1080 },
+    ...creds,
+  });
   const p = await ctx.newPage();
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
@@ -96,8 +107,8 @@ try {
 
   // ── 1. the R38 rail ─────────────────────────────────────────────────────────────────────────────
   const labels = await p.$$eval('[data-testid="bucket-rail"] button', (bs) => bs.map((b) => b.textContent?.trim()));
-  if (JSON.stringify(labels) === JSON.stringify(['Inbox', 'Open', 'Ждут', 'Solved', 'Archive']))
-    pass('the rail is R38’s five buttons, in order, «Ждут» spelled the operator’s way');
+  if (JSON.stringify(labels) === JSON.stringify(['Inbox', 'Open', 'Pending', 'Solved', 'Archive']))
+    pass('the rail is R38’s five buttons, in plain English (operator, 2026-08-06)');
   else fail('R38 rail', JSON.stringify(labels));
 
   if (!/\d/.test(await p.$eval('[data-testid="bucket-rail"]', (el) => el.textContent ?? '')))
@@ -109,7 +120,7 @@ try {
   const counts = { open: await rows() };
   pass(`a real click on «Open» switched the bucket (${counts.open} rows)`);
 
-  for (const id of ['inbox', 'waiting', 'solved', 'archive']) {
+  for (const id of ['inbox', 'pending', 'solved', 'archive']) {
     await domClick(`[data-testid="bucket-${id}"]`);
     counts[id] = await rows();
   }
@@ -118,11 +129,22 @@ try {
   else fail('buckets narrow', `every bucket showed ${Object.values(counts)[0]} rows`);
 
   // ── 2. the toolbar in «Ждут» ────────────────────────────────────────────────────────────────────
-  await domClick('[data-testid="bucket-waiting"]');
+  await domClick('[data-testid="bucket-pending"]');
   await p.waitForSelector('[data-testid="filter-status"]', { timeout: 10000 });
-  pass('«Ждут» renders Status ▾ — the one bucket whose categories hold more than one status');
+  pass('Pending renders the status funnel — the one bucket whose categories hold >1 status');
+  for (const key of ['status', 'channel', 'priority']) {
+    const handle = await p.$(`[data-testid="filter-${key}"]`);
+    if (!handle) {
+      fail(`${key} funnel present`, 'its column is not rendered at this width');
+      continue;
+    }
+    const inHeader = await handle.evaluate((el) => !!el.closest('th'));
+    if (inHeader) pass(`the ${key} funnel is INSIDE its column header (operator: «прям в эту плашку»)`);
+    else fail(`${key} funnel placement`, 'not in a th');
+  }
 
-  // REAL click #2: Radix opens under real input (the native-popup freeze lesson, still guarded).
+  // REAL click #2: the funnel opens under real input (both library dropdowns froze this screen; this
+  // one is hand-written, so "it opens" is a claim that needs a real pointer event behind it).
   await p.click('[data-testid="filter-status"]', { timeout: 12000 });
   const options = await p.$$eval('[role="option"]', (os) => os.map((o) => o.textContent?.trim()));
   await p.keyboard.press('Escape');
@@ -142,34 +164,59 @@ try {
     .filter((s) => s.active !== false && ['CONVERSATION_STATUS_CATEGORY_PENDING', 'CONVERSATION_STATUS_CATEGORY_ON_HOLD'].includes(s.category))
     .map((s) => s.agentName);
   if (wanted.length > 1 && JSON.stringify(options) === JSON.stringify(['Any', ...wanted]))
-    pass(`Status ▾ offers exactly the account’s ACTIVE «Ждут» statuses, by agent name (${wanted.length})`);
+    pass(`the status funnel offers exactly the account’s ACTIVE Pending statuses, by name (${wanted.length})`);
   else fail('Status ▾ options', `offered ${JSON.stringify(options)} vs catalogue ${JSON.stringify(wanted)}`);
 
-  const chips = await p.$$eval('[role="group"][aria-label="Channel"] button', (bs) => bs.map((b) => b.textContent?.trim()));
-  if (JSON.stringify(chips) === JSON.stringify(['Все', 'API', 'Email']))
-    pass('channel chips: Все · API · Email — no messenger chip until a transport exists');
-  else fail('channel chips', JSON.stringify(chips));
+  // ── 3. ⭐⭐ the self-scope, and the loop that is no longer there ────────────────────────────────
+  //
+  // The screen is scoped to the signed-in agent with NO control to widen it (operator, 2026-08-06:
+  // «Менеджеру и так только его тикеты приходят»). So the assertions are: no widening control exists,
+  // and every request carried the scope.
+  if (!(await p.$('[data-testid="scope-mine"]'))) pass('⛔ no «Мои» toggle — the scope is not optional');
+  else fail('scope control removed', 'a widening toggle is still on the page');
 
-  // ── 3. «Мои» — the 5.11 scope (REAL click #3) ──────────────────────────────────────────────────
-  await domClick('[data-testid="bucket-open"]');
-  const allRows = await rows();
-  if (!(await p.locator('[data-testid="scope-mine"]').isDisabled()))
-    pass('«Мои» is enabled — /me/operator answered on the public origin');
-  else fail('«Мои» enabled', '/me/operator did not answer');
-  await p.click('[data-testid="scope-mine"]', { timeout: 12000 });
-  const myRows = await rows();
-  console.log(`        Open: all=${allRows} mine=${myRows}`);
-  if (myRows < allRows) pass('⭐ «Мои» narrows the list to the signed-in agent’s own tickets');
-  else if (myRows === allRows) note(`«Мои» changed nothing: this agent holds every Open ticket here (all=${allRows}) — not a defect, but not a proof either`);
-  else fail('«Мои» narrows', `mine=${myRows} > all=${allRows}`);
+  const scoped = await p.evaluate(async () => {
+    const seen = [];
+    const orig = window.fetch;
+    window.fetch = (...args) => {
+      const url = String(args[0] ?? '');
+      if (url.includes('/api/conversations?')) seen.push(url);
+      return orig.apply(window, args);
+    };
+    document.querySelector('[data-testid="bucket-open"]')?.click();
+    await new Promise((r) => setTimeout(r, 1500));
+    window.fetch = orig;
+    return seen;
+  });
+  if (scoped.length > 0 && scoped.every((u) => u.includes('assigneeOperatorId=')))
+    pass(`every list request carries the agent's own scope (${scoped.length} sampled)`);
+  else fail('self-scope on the wire', JSON.stringify(scoped).slice(0, 200));
+
+  /**
+   * ⭐⭐ THE FREEZE ASSERTION. React's scheduler posts through a MessageChannel, so counting posts is
+   * counting commits. Before the fix a single bucket click produced ~23 000 posts in 2.5 s and the page
+   * died on the next click; quiet is single digits. This is the only assertion here that could have
+   * caught the defect the operator hit three times — no jsdom test can see it.
+   */
+  const posts = await p.evaluate(async () => {
+    let n = 0;
+    const proto = MessagePort.prototype;
+    const orig = proto.postMessage;
+    proto.postMessage = function (...a) { n += 1; return orig.apply(this, a); };
+    document.querySelector('[data-testid="bucket-pending"]')?.click();
+    await new Promise((r) => setTimeout(r, 2500));
+    proto.postMessage = orig;
+    return n;
+  });
+  if (posts < 200) pass(`⭐⭐ no re-render storm: ${posts} scheduler posts in 2.5s (pre-fix: ~23 000)`);
+  else fail('re-render storm', `${posts} posts in 2.5s`);
 
   // ── 4. the status column, and the freed colour ─────────────────────────────────────────────────
-  await domClick('[data-testid="scope-mine"]');
-  await domClick('[data-testid="bucket-waiting"]');
+  await domClick('[data-testid="bucket-pending"]');
   await p.waitForTimeout(1300);
   const cells = await p.$$eval('table tbody tr [data-kind="status"]', (cs) => cs.map((c) => c.textContent?.trim()));
   const raw = cells.filter((t) => (t ?? '').includes('_'));
-  if (cells.length === 0) note('«Ждут» holds no rows right now — the column assertion needs rows to look at');
+  if (cells.length === 0) note('Pending holds no rows for this agent — the column assertion needs rows');
   else if (raw.length === 0) pass(`the status column shows catalogue NAMES (${JSON.stringify([...new Set(cells)].slice(0, 4))})`);
   else fail('status column names', JSON.stringify(raw.slice(0, 3)));
 

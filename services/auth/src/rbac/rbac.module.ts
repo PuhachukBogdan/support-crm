@@ -7,6 +7,7 @@ import { RoleDefaultsService } from './role-defaults.service';
 import { OverrideService } from './override.service';
 import { RoleAssignmentService } from './role-assignment.service';
 import { AuditRepository } from '../audit/audit.repository';
+import { StaffRepository } from './staff.repository';
 import { RbacGrpcController } from './rbac.grpc.controller';
 
 /**
@@ -26,6 +27,8 @@ import { RbacGrpcController } from './rbac.grpc.controller';
     OverrideService,
     RoleAssignmentService,
     AuditRepository,
+    // W14 (3.8): the people list.
+    StaffRepository,
   ],
 })
 export class RbacModule {}

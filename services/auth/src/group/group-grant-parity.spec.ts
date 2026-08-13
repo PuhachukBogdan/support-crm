@@ -8,6 +8,7 @@ import { OverrideService } from '../rbac/override.service';
 import { RoleAssignmentService } from '../rbac/role-assignment.service';
 import { AuditRepository } from '../audit/audit.repository';
 import type { PrismaService } from '../prisma.service';
+import { StaffRepository } from '../rbac/staff.repository';
 import { makeFakePrisma, type FakeSeed } from '../../tests/support/auth-test-doubles';
 
 /**
@@ -66,6 +67,9 @@ function make(seed: FakeSeed) {
     roleDefaults,
     new OverrideService(prisma, audit, roleDefaults),
     new RoleAssignmentService(prisma, audit),
+    // W14: the people list. This spec is about grant PARITY between roles and groups and never
+    // enumerates anybody — the required dependency makes the file say so.
+    new StaffRepository(prisma),
   );
   return { groups, rbac, resolver };
 }

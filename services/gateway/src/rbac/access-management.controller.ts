@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -10,6 +11,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { type ClientGrpc } from '@nestjs/microservices';
@@ -19,6 +21,8 @@ import { AUTH_CLIENT } from '../grpc/clients.module';
 import type { RequestClaims } from '../auth/auth.guard';
 import { EffectivePermsCache } from '../security/effective-perms.cache';
 import { ViewAsContext } from '../security/view-as.context';
+import { RequiresPermission } from '../security/requires-permission.decorator';
+import type { EffectivePermissions } from '@crm/common';
 
 interface CatalogueWire {
   categories: { category: string; permissions: { key: string; label: string; introducedVersion: number }[] }[];
@@ -48,6 +52,14 @@ interface RbacGrpc {
   personalizeGroup(d: CallerCtx & { userIds: string[]; permissionKey: string; grant: boolean }): Observable<MutationWire>;
   resetToDefault(d: CallerCtx & { scope: string; userId: string; userIds: string[]; roleKey: string }): Observable<MutationWire>;
   assignRole(d: CallerCtx & { userId: string; roleKey: string; op: string }): Observable<MutationWire>;
+  // ⭐ W14 (roadmap 3.8): the people list — the read every people-shaped mutation needed and
+  // nobody had. Carries the caller's permissions so `auth` gates it on `users.list.view`.
+  listUsers(d: {
+    accountId: string;
+    pageToken: string;
+    pageSize: number;
+    callerPermissions: string[];
+  }): Observable<{ users?: unknown[]; nextPageToken?: string }>;
 }
 
 /**
@@ -94,6 +106,38 @@ export class AccessManagementController implements OnModuleInit {
   }
 
   // --- US2 reads ---
+
+  /**
+   * ⭐ W14 (roadmap 3.8) — the account's people.
+   *
+   * ⚠️ Gated by `users.list.view` and NOT by this controller's super-admin `caller()` check: seeing
+   * who works here is a supervisory read (the key's label has always said *"View user list"*),
+   * while changing what somebody may do is an ownership act. Collapsing them would either hide the
+   * screen from every teamlead or hand out role changes along with it — so this one route on the
+   * access-management edge is permission-gated while its neighbours stay role-gated, and that
+   * difference is deliberate rather than an oversight.
+   */
+  @Get('users')
+  @RequiresPermission('users.list.view')
+  async listUsers(
+    @Query() query: { pageSize?: string; pageToken?: string },
+    @Req() req: Request & { claims?: RequestClaims; effective?: EffectivePermissions },
+  ) {
+    const accountId = req.claims?.accountId ?? '';
+    const size = Number.parseInt(query?.pageSize ?? '', 10);
+    if (query?.pageSize !== undefined && (!Number.isInteger(size) || size <= 0)) {
+      throw new BadRequestException('pageSize must be a positive integer');
+    }
+    return firstValueFrom(
+      this.auth.listUsers({
+        accountId,
+        pageToken: typeof query?.pageToken === 'string' ? query.pageToken : '',
+        pageSize: Number.isInteger(size) && size > 0 ? size : 0,
+        // The service re-checks: a call that skipped this edge carries no permissions and is refused.
+        callerPermissions: req.effective?.permissionKeys ?? [],
+      }),
+    );
+  }
 
   @Get('catalogue')
   async catalogue(@Req() req: Request & { claims?: RequestClaims }) {

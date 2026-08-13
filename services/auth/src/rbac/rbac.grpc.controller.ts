@@ -1,10 +1,12 @@
 import { Controller, Inject } from '@nestjs/common';
-import { GrpcMethod } from '@nestjs/microservices';
+import { GrpcMethod, RpcException } from '@nestjs/microservices';
+import { status as GrpcStatus } from '@grpc/grpc-js';
 import { RbacResolverService } from './resolver.service';
 import { PermissionRegistryService } from './permission-registry.service';
 import { RoleDefaultsService } from './role-defaults.service';
 import { OverrideService } from './override.service';
 import { RoleAssignmentService } from './role-assignment.service';
+import { InvalidStaffCursor, StaffRepository } from './staff.repository';
 
 // Request shapes as delivered by proto-loader (keepCase:false → camelCase).
 interface ResolveRequest {
@@ -106,6 +108,8 @@ export class RbacGrpcController {
     @Inject(RoleDefaultsService) private readonly roleDefaults: RoleDefaultsService,
     @Inject(OverrideService) private readonly overrides: OverrideService,
     @Inject(RoleAssignmentService) private readonly roleAssignment: RoleAssignmentService,
+    // W14 (3.8): the people list — the read every people-shaped mutation needed and nobody had.
+    @Inject(StaffRepository) private readonly staff: StaffRepository,
   ) {}
 
   @GrpcMethod('AuthService', 'ResolveEffectivePermissions')
@@ -197,6 +201,50 @@ export class RbacGrpcController {
       roleKey: req.roleKey,
     });
     return this.overrideResult(r);
+  }
+
+  /**
+   * ⭐ W14 (roadmap 3.8) — the account's people.
+   *
+   * ── The gate is the CALLER's permission, forwarded by the gateway ────────────────────────────
+   * `users.list.view` — the key whose label has always read *"View user list"* and which, until now,
+   * gated only "may I see facts about somebody I already named". Deliberately NOT super-admin-only
+   * like `AssignRole` beside it: seeing who works here is a supervisory read, while changing what
+   * they may do is an ownership act, and collapsing the two would either hide the screen from every
+   * teamlead or hand out role changes with it.
+   *
+   * ⚠️ Fail-closed on the account, like every tenant read in this service: no account context, no
+   * people.
+   */
+  @GrpcMethod('AuthService', 'ListUsers')
+  async listUsersRpc(
+    req: { accountId?: string; pageToken?: string; pageSize?: number; callerPermissions?: string[] },
+  ) {
+    const accountId = (req?.accountId ?? '').trim();
+    if (!accountId) return { users: [], nextPageToken: '' };
+    if (!req?.callerPermissions?.includes('users.list.view')) {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+
+    const size = !req.pageSize || req.pageSize <= 0 ? 50 : Math.min(Math.floor(req.pageSize), 100);
+    try {
+      const { rows, nextPageToken } = await this.staff.list(accountId, size, (req.pageToken ?? '').trim() || undefined);
+      return {
+        users: rows.map((u) => ({
+          userId: u.id,
+          email: u.email,
+          displayName: u.displayName,
+          status: u.status,
+          roleKey: u.roleKey,
+        })),
+        nextPageToken,
+      };
+    } catch (err) {
+      if (err instanceof InvalidStaffCursor) {
+        throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid page token' });
+      }
+      throw err;
+    }
   }
 
   @GrpcMethod('AuthService', 'AssignRole')

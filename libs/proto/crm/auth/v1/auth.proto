@@ -110,6 +110,19 @@ service AuthService {
   // receives customer conversations without anybody choosing.
   rpc SetGroupRoutable(SetGroupRoutableRequest) returns (GroupMutationResult);
   rpc DeleteGroup(DeleteGroupRequest) returns (GroupMutationResult);
+  /**
+   * ⭐ W14 (roadmap 3.8) — the account's PEOPLE. Additive.
+   *
+   * ⚠️ It did not exist, and its absence was structural rather than an oversight: every
+   * people-shaped mutation the product has (change a role, add somebody to a desk, grant an
+   * override) takes a USER ID, and there was no way to obtain one through the product at all. An
+   * administrator could change a role only if they already knew a UUID.
+   *
+   * Staff facts only — id, email, display name, status, role. ⛔ No customer data touches this
+   * surface, and `auth` holds none: the masking rules that govern the player card have no bearing
+   * here, and conflating the two vocabularies is how a staff screen would grow a customer field.
+   */
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
   rpc AddGroupMember(GroupMemberRequest) returns (GroupMutationResult);
   rpc RemoveGroupMember(GroupMemberRequest) returns (GroupMutationResult);
@@ -462,6 +475,29 @@ message DeleteGroupRequest {
   string caller_user_id = 2;
   repeated string caller_roles = 3;
   string group_id = 4;
+}
+
+// ── W14 (roadmap 3.8): the people list ──
+message StaffUser {
+  string user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  // active | disabled | pending | invited — the column the login path already honours.
+  string status = 4;
+  // One role per person (assigning replaces), so this is a value and not a list.
+  string role_key = 5;
+}
+
+message ListUsersRequest {
+  string account_id = 1;
+  // Keyset, as everywhere else: opaque token, never an offset (Principle VII).
+  string page_token = 2;
+  int32 page_size = 3;
+}
+
+message ListUsersResponse {
+  repeated StaffUser users = 1;
+  string next_page_token = 2; // empty when exhausted
 }
 
 message ListGroupsRequest {

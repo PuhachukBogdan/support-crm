@@ -192,8 +192,6 @@ export function columnsThatFit<T>(
 function useMeasuredWidth(ref: React.RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    // ⚠️ TEMPORARY probe (2026-08-06 freeze hunt): `?probe=nomeasure` skips measuring entirely.
-    if (typeof window !== 'undefined' && window.location.search.includes('probe=nomeasure')) return;
     const el = ref.current;
     if (!el) return;
     const read = () => setWidth(el.getBoundingClientRect().width);

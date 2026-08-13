@@ -80,6 +80,11 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
     // Pinned: a NEW maintenance RPC should have to appear here, which is the review moment where somebody
     // asks "and what calls it?".
     expect(names).toEqual([
+      // ⭐ Feature 031 (roadmap 4.20). The review moment this pin exists for happened again: declaring
+      // `DrainBacklog` turned this suite red, and the answer to "what calls it?" is the 30-second SLA
+      // tick — the same granularity the subject sweep rides, so a conversation waits at most one tick
+      // after a colleague frees a slot. A queue nothing drains is a queue that silently keeps work.
+      'ChatsMaintenanceService.DrainBacklog',
       'ChatsMaintenanceService.ExpireDueExports',
       // Feature 023 (roadmap 4.8a). The review moment this pin exists for actually happened: declaring
       // it turned this suite red before a single line of the handler was written, and the answer to

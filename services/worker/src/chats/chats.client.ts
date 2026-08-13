@@ -50,6 +50,14 @@ export interface SweepSubjectsResult {
   closed: number;
 }
 
+/** Feature 031: counts only. `skipped` high with `assigned` zero is the head-of-line signal. */
+interface DrainResult {
+  considered: number;
+  assigned: number;
+  skipped: number;
+  unroutable: number;
+}
+
 interface MaintenanceGrpc {
   sweepFirstReplySla(data: { limit: number }, md?: Metadata): Observable<SweepResult>;
   // Feature 017 (roadmap 4.10): the export queue tick and the record-expiry tick. Same shape as the
@@ -60,6 +68,8 @@ interface MaintenanceGrpc {
   reportTransitionStreamHealth(data: { limit: number }, md?: Metadata): Observable<TransitionStreamHealth>;
   // Feature 023 (roadmap 4.18): close the title windows whose ten minutes have passed.
   sweepConversationSubjects(data: { limit: number }, md?: Metadata): Observable<SweepSubjectsResult>;
+  // ⭐ Feature 031 (roadmap 4.20): drain the backlog as capacity frees. Same shape — a limit in, counts out.
+  drainBacklog(data: { limit: number }, md?: Metadata): Observable<DrainResult>;
 }
 
 @Injectable()
@@ -75,6 +85,17 @@ export class ChatsMaintenanceClient implements OnModuleInit {
   /** Run one sweep. Returns counts only — no tenant data crosses this boundary (research R3). */
   async sweepFirstReplySla(limit: number): Promise<SweepResult> {
     return firstValueFrom(this.svc.sweepFirstReplySla({ limit }, systemMetadata()));
+  }
+
+  /**
+   * Drain the backlog (feature 031, roadmap 4.20). Counts only.
+   *
+   * ⚠️ It must be reached from a job at all, or `tests/worker/maintenance-ticks.spec.ts` fails the build —
+   * declaring a maintenance rpc and never ticking it is the defect feature 017 shipped, and this guard is
+   * what caught it here before the queue could quietly never drain.
+   */
+  async drainBacklog(limit: number): Promise<DrainResult> {
+    return firstValueFrom(this.svc.drainBacklog({ limit }, systemMetadata()));
   }
 
   /** Claim and run due exports; also recover stale claims (feature 017). Counts only. */

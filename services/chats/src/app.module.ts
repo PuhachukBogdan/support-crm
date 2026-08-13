@@ -25,6 +25,7 @@ import { CannedRepository } from './canned/canned.repository';
 import { CannedController } from './canned/canned.grpc.controller';
 import { RoundRobinStateRepository } from './assignment/round-robin-state.repository';
 import { BacklogRepository } from './assignment/backlog';
+import { BacklogMaintenanceController } from './assignment/backlog.grpc.controller';
 import { GroupPoolService } from './assignment/group-pool';
 import { AutoAssignController } from './assignment/auto-assign.grpc.controller';
 // Feature 014 (roadmap 4.6/4.7): automations + first-reply SLA.
@@ -66,6 +67,7 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
   controllers: [
     HealthGrpcController,
     ConversationReadController,
+    BacklogMaintenanceController,
     ConversationWriteController,
     MessageReadController,
     MessageWriteController,

@@ -36,6 +36,8 @@ export interface BacklogItem {
   id: string;
   channel: string | null;
   brand_id: string;
+  /** The desk it was routed to, so the drain resolves the SAME pool the router used. */
+  routed_group_id: string | null;
   backlog_at: Date;
 }
 
@@ -65,7 +67,7 @@ export class BacklogRepository {
       // could swap places between drains and one of them could be passed over for ever.
       orderBy: [{ backlog_at: 'asc' }, { id: 'asc' }],
       take: limit,
-      select: { id: true, channel: true, brand_id: true, backlog_at: true },
+      select: { id: true, channel: true, brand_id: true, routed_group_id: true, backlog_at: true },
     })) as BacklogItem[];
   }
 

@@ -673,6 +673,13 @@ message FirstReplySlaState {
 service ChatsMaintenanceService {
   rpc SweepFirstReplySla(SweepRequest) returns (SweepResult);
 
+  // ⭐ Feature 031 (roadmap 4.20, ADR 0042 §2): drain the backlog as capacity frees.
+  //
+  // Same shape as the sweep above and for the same reasons: the worker is the clock, the batch is
+  // server-capped, and the answer is COUNTS ONLY — a drain that returned conversation ids would put
+  // customer work in a maintenance log that nobody reads with customer eyes.
+  rpc DrainBacklog(MaintenanceBatchRequest) returns (DrainResult);
+
   // Feature 017 (roadmap 4.10). Both inherit every property of the sweep above: system actor only, no
   // gateway route, batch-capped, COUNTS in the response.
   //
@@ -726,6 +733,15 @@ message SweepResult {
   int32 checked = 1;
   int32 breached = 2;
   int32 rules_applied = 3;
+  // No ids of any kind. Counts only.
+}
+
+message DrainResult {
+  int32 considered = 1;  // how many waiting items the drain looked at (server-capped)
+  int32 assigned = 2;    // how many found an owner
+  int32 skipped = 3;     // ⚠️ passed over because the freed capacity could not SERVE them — see ADR 0042
+                         // §2. A high number here with `assigned` at zero is the head-of-line signal.
+  int32 unroutable = 4;  // could reach nobody at all; each raises its own audited event
   // No ids of any kind. Counts only.
 }
 

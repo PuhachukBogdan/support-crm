@@ -128,6 +128,32 @@ export class SlaSweepJob implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.warn(`subject sweep failed: ${(err as Error)?.name ?? 'error'}`);
     }
+
+    /**
+     * ⭐ Feature 031 (roadmap 4.20): drain the backlog.
+     *
+     * It rides this tick for the same reason the subject sweep does — a third scheduler for one capped
+     * query is more moving parts than the question deserves — and thirty seconds is the right granularity:
+     * a conversation that could not be routed waits at most one tick after a colleague frees a slot.
+     *
+     * ⚠️ Its own try/catch, deliberately. A failing drain must not hide a failing sweep and vice versa, and
+     * an operator has to be able to tell WHICH half is stuck. Both are retried by the next tick, because
+     * work that is still waiting is still waiting.
+     *
+     * ⓘ Logged only when something moved or something was passed over. A quiet queue should be quiet —
+     * a line every thirty seconds saying "nothing to do" is how a log stops being read.
+     */
+    try {
+      const drain = await this.chats.drainBacklog(this.batch);
+      if (drain.assigned > 0 || drain.skipped > 0 || drain.unroutable > 0) {
+        this.logger.log(
+          `backlog drain: considered=${drain.considered} assigned=${drain.assigned} ` +
+            `skipped=${drain.skipped} unroutable=${drain.unroutable}`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`backlog drain failed: ${(err as Error)?.name ?? 'error'}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

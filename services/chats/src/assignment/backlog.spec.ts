@@ -12,6 +12,7 @@ const item = (id: string, ms: number, channel: string | null = 'chat'): BacklogI
   id,
   channel,
   brand_id: 'b-1',
+  routed_group_id: 'g-1',
   backlog_at: new Date(ms),
 });
 

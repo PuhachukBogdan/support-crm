@@ -117,6 +117,10 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
       // status keys. The server resolves them against the account's own catalogue and REFUSES an
       // unknown entry rather than widening.
       statusCategories: 'statusCategories',
+      // ⭐ W10 (roadmap 4.19): the "he OPENED it" leg of the agent's own rail — a ConversationReadMark
+      // written when someone opens the ticket. An operator ID rather than a `me` flag, because a
+      // supervisor may read an agent's rail; the window sends its own id (from `/me/operator`).
+      openedByOperatorId: 'openedByOperatorId',
     },
     required: [],
     pageSizeParam: 'pageSize',
@@ -308,6 +312,26 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     pageTokenParam: 'pageToken',
     verbs: { update: 'POST' },
     ops: ['update'],
+  },
+  /**
+   * ⭐ W10 (roadmap 4.13) — the player's contact history, for the card in the right rail. A CHILD of
+   * the player: `/players/{within}/contact-summary`. `brandId` is REQUIRED, exactly as it is on the
+   * player read itself — the same platform id under two brands is two people (the 07-29 repair), and
+   * the server answers INVALID_ARGUMENT without it rather than guessing.
+   *
+   * ⓘ A contact-VALUE can never arrive through this: a contract test forbids phone/email/handle
+   * fields on `ContactSummary` outright. What it carries is counts and timestamps.
+   */
+  {
+    resource: 'player-contact-summary',
+    path: '/players/{within}/contact-summary',
+    collection: '',
+    params: { brandId: 'brandId' },
+    required: ['brandId'],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
   },
   /**
    * ⭐ W9 / spec 035 (ADR 0044 §4) — the contact lookup. A CHILD SINGLETON with a POST verb: the

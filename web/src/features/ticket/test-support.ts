@@ -27,6 +27,8 @@ export interface TicketStubOptions {
   failDetailWith?: DataError;
   /** W8 — applying a macro fails with this (the all-or-nothing refusal). */
   failMacroWith?: DataError;
+  /** W10 — what the Active-tickets tab is served. */
+  activeTickets?: { id: string; subject: string }[];
   /** W9 — what the lookup answers, and its refusal (403 without the key, 429 over the cap). */
   lookupAnswer?: { matched: boolean; ambiguous: boolean; playerId: string; brandId: string };
   failLookupWith?: DataError;
@@ -44,6 +46,10 @@ export interface TicketStub extends DataAccess {
   writes: WriteRecord[];
   threadReads: number;
   detailReads: number;
+  /** W10: every `list` query, so a test can assert WHICH view the rail asked for. */
+  listCalls: Query[];
+  /** W10: how many times the player record was read — 0 proves "asks nothing when unidentified". */
+  playerReads: number;
   emit(event: RealtimeEvent): void;
 }
 
@@ -103,7 +109,16 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
     writes,
     threadReads: 0,
     detailReads: 0,
+    listCalls: [],
+    playerReads: 0,
     async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
+      stub.listCalls.push(query);
+      // W10: the agent's own rail — assigned to me ∧ opened by me ∧ non-terminal.
+      if (resource === 'conversations') {
+        return page((opts.activeTickets ?? [
+          { id: 'conv-active-1', subject: 'Active one' },
+        ]) as unknown as T[]);
+      }
       if (resource === 'conversation-statuses')
         return page((opts.statuses ?? WIRE_STATUSES) as unknown as T[]);
       if (resource === 'conversation-thread') {
@@ -125,6 +140,21 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
       if (resource === 'me-operator') {
         if (opts.myOperatorId === null) throw { kind: 'unavailable' };
         return { operatorId: opts.myOperatorId ?? 'op-me', active: true } as unknown as T;
+      }
+      // W10 — the card's two reads.
+      if (resource === 'players') {
+        stub.playerReads += 1;
+        return { playerId: id, accountId: 'a1', brandId: 'brand-a', segment: 'standard' } as unknown as T;
+      }
+      if (resource === 'player-contact-summary') {
+        return {
+          lastInboundAt: '2026-08-05T10:00:00.000Z',
+          lastOutboundAt: '',
+          lastContactAt: '2026-08-05T10:00:00.000Z',
+          conversationCount: 3,
+          countsByStatus: [],
+          channels: [{ channel: 'email', channelUnrecorded: false, lastInboundAt: '', lastOutboundAt: '', conversationCount: 3 }],
+        } as unknown as T;
       }
       if (resource === 'conversations') {
         stub.detailReads += 1;

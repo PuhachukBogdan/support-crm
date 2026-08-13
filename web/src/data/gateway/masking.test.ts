@@ -42,13 +42,13 @@ describe('the recordings are real, and they are of two different roles', () => {
 describe('*** T017: a withheld field is ABSENT from what the caller receives ***', () => {
   it('the uncleared role receives fewer keys than the cleared one', async () => {
     const { da } = daFor([SUPPORT]);
-    const record = await da.get('players', 'seed-player-001');
+    const record = await da.get('players', 'seed-player-001', undefined, { brandId: 'seed-brand-0000-0000-000000000001' });
     expect(keysOf(record).length).toBeLessThan(keysOf(ADMIN.body).length);
   });
 
   it('every key the cleared role has and the uncleared lacks is genuinely gone, not blanked', async () => {
     const { da } = daFor([SUPPORT]);
-    const record = (await da.get('players', 'seed-player-001')) as Record<string, unknown>;
+    const record = (await da.get('players', 'seed-player-001', undefined, { brandId: 'seed-brand-0000-0000-000000000001' })) as Record<string, unknown>;
 
     const withheld = keysOf(ADMIN.body).filter((k) => !keysOf(SUPPORT.body).includes(k));
     // Guard: if the seed ever stops populating a maskable field, this test would silently verify
@@ -65,12 +65,12 @@ describe('*** T017: a withheld field is ABSENT from what the caller receives ***
     const { da } = daFor([SUPPORT]);
     // No defaulting, no normalising, no fixed shape. Re-adding a key client-side would undo, one
     // layer up, precisely the repair the server just received.
-    await expect(da.get('players', 'seed-player-001')).resolves.toEqual(SUPPORT.body);
+    await expect(da.get('players', 'seed-player-001', undefined, { brandId: 'seed-brand-0000-0000-000000000001' })).resolves.toEqual(SUPPORT.body);
   });
 
   it('no withheld value appears anywhere in the uncleared response', async () => {
     const { da } = daFor([SUPPORT]);
-    const record = await da.get('players', 'seed-player-001');
+    const record = await da.get('players', 'seed-player-001', undefined, { brandId: 'seed-brand-0000-0000-000000000001' });
     const admin = ADMIN.body as Record<string, unknown>;
     const withheld = keysOf(admin).filter((k) => !keysOf(SUPPORT.body).includes(k));
 
@@ -86,7 +86,7 @@ describe('*** T017: a withheld field is ABSENT from what the caller receives ***
 describe('*** T018: the cleared role HAS what the other lacks (so absence means something) ***', () => {
   it('the cleared role receives the withheld keys, populated', async () => {
     const { da } = daFor([ADMIN]);
-    const record = (await da.get('players', 'seed-player-001')) as Record<string, unknown>;
+    const record = (await da.get('players', 'seed-player-001', undefined, { brandId: 'seed-brand-0000-0000-000000000001' })) as Record<string, unknown>;
     const withheld = keysOf(ADMIN.body).filter((k) => !keysOf(SUPPORT.body).includes(k));
 
     for (const key of withheld) {

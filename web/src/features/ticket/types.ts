@@ -99,6 +99,51 @@ export interface ContactLookupWire {
   brandId: string;
 }
 
+/**
+ * W10 — the player card's own read (`GET /players/:id`), AFTER the server's masking projection.
+ *
+ * ⚠️⚠️ **Absence here means TWO different things and the card must not guess between them.** The
+ * gateway drops proto defaults (`''`, `false`, `0`, `[]`) AND withheld fields are structurally
+ * absent — so a missing `vip` may be "not a VIP" or "your role may not see it". The card therefore
+ * decides what to RENDER from the caller's role (session, render-only), never from emptiness; the
+ * server decides what to SEND. Stated in the gateway's own wire.ts: *"a surface cannot use
+ * emptiness to decide whether to render a field"*.
+ */
+export interface PlayerWire {
+  playerId: string;
+  accountId: string;
+  brandId: string;
+  brandIds?: string[];
+  personId?: string;
+  vip?: boolean;
+  segment?: string;
+  amNotes?: string;
+  customAttributesJson?: string;
+  preferencesJson?: string;
+  portfolioJson?: string;
+}
+
+/**
+ * W10 — the contact history (roadmap 4.13, `GET /players/:id/contact-summary`). Counts and
+ * timestamps only: a contract test forbids any phone/email/handle field on this message, so no
+ * contact VALUE can arrive through it. `''` on a timestamp means never.
+ */
+export interface ContactSummaryWire {
+  lastInboundAt: string;
+  lastOutboundAt: string;
+  /** The later of the two — the "last contact" the card shows. `''` = never contacted. */
+  lastContactAt: string;
+  conversationCount: number;
+  countsByStatus: { statusKey: string; conversationCount: number }[];
+  channels: {
+    channel: string;
+    channelUnrecorded: boolean;
+    lastInboundAt: string;
+    lastOutboundAt: string;
+    conversationCount: number;
+  }[];
+}
+
 /** W9 — what detaching answers (0044 §5): the warning, quantified. */
 export interface DetachWarningWire {
   detachedPlayerId: string;

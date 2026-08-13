@@ -59,9 +59,21 @@ export class GatewayDataAccess implements DataAccess {
     return { items, nextCursor, hasMore: nextCursor !== null };
   }
 
-  async get<T = unknown>(resource: ResourceName, id: string, within?: string): Promise<T> {
+  /**
+   * W10 widened this with `filters`: a single-record read may carry declared query parameters —
+   * `/players/:id/contact-summary` REQUIRES `brandId`, because the same platform id under two brands
+   * is two people. The allow-list is the row's, exactly as for a list: an undeclared key is refused
+   * before a request exists, never sent and silently dropped.
+   */
+  async get<T = unknown>(
+    resource: ResourceName,
+    id: string,
+    within?: string,
+    filters?: Record<string, unknown>,
+  ): Promise<T> {
     const row = this.rowWith(resource, 'get');
-    const res = await this.http({ path: this.itemPath(row, id, within) });
+    const query = this.filtersFor(row, filters ?? {});
+    const res = await this.http({ path: this.itemPath(row, id, within), query });
     return this.okBody(res) as T;
   }
 
@@ -177,7 +189,15 @@ export class GatewayDataAccess implements DataAccess {
       out[row.orderParam] = query.order;
     }
 
-    const filters = query.filters ?? {};
+    return { ...out, ...this.filtersFor(row, query.filters ?? {}) };
+  }
+
+  /**
+   * The row's declared filters, translated — the one place that decides what may reach the wire.
+   * Shared by `list` and (since W10) `get`: a single-record read can require a parameter too.
+   */
+  private filtersFor(row: RouteRow, filters: Record<string, unknown>): Record<string, string> {
+    const out: Record<string, string> = {};
     for (const key of Object.keys(filters)) {
       const wire = row.params[key];
       // The KEY is named, never the value — a query value can be a customer identifier (SEC-26),

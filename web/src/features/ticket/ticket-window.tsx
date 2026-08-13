@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,6 +12,8 @@ import { useTicket } from './use-ticket';
 import { useTicketLive } from './use-ticket-live';
 import { useTemplates } from './use-templates';
 import { PanelDivider, useStoredPanelWidth } from './panel-divider';
+import { useContextPanel } from '@/components/shell/context-panel';
+import { TicketContextPanel } from './context-panel';
 import { FieldsColumn } from './fields-column';
 import { Thread } from './thread';
 import { Composer } from './composer';
@@ -48,6 +50,32 @@ export function TicketWindow({ id }: { id: string }) {
     session.state.kind === 'authenticated' && session.state.permissionKeys.includes('crm.contact.lookup');
   // W8 (9.9) — the left column's width: a live CSS value during the drag, a stored number after it.
   const fields = useStoredPanelWidth();
+
+  /**
+   * ⭐ W10 — push the right rail into the SHELL's context-panel slot: the panel is a region of the
+   * application, not a widget of this page (R27), which is what lets W11's directory reuse it.
+   *
+   * ⚠️ The slot stores a NODE, so it does not re-render when this window's state changes — the
+   * component pushed is therefore self-contained (it owns its own hooks) and the effect re-pushes
+   * only when the few identity facts it takes as props actually change. `clear()` on unmount, or
+   * the panel would outlive the ticket and describe a customer nobody is looking at.
+   */
+  const { setPanel, clear } = useContextPanel();
+  const detail = t.detail.status === 'ready' ? t.detail.data : null;
+  const panelPlayerId = detail?.playerId ?? '';
+  const panelBrandId = detail?.brandId ?? '';
+  const panelIdentified = detail?.identityState === 'identified';
+  useEffect(() => {
+    setPanel(
+      <TicketContextPanel
+        playerId={panelPlayerId}
+        brandId={panelBrandId}
+        identified={panelIdentified}
+        currentConversationId={id}
+      />,
+    );
+    return () => clear();
+  }, [setPanel, clear, panelPlayerId, panelBrandId, panelIdentified, id]);
 
   const statusName = (key: string) => statuses.find((s) => s.key === key)?.agentName ?? key;
   // «Submit as …» offers the ACTIVE catalogue by agent name — a retired status renders on old rows
@@ -126,7 +154,8 @@ export function TicketWindow({ id }: { id: string }) {
           />
         </main>
 
-        {/* The right rail's future home (W10): the shell's context-panel slot, not this file. */}
+        {/* ⭐ W10: the right rail lives in the SHELL's slot (see the effect above), not in this
+            row — one area of the application, per R27, so W11's directory can reuse it. */}
       </div>
     </div>
   );

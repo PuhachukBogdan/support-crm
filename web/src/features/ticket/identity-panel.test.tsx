@@ -5,6 +5,7 @@ import { GatewaySession } from '@/session/gateway-session';
 import type { SessionState } from '@/session/session';
 import type { HttpPort } from '@/data/gateway/http-port';
 import { TicketWindow } from './ticket-window';
+import { ContextPanelProvider } from '@/components/shell/context-panel';
 import { getDataAccess, setDataAccess } from '@/data/provider';
 import { stubTicket, type TicketStub } from './test-support';
 
@@ -33,7 +34,7 @@ function renderWindow(stub: TicketStub, permissionKeys: string[]) {
   return render(
     <Providers dataAccess={getDataAccess()}>
       <SessionProvider impl={new GatewaySession(silentPort)} seed={seed}>
-        <TicketWindow id="c1" />
+        <ContextPanelProvider><TicketWindow id="c1" /></ContextPanelProvider>
       </SessionProvider>
     </Providers>,
   );

@@ -8,8 +8,17 @@ import type { Query, PaginatedResult, ResourceName } from './types';
  */
 export interface DataAccess {
   list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>>;
-  /** `within` (W9): the parent instance for a CHILD read — same rule as the writes below. */
-  get<T = unknown>(resource: ResourceName, id: string, within?: string): Promise<T>;
+  /**
+   * `within` (W9): the parent instance for a CHILD read — same rule as the writes below.
+   * `filters` (W10): declared query parameters for a single-record read (the contact summary
+   * REQUIRES `brandId`). Same allow-list as a list's: undeclared keys are refused, not dropped.
+   */
+  get<T = unknown>(
+    resource: ResourceName,
+    id: string,
+    within?: string,
+    filters?: Record<string, unknown>,
+  ): Promise<T>;
   /**
    * W7 widened the three writes with `within` — the parent instance id for CHILD resources
    * (`conversation-messages` lives under one conversation). Reads carry it on `Query.within`

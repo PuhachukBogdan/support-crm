@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { Providers } from '../../../app/providers';
 import { TicketWindow } from './ticket-window';
+import { ContextPanelProvider } from '@/components/shell/context-panel';
 import { getDataAccess, setDataAccess } from '@/data/provider';
 import { stubTicket, makeMessage, type TicketStub } from './test-support';
 
@@ -28,7 +29,7 @@ function renderWindow(stub: TicketStub, id = 'c1') {
   setDataAccess(stub);
   return render(
     <Providers dataAccess={getDataAccess()}>
-      <TicketWindow id={id} />
+      <ContextPanelProvider><TicketWindow id={id} /></ContextPanelProvider>
     </Providers>,
   );
 }

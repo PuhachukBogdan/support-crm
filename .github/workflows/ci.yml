@@ -26,5 +26,46 @@ jobs:
       - name: Lint (ESLint + tsc --noEmit across workspaces)
         run: npm run lint
 
+      # ⭐ 2026-08-13 — the gate now SAYS WHAT BROKE, and that is a fix rather than a convenience.
+      #
+      # ── Why this shape ───────────────────────────────────────────────────────────────────────────
+      # The step log is readable only with repository credentials (`GET …/actions/runs/{id}/logs`
+      # answers 403 unauthenticated, on a PUBLIC repo too), and the failure annotation carries exactly
+      # one sentence: «Process completed with exit code 1». So a red run could be seen and not read —
+      # which is how the W35 push produced a failure nobody could diagnose without opening the browser,
+      # while the same commit passed a full Linux rehearsal three times. A gate whose verdict cannot be
+      # read is a gate that gets re-run instead of understood.
+      #
+      # The job SUMMARY is published in the check run's `output`, which IS readable without credentials.
+      # So on failure the failing suites and the tail of the output go there.
+      #
+      # ⚠️ **The command is NOT piped.** `npm test | tail` would report tail's exit code, and a red suite
+      # would pass — the same trap that once deployed a stale image to the stand (W28) and hid two red
+      # guards behind a green line (W30). Output goes to a FILE, the code is captured bare, and the step
+      # exits with it.
       - name: Test (Jest services + next/jest web + root linking test)
-        run: npm test
+        run: |
+          set +e
+          npm test > /tmp/test-output.txt 2>&1
+          code=$?
+          set -e
+          tail -c 200000 /tmp/test-output.txt
+          if [ "$code" -ne 0 ]; then
+            {
+              echo "## Test step failed (exit $code)"
+              echo
+              echo "### Suites reported as FAIL"
+              echo '```'
+              grep -E '^(FAIL|Summary of all failing tests)' /tmp/test-output.txt | sort -u | head -40 || true
+              echo '```'
+              echo "### Failing assertions"
+              echo '```'
+              grep -nE '^\s+● ' /tmp/test-output.txt | grep -v 'Console' | head -40 || true
+              echo '```'
+              echo "### Last 120 lines"
+              echo '```'
+              tail -120 /tmp/test-output.txt || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $code

@@ -110,15 +110,21 @@ try {
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
   await signIn(p, OWNER, OWNER_PW);
+  pass('the owner signed in (breadcrumb)');
   await p.goto(`${WEB}/admin/macros`, { waitUntil: 'networkidle', timeout: 30000 });
   await p.waitForSelector('[data-testid="tab-macros"]', { timeout: 20000 });
+  await p.waitForSelector('[data-testid="macro-new"]', { timeout: 20000 });
+  pass('the macros screen is open (breadcrumb)');
   await p.click('[data-testid="macro-new"]');
   await p.fill('[data-testid="macro-name"]', MACRO_NAME);
   await p.fill('[data-testid="macro-text"]', MACRO_TEXT);
-  await p.click('[data-testid="macro-add-action"]');
+  // ⚠️ The dropdown opens via KEYBOARD: a programmatic click on a Radix trigger can open-and-close
+  // in one event on the SECOND use (the first run hung exactly there; the fail-frame showed one
+  // row and a shut menu). Enter is the path Radix guarantees — and it is an accessibility claim.
+  await p.press('[data-testid="macro-add-action"]', 'Enter');
   await p.click('[data-testid="add-set_status"]');
   await p.selectOption('[data-testid="action-value-0"]', { index: 1 });
-  await p.click('[data-testid="macro-add-action"]');
+  await p.press('[data-testid="macro-add-action"]', 'Enter');
   await p.click('[data-testid="add-set_category"]');
   await p.fill('[data-testid="action-value-1"]', 'payments');
   await p.click('[data-testid="macro-save"]');
@@ -215,6 +221,13 @@ try {
   await ctx.close().catch(() => {});
 } catch (err) {
   fail('the pass could not run', err instanceof Error ? err.message : String(err));
+  // The failing FRAME, kept: a click timeout names a selector, never a state — the frame does.
+  try {
+    const pages = browser.contexts().flatMap((c) => c.pages());
+    for (let i = 0; i < pages.length; i += 1) {
+      await pages[i].screenshot({ path: `${SHOTS}/w29-FAIL-${i}.png` });
+    }
+  } catch {}
 } finally {
   await browser.close().catch(() => {});
 }

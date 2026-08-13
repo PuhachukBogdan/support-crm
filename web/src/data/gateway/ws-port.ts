@@ -81,6 +81,20 @@ export function createWsPort(options: WsPortOptions = {}): RealtimePort & { clos
   let attempt = 0;
   let stopped = false;
   let opened = false;
+  let openedAt = 0;
+  /**
+   * ⚠️⚠️ **HOW LONG A CONNECTION MUST LAST TO COUNT AS ONE.**
+   *
+   * The operator switched a filter and the page froze. Cause: `attempt` was reset on `open`, so a socket
+   * that opened and closed immediately — which is exactly what a refused handshake does — never grew its
+   * backoff. The result was a one-second loop of *open → `reconnected` → REFETCH THE WHOLE LIST → close*,
+   * for ever. A virtualized list of thousands of rows re-read every second is a frozen page.
+   *
+   * ⇒ **A connection that dies instantly is a failure, not a connection.** Only one that survives this long
+   * resets the backoff, so a refused handshake backs off to 30s instead of hammering — and, just as
+   * importantly, stops announcing a "reconnection" that never really happened.
+   */
+  const STABLE_MS = 10_000;
 
   /**
    * ⚠️⚠️ **`NEXT_PUBLIC_WS_ORIGIN` EXISTS BECAUSE THE FIRST HEADED CHECK FAILED ON EXACTLY THIS.**
@@ -147,7 +161,7 @@ export function createWsPort(options: WsPortOptions = {}): RealtimePort & { clos
     }
     socket = ws;
     ws.addEventListener('open', () => {
-      attempt = 0;
+      openedAt = Date.now();
       /**
        * ⚠️ Only a RE-connection notifies. A page that just loaded has already read, so announcing the first
        * connection would make every screen read twice on open — which is exactly the kind of "harmless"
@@ -158,6 +172,9 @@ export function createWsPort(options: WsPortOptions = {}): RealtimePort & { clos
        */
       if (opened) for (const handler of handlers) handler({ kind: 'reconnected' });
       opened = true;
+      // ⓘ `opened` is only ever set here, so the first successful handshake is silent and every later one
+      // announces — but a handshake that is immediately refused never reaches this line at all.
+
     });
     ws.addEventListener('message', (ev: unknown) => {
       const data = (ev as { data?: unknown }).data;
@@ -169,6 +186,9 @@ export function createWsPort(options: WsPortOptions = {}): RealtimePort & { clos
     ws.addEventListener('close', () => {
       socket = undefined;
       if (stopped) return;
+      // A connection that lasted counts; one that vanished does not reset anything (see STABLE_MS).
+      if (openedAt !== 0 && Date.now() - openedAt >= STABLE_MS) attempt = 0;
+      openedAt = 0;
       // ⚠️ The gateway CLOSES a socket it cannot authorize, so a reconnect loop here is also the path a
       // client takes when its session expired — which is why the delay grows rather than hammering.
       const delay = backoff[Math.min(attempt, backoff.length - 1)]!;

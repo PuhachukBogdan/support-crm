@@ -279,3 +279,46 @@ describe('the transport cannot break the app that hosts it (FR-014)', () => {
     expect(attempts).toBe(1);
   });
 });
+
+describe('a handshake that is instantly refused does not become a hot loop', () => {
+  /**
+   * ⭐⭐ THE OPERATOR SWITCHED A FILTER AND THE PAGE FROZE. This is why.
+   *
+   * `attempt` was reset on `open`, so a socket that opened and closed immediately — exactly what a refused
+   * handshake does — never grew its backoff. The loop was *open → `reconnected` → refetch the whole list →
+   * close → 1s → open → …* for ever, and a virtualized list of thousands of rows re-read every second is a
+   * frozen page.
+   *
+   * ⇒ **A connection that dies instantly is a failure, not a connection.** The delay must keep growing, and
+   * the "reconnected" announcement must not fire once a second while nothing is actually connected.
+   */
+  it('keeps growing the delay when every connection dies at once', () => {
+    const delays: number[] = [];
+    const { sockets, factory } = factoryOf();
+    const port = createWsPort({
+      url: 'ws://x',
+      factory,
+      backoffMs: [10, 20, 40],
+      setTimeoutFn: (fn, ms) => {
+        delays.push(ms);
+        fn();
+        return 0;
+      },
+    });
+    const seen: RealtimeEvent[] = [];
+    port.subscribe((e) => seen.push(e));
+
+    // Four cycles of "connected, then gone in the same instant".
+    for (let i = 0; i < 4; i += 1) {
+      sockets[i]!.fire('open');
+      sockets[i]!.fire('close');
+    }
+
+    // Before the fix this was [10, 10, 10, 10] — a fixed one-second hammer.
+    expect(delays).toEqual([10, 20, 40, 40]);
+
+    // ⚠️ And the expensive half: the list must not be told to re-read once per failed attempt. The first
+    // handshake is silent by design, and the ones after it were never real connections.
+    expect(seen.filter((e) => e.kind === 'reconnected').length).toBeLessThanOrEqual(3);
+  });
+});

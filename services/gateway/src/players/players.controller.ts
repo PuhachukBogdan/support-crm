@@ -62,6 +62,13 @@ interface UsersReadGrpc {
 }
 
 /**
+ * ⓘ W35's notes routes are deliberately NOT here. This file is feature 018's READ edge and FR-027 is a
+ * property of it — `tests/users-read/no-outbound.spec.ts` asserts every verb in this file is `Get`, and
+ * it caught the first draft of the notes POST on the root run. The notes surface lives in
+ * `notes.controller.ts`, which shares the client and the actor metadata and claims no such property.
+ */
+
+/**
  * The proto's `PresenceState` as words. Mirrors the presence edge's own decoder — the closed set is
  * `online · transfers_only · away · offline`, and an unrecognised number decodes to `offline`
  * (fail-closed: an unknown state must never read as "available to take work").

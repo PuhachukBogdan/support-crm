@@ -15,9 +15,47 @@ describe('users seed builder', () => {
   const seed = buildSeed();
 
   it('every tenant row carries the seed account_id (SC-003)', () => {
-    for (const row of [...seed.operators, ...seed.players]) {
+    // ⭐ W35 / 040 adds `playerNotes` to this sweep. The list is explicit rather than derived from
+    // `Object.values(seed)` because two collections here are NOT account-scoped rows (`persons` carries
+    // its own shape) — a derived sweep would either fail on those or be loosened until it proved nothing.
+    for (const row of [...seed.operators, ...seed.players, ...seed.playerNotes]) {
       expect(row.account_id).toBe(SEED_ACCOUNT_ID);
     }
+  });
+
+  describe('⭐ W35 / 040 — the seeded notes', () => {
+    it('are written by TWO DIFFERENT authors (the signature is the point of seeding any)', () => {
+      // A fixture where every note is the caller's would render the byline and prove nothing about it:
+      // the block's requirement is that a successor reads SOMEBODY ELSE's notes and can see whose.
+      const authors = new Set(seed.playerNotes.map((n) => n.author_auth_user_id));
+      expect(authors.size).toBeGreaterThan(1);
+      expect(seed.playerNotes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('hang off a player that is actually seeded (a note about nobody is a mistake, not a fixture)', () => {
+      for (const note of seed.playerNotes) {
+        const player = seed.players.find(
+          (p) => p.player_id === note.player_id && p.brand_id === note.brand_id,
+        );
+        expect({ player_id: note.player_id, found: !!player }).toEqual({
+          player_id: note.player_id,
+          found: true,
+        });
+      }
+    });
+
+    it('⚠️ contain NO flagged note — the seed cannot produce the audit entry that always accompanies one', () => {
+      // In the product a flagged note and its audit entry are ONE transaction. A seeded row with
+      // `pattern_kinds` set would be the one state the product cannot reach, and the first check that
+      // counted entries would disagree with the table (the fixture-is-not-what-you-believe class).
+      for (const note of seed.playerNotes) expect(note.pattern_kinds).toBe('');
+    });
+
+    it('carry fixed client_refs, so a re-seed is idempotent rather than accumulating', () => {
+      const refs = seed.playerNotes.map((n) => n.client_ref);
+      expect(new Set(refs).size).toBe(refs.length);
+      for (const ref of refs) expect(ref).toMatch(/^seed-/);
+    });
   });
 
   it('the operator references the shared auth user (soft ref)', () => {

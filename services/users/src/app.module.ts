@@ -43,6 +43,12 @@ import { PresenceModule } from './presence/presence.module';
 // Feature 026 (roadmap 5.7): player ↔ AM attachment. Its repository is exported because the PLAYER
 // read path needs it — the narrowing asks the attachment a question on every masked read.
 import { AssignmentModule } from './assignment/assignment.module';
+// ⭐ W35 / feature 040 (R35 · U17): player notes — the masking-BYPASS channel. Its controller sits in the
+// `player/` folder because its clearance IS the player tier question, asked about a table instead of a
+// row; the module is separate so the notes gate has one wiring point. ⚠️ It needs `AssignmentModule`'s
+// exported repository: "may you read this customer's notes" is the attachment question, and asking it
+// with a second query would be a second mechanism deciding access (ADR 0039 §2).
+import { PlayerNotesModule } from './player/player-notes.module';
 
 // Phase 1 (spec 003): the users service hosts TWO gRPC packages — HealthService.Check
 // (over its own Postgres) and PingService (the US3 cross-service round-trip target).
@@ -60,6 +66,7 @@ import { AssignmentModule } from './assignment/assignment.module';
     UiPreferencesModule,
     PresenceModule,
     AssignmentModule,
+    PlayerNotesModule,
   ],
   controllers: [
     HealthGrpcController,

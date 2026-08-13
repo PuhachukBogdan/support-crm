@@ -252,6 +252,42 @@ export const AUDIT_ACTIONS = {
     label: 'Customer record opened',
   },
 
+  /**
+   * ⭐ W35 / 040 (R35, U17) — a note containing contact-shaped text was added **deliberately**, after
+   * the author was shown what the system recognised in it.
+   *
+   * ── Why `access` ────────────────────────────────────────────────────────────────────────────────
+   * The honest reuse this catalogue keeps making, and here it is close to exact: this class is the home
+   * of the anti-pitching family (`contact.reveal`, `contact.lookup`, the deferred `record.open`), whose
+   * shared question is *«did a customer's protected contact detail move somewhere a person could use
+   * it?»*. A note carrying a phone number is that same event arriving through free text instead of
+   * through a field — R35's whole point is that masking a column achieves nothing if the value can be
+   * retyped one line below it. A new class would split one reviewable question across two filters.
+   *
+   * ── ⚠️ Written when the note is STORED, not when the warning is shown ───────────────────────────
+   * The first, un-acknowledged attempt stores nothing and records nothing. Two reasons, and the second
+   * is the one that decides it: a warning the author then heeded produced **no data** — recording it
+   * would fill the trail with non-events — and the fact worth having is that somebody was told and
+   * proceeded anyway. That is a deliberate act, which is exactly what this table is for.
+   *
+   * ── ⚠️ And an ORDINARY note writes NOTHING here, by decision ────────────────────────────────────
+   * The row itself is the record: `PlayerNote` is append-only, carries its author and its time, and no
+   * verb exists to change or remove it. An entry per note would duplicate a store that cannot be
+   * tampered with, in the busiest-but-one write path this feature adds — the same reasoning
+   * `field.config_changed` records two screens down for not auditing value writes, and the same
+   * volume-versus-signal judgement that keeps `record.open` deferred.
+   *
+   * `target_ref` is the `brandId:playerId` PAIR — a bare platform id names two customers (the 07-29
+   * Person repair). Detail is `patternKinds` and nothing else: the KINDS are recordable, the matched
+   * text never is, and the note's body is inexpressible here at any length.
+   */
+  'player.note_flagged': {
+    class: 'access',
+    writer: 'users',
+    status: 'live',
+    label: 'A player note containing contact-shaped text was added after a warning',
+  },
+
   // ── export (roadmap 4.10) ──
   //
   // ⚠️ WRITER CORRECTED by feature 017: `worker` → `chats`, `no-writer-yet` → `live`.

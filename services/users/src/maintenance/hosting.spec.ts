@@ -12,6 +12,9 @@ import { UiPreferencesController } from '../preferences/ui-preferences.grpc.cont
 // Feature 025 (roadmap 5.9): presence — a THIRD controller on UsersReadService plus a new service.
 import { PresenceModule } from '../presence/presence.module';
 import { AssignmentModule } from '../assignment/assignment.module';
+// ⭐ W35 / feature 040: player notes — a new gRPC service in an EXISTING package, the case most likely
+// to be assumed rather than checked (and W31's un-bootable service is the fresh reminder).
+import { PlayerNotesModule } from '../player/player-notes.module';
 
 const ROOT = resolve(__dirname, '..', '..', '..', '..');
 
@@ -166,6 +169,25 @@ describe('*** UsersReadService is served across four controllers, completely ***
     );
     expect(names).toContain('AssignmentReadController');
     expect(names).toContain('AssignmentController');
+  });
+
+  /**
+   * ⭐ W35 / feature 040 — the notes controller, same link, and this one had a live rehearsal: W31
+   * shipped a service that would not BOOT under a fully green suite, because every spec builds its
+   * subject directly and nothing exercised the module graph. A handler that is never wired is
+   * indistinguishable from a feature that was never built, from outside.
+   */
+  it('the notes controller reaches the graph through its module', () => {
+    const imports = Reflect.getMetadata('imports', AppModule) as unknown[];
+    expect(imports).toContain(PlayerNotesModule);
+    const names = (Reflect.getMetadata('controllers', PlayerNotesModule) as unknown[]).map(
+      (c) => (c as { name?: string })?.name ?? '',
+    );
+    expect(names).toContain('PlayerNotesController');
+    // …and it reaches the ONE attachment read rather than carrying its own: the clearance question is
+    // "is this caller attached to this player", and a second query would be a second access mechanism.
+    const notesImports = Reflect.getMetadata('imports', PlayerNotesModule) as unknown[];
+    expect(notesImports).toContain(AssignmentModule);
   });
 
   it('the presence controllers reach the graph through their module', () => {

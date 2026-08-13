@@ -144,4 +144,40 @@ export class OperatorRepository {
       blockedChannels: blockedOf.get(r.auth_user_id) ?? [],
     }));
   }
+
+  /**
+   * ⭐ W35 / feature 040 — auth identities → the NAME to print beside something they wrote.
+   *
+   * ── ⚠️ Why this is not `resolveByAuthUserIds` one method up ──────────────────────────────────────
+   * That method's own doc states the distinction and this feature is the case it predicted: *"`getById`
+   * answers «who wrote this?» about the past, where an inactive operator's name must still render; this
+   * one answers «who can take this work?» about the present, where it must not."* It filters
+   * `active: true` and returns no display name at all.
+   *
+   * A player note is exactly the first kind of question. Reusing the routing read would have made every
+   * note written by somebody who has since left the company render **unattributed** — quietly, only for
+   * departed authors, and precisely in the scenario the block exists for: W32 hands a portfolio over
+   * when somebody leaves, and their notes are what the successor inherits. The signature the operator
+   * asked for (*«каждая подписана автором и датой»*) would have failed for the very authors whose
+   * context is most easily mistaken for the reader's own.
+   *
+   * So: no `active` filter, names only, one query for the whole page (Principle VII — this list is read
+   * on the busiest customer surface in the product).
+   *
+   * ⓘ A missing id is simply absent from the result, and the caller shows the reference instead of
+   * inventing a placeholder name. An id from another account is absent too — same query result, no
+   * comparison in this file to split later.
+   */
+  async namesByAuthUserIds(
+    accountId: string,
+    authUserIds: readonly string[],
+  ): Promise<Array<{ authUserId: string; displayName: string }>> {
+    const ids = [...new Set(authUserIds.filter((id) => id))];
+    if (ids.length === 0) return [];
+    const rows = (await this.prisma.forAccount(accountId).operator.findMany({
+      where: { auth_user_id: { in: ids } },
+      select: { auth_user_id: true, display_name: true },
+    })) as Array<{ auth_user_id: string; display_name: string | null }>;
+    return rows.map((r) => ({ authUserId: r.auth_user_id, displayName: r.display_name ?? '' }));
+  }
 }

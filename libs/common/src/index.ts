@@ -43,6 +43,11 @@ export * from './channels';
 // TICKET fields on `Conversation`, never `Player.custom_attributes` (the customer's tiered
 // portfolio data) — "the roadmap-4.15 failure shape" was exactly that confusion.
 export * from './fields';
+// Feature 040 (W35): the contact-shaped-text detector for player notes — the masking-bypass channel
+// R35 named. ⚠️ Deliberately NOT `looksLikePersonalData` from `./audit/detail.ts`: that one refuses a
+// write and must be conservative, this one warns an author and may be generous. Same subject, opposite
+// constraint; the file states the table.
+export * from './notes';
 // Feature 033 (channels) + 038 (staff provisioning): the ONE signed-request verifier. Moved here
 // when the second consumer arrived — a verifier that exists twice drifts, and the copy that drifts
 // is the one nobody re-reads. ⚠️ The gateway still verifies nothing: the secret belongs to the

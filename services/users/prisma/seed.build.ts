@@ -148,6 +148,47 @@ export function buildSeed() {
         linked_on: SEED_PERSON_LINKED_ON,
       },
     ],
+    /**
+     * ── ⭐ W35 / feature 040 (R35 · U17): two notes, by TWO DIFFERENT AUTHORS ────────────────────
+     *
+     * The second author is the whole point of seeding any at all. The block's own requirement is that
+     * after a handover a manager reads *somebody else's* notes and can see whose — and a fixture where
+     * every note is by the caller would render the signature and prove nothing about it. So one note is
+     * the seed operator's and one is a seeded agent's, and the screen shows two different names without
+     * anybody staging a transfer.
+     *
+     * ⚠️ **Both are PLAIN notes — no `pattern_kinds` — and that is deliberate rather than lazy.** In the
+     * product a flagged note ALWAYS arrives with an audit entry written in the same transaction; a seed
+     * that inserted `pattern_kinds: 'phone'` as a row would create the one state the product cannot
+     * produce, and the first check that counted entries would disagree with the table. That is the
+     * *fixture-is-not-what-the-script-believes* class, pre-installed. The flagged path is exercised
+     * where it belongs: through the product, in the live run.
+     *
+     * `client_ref` values are fixed so a re-seed is idempotent against the unique index rather than
+     * accumulating a note per run.
+     */
+    playerNotes: [
+      {
+        id: 'seed-note-0000-0000-000000000001',
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        player_id: SEED_PLAYER_ID,
+        body: 'Играет по выходным, вопросы почти всегда про вывод. Обещали ответ в течение часа.',
+        author_auth_user_id: SEED_AUTH_USER_ID,
+        pattern_kinds: '',
+        client_ref: 'seed-note-ref-1',
+      },
+      {
+        id: 'seed-note-0000-0000-000000000002',
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        player_id: SEED_PLAYER_ID,
+        body: 'Просил не звонить до обеда — писать в чат. Передаю следующему менеджеру.',
+        author_auth_user_id: SEED_ROUTING_USER_IDS[0]!,
+        pattern_kinds: '',
+        client_ref: 'seed-note-ref-2',
+      },
+    ],
   };
 }
 

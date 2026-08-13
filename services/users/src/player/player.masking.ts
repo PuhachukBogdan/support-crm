@@ -1,6 +1,6 @@
 import { RpcException } from '@nestjs/microservices';
 import { status as GrpcStatus } from '@grpc/grpc-js';
-import { allowedFields, canMassExportContacts } from '@crm/common';
+import { allowedFields, canMassExportContacts, seesAmOnlyTier } from '@crm/common';
 
 /**
  * Anti-pitching contact-field masking (feature 011, US4 / T045 — SEC-AP1). Builds the player
@@ -42,6 +42,45 @@ export function maskPlayer<T extends Record<string, unknown>>(
  */
 export function assertCanMassExport(roleKey: string): void {
   if (!canMassExportContacts(roleKey)) {
+    throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+  }
+}
+
+/**
+ * ⭐ W35 / feature 040 — the player-notes clearance, in the module that owns *"what may this role see"*.
+ *
+ * A note is not a field, so it cannot be masked out of a row: it is either served or refused. The
+ * decision is therefore a gate rather than an allow-list — and it is the SAME decision the `am_only`
+ * tier makes about this record, asked through the policy's own predicate so no second rule exists.
+ *
+ * ⚠️ **It lives here rather than in the notes service on purpose.** `single-policy-path.spec.ts` names
+ * this file as the one place clearance is computed, and a gate written next to the query it guards is
+ * exactly how feature 011 ended up with two audit stores: the second surface found writing its own
+ * check easier than routing through the existing one, and nothing failed.
+ *
+ * ⚠️ `attachedToSubject` must come from the ONE attachment read (`AssignmentService.activeFor`), never
+ * from a second query with its own idea of "attached" — the same requirement `maskPlayer` states one
+ * function up, for the same reason.
+ */
+export function canReadPlayerNotes(
+  roleKey: string,
+  opts: { attachedToSubject: boolean },
+): boolean {
+  return seesAmOnlyTier(roleKey, opts);
+}
+
+/**
+ * The refusal, spelled the way every other refusal in this service is: `PERMISSION_DENIED`, message
+ * `forbidden`, and **nothing about the notes** — not their number, not whether any exist.
+ *
+ * "How many notes does this customer have" is itself withheld: a count would answer a question about a
+ * customer to somebody who may not read the answer, which is the shape SEC-AP2 is about one size down.
+ */
+export function assertCanReadPlayerNotes(
+  roleKey: string,
+  opts: { attachedToSubject: boolean },
+): void {
+  if (!canReadPlayerNotes(roleKey, opts)) {
     throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
   }
 }

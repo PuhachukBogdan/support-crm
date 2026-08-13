@@ -109,6 +109,27 @@ async function run(): Promise<void> {
         create: m,
         update: m,
       });
+    /**
+     * ── ⭐ W35 / feature 040: the notes on the demo customer ──────────────────────────────────────
+     *
+     * Written AFTER the players for the same reason `PersonMember` is: they belong to a player, and a
+     * note about a customer who is not there is not a fixture, it is a mistake waiting to be read.
+     *
+     * ⚠️ **CREATE-IF-ABSENT, never an upsert, and the guard is why.** The first draft used
+     * `playerNote.upsert` and `tests/data-model/player-notes-append-only.spec.ts` refused it on the root
+     * run — correctly: an upsert on this table can UPDATE a body, which is the one thing the product has
+     * no verb for. The seed now obeys the same rule as the product, so re-seeding is idempotent AND
+     * cannot rewrite a note that is already there.
+     *
+     * ⓘ Rows are written directly, which is honest for THIS table only: a note is inert data, unlike
+     * presence below, where a directly-written row would set a state with no transition beside it. What
+     * the seed does NOT do is fabricate a FLAGGED note — see `seed.build.ts` for that reasoning.
+     */
+    for (const note of seed.playerNotes) {
+      const existing = await db.playerNote.findFirst({ where: { id: note.id }, select: { id: true } });
+      if (!existing) await db.playerNote.create({ data: note });
+    }
+
     // ── Feature 025 (roadmap 5.9): labels, then the demo desk's presence ────────────────────────
     for (const label of seed.presenceLabels)
       await db.presenceLabel.upsert({ where: { id: label.id }, create: label, update: label });

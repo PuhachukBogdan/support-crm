@@ -2,6 +2,10 @@ import { Module } from '@nestjs/common';
 import { GrpcClientsModule } from '../grpc/clients.module';
 import { BrandsController } from '../brands/brands.controller';
 import { PlayersController } from './players.controller';
+// ⭐ W35 / feature 040: the notes surface. A SEPARATE controller because `players.controller.ts` is
+// feature 018's read edge and FR-027 is a property of that file — every verb in it is a `Get`, asserted
+// by `tests/users-read/no-outbound.spec.ts`, which refused the first draft of the notes POST.
+import { PlayerNotesController } from './notes.controller';
 
 /**
  * Gateway players + operators read edge (feature 018, roadmap 5.1).
@@ -16,6 +20,6 @@ import { PlayersController } from './players.controller';
   imports: [GrpcClientsModule],
   // W11 (9.17): the brands list rides this edge — it exists to answer the player reads' required
   // `brandId`, so it belongs beside them rather than in a module of its own.
-  controllers: [PlayersController, BrandsController],
+  controllers: [PlayersController, BrandsController, PlayerNotesController],
 })
 export class PlayersEdgeModule {}

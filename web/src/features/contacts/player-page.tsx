@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/composites/page-header/page-header';
 import { ComingSoonBadge } from '@/features/inbox/coming-soon';
 import { relativeTime } from '@/features/inbox/wire-labels';
 import { usePlayerCard } from '@/features/ticket/use-player-card';
+import { PlayerNotes } from '@/features/ticket/player-notes';
 
 /**
  * W11 — the full player page (roadmap 9.17's second half): *«просто расширенная карточка»*.
@@ -80,6 +81,14 @@ export function PlayerPage({ brandId, playerId }: { brandId: string; playerId: s
           <Skeleton className="h-16 w-full" />
         )}
       </section>
+
+      {/**
+       * ⭐ W35 (R35 · U17) — Manager notes. The SAME component and hook the ticket window's card mounts,
+       * per this file's own rule one screen up: the two surfaces must never disagree about the same
+       * customer. Only the `variant` differs, which is all that legitimately differs — the panel is a
+       * 320px drawer and this is a page.
+       */}
+      <PlayerNotes playerId={playerId} brandId={brandId} variant="page" />
 
       <section className="space-y-2 rounded-md border border-border p-4" data-testid="player-page-gr8">
         <div className="flex items-center gap-2">

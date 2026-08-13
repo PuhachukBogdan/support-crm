@@ -26,6 +26,16 @@ const POLICY_HOME = 'libs/common/src/policy/field-tiers.ts';
 const MASKING_HOME = 'services/users/src/player/player.masking.ts';
 /** The one place that ranks tiers to pick the most sensitive one for an audit entry (not a classification). */
 const RANKING_HOME = 'services/users/src/player/contact-view-audit.service.ts';
+/**
+ * ⭐ W35 / feature 040 — the one consumer of the notes GATE.
+ *
+ * Player notes are the first thing whose visibility is the `am_only` question asked about a TABLE rather
+ * than about fields of a row: a note cannot be masked out of a projection, it is served or refused. So
+ * the decision is a gate (`assertCanReadPlayerNotes`, defined in {@link MASKING_HOME}) — and this
+ * constant pins that the gate has exactly ONE caller. A second caller is not automatically wrong; it is
+ * a decision, and it should have to edit this line to happen.
+ */
+const NOTES_GATE_CONSUMER = 'services/users/src/player/player-note.service.ts';
 
 const SCAN_ROOTS = ['libs/common/src', 'libs/proto/crm', 'services'];
 
@@ -181,6 +191,30 @@ describe('*** clearance is computed in ONE place ***', () => {
       /\ballowedFields\s*\(|\bvisibleTiersFor\s*\(|\bsurfacedMaskableTiers\s*\(/.test(s.code),
     ).map((s) => s.path);
     expect(consumers.sort()).toEqual([POLICY_HOME, RANKING_HOME, MASKING_HOME].sort());
+  });
+
+  /**
+   * ⭐ W35 / feature 040. The derived predicate the notes gate stands on may be consulted only where the
+   * other clearance arithmetic is: the policy that owns the vocabulary, and the masking module that owns
+   * *"what may this role see"*. A notes service that called it directly would be computing clearance in
+   * a third place — the shape this whole file exists to forbid — even though it would produce the same
+   * answer on the day it was written.
+   */
+  it('the notes predicate is consulted only by the policy and the masking module', () => {
+    const consumers = SOURCES.filter((s) => /\bseesAmOnlyTier\s*\(/.test(s.code)).map((s) => s.path);
+    expect(consumers.sort()).toEqual([POLICY_HOME, MASKING_HOME].sort());
+  });
+
+  it('the notes GATE is defined in the masking module and called from exactly one place', () => {
+    const definers = SOURCES.filter((s) =>
+      /\b(?:function|const)\s+(?:assert)?[Cc]anReadPlayerNotes\b/.test(s.code),
+    ).map((s) => s.path);
+    expect(definers).toEqual([MASKING_HOME]);
+
+    const callers = SOURCES.filter(
+      (s) => s.path !== MASKING_HOME && /\bassertCanReadPlayerNotes\s*\(/.test(s.code),
+    ).map((s) => s.path);
+    expect(callers).toEqual([NOTES_GATE_CONSUMER]);
   });
 
   it('the gateway edge holds no field policy at all', () => {

@@ -215,6 +215,31 @@ export function visibleTiersForSubject(
 }
 
 /**
+ * ⭐ W35 / feature 040 — may this caller read the account manager's own material about THIS player?
+ *
+ *     sees it  ⟺  `am_only` survives {@link visibleTiersForSubject} for this role and this record
+ *
+ * ── Why a predicate here and not a tier check at the call site ───────────────────────────────────
+ * Player notes (W35) are not a `Player` column, so `allowedFields` cannot answer for them — the
+ * allow-list shapes a ROW, and a note is a table. But their visibility must be **the same fact** as
+ * `am_notes`' was, or the product would hold two answers to *"who may read what an AM wrote about this
+ * customer"*, and two answers diverge the first time one is updated (the divergence-with-a-delay-fuse
+ * `single-policy-path.spec.ts` exists to prevent).
+ *
+ * So the question is asked HERE, where the vocabulary lives, and derived from the same function the
+ * field masking uses. The notes service calls this and never names a tier — which is also what keeps
+ * the repo-wide guard's promise ("a distinctive tier name appears only in the policy") true of the new
+ * code without an exemption.
+ *
+ * The three sibling predicates above ({@link narrowsToOwnPortfolio}, {@link isQueueRole}) are the same
+ * pattern: a domain question answered by deriving from the tier map rather than by listing role names,
+ * so a role added later is classified automatically and in the safe direction.
+ */
+export function seesAmOnlyTier(roleKey: string, opts: { attachedToSubject: boolean }): boolean {
+  return visibleTiersForSubject(roleKey, opts).includes('am_only');
+}
+
+/**
  * The set of `Player` field names a role may see about ONE player (allow-list source for masking).
  *
  * ⚠️ `opts` is REQUIRED, and that is the enforcement rather than a style choice: making the

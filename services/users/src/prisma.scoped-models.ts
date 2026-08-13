@@ -44,6 +44,12 @@ export const SCOPED_MODELS = [
   // a row here decides what a manager may read, so a leak across the tenancy wall would not merely
   // show the wrong data, it would grant the wrong access. Same reasoning as the group tables.
   'PlayerAssignment',
+  // ⭐ W35 / 040: what somebody wrote about a customer. Scoped for the reason `ChannelParticipant`
+  // below is: it is the softest data in the product and the most likely to contain a contact value in
+  // clear — an author can type one into free text, which is precisely the bypass R35 named and this
+  // feature warns about. A read crossing the tenancy wall would hand one tenant another tenant's
+  // customer detail through the one field no masking rule can shape.
+  'PlayerNote',
   // Feature 033 (roadmap 6.4): the envelope a channel conversation is answered at. Scoped for the
   // strongest reason any table here is — it holds a CONTACT VALUE IN CLEAR, the only new one the
   // channels feature adds. A read that crossed the tenancy wall would hand one tenant another tenant's

@@ -61,7 +61,16 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   // still refusing a raw address); `valueKind` = `email | phone` in clear; `matched` =
   // `found | none | ambiguous | rate_capped`. An investigator confirms "was this number looked up"
   // by hashing it; nobody reads the number out of the log.
-  access: ['tier', 'filters', 'valueHash', 'valueKind', 'matched'],
+  // ⭐ W35 / 040: `patternKinds` = WHICH KINDS of contact-shaped text a stored player note contained,
+  // as a comma-joined token from the closed three-word vocabulary (`email` · `handle` · `phone`).
+  //
+  // ⚠️ It is a separate key rather than a reuse of `valueKind` above, and the reason is a contract one:
+  // `valueKind` is singular by definition (*"`email | phone` in clear"* — one searched value, one kind),
+  // while a note can trip all three detectors at once. Overloading it would make the same key mean
+  // "the kind" on one action and "the kinds" on another, and the reader years later would have to know
+  // which. It passes the value guard BY CONSTRUCTION: a kind list contains no `@` and no digits, so the
+  // shape that would let a matched phone number through this key does not exist.
+  access: ['tier', 'filters', 'valueHash', 'valueKind', 'matched', 'patternKinds'],
   export: ['format', 'rowCount', 'scope'],
   // `reasonClass` (feature 031) = WHY routing found nobody, as a class: 'desk_not_routable',
   // 'nobody_available', 'all_at_capacity'. A class and never a sentence, so no relay's wording and no

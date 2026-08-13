@@ -1023,3 +1023,102 @@ message ReassignPortfolioResult {
   int32 remaining = 3;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ⭐ PlayerNotesService — WHAT SOMEBODY WROTE about a customer (W35 / feature 040, R35 · U17).
+//
+// ADDITIVE ONLY: a new service, two rpcs, new messages. Nothing renamed, so `buf breaking` stays clean.
+//
+// ⚠️ **THERE IS NO Update AND NO Delete, AND THE ABSENCE IS THE CONTRACT.** Q20 settled editability with
+// a scenario rather than a preference: if a note can be changed, then *«вписал, показал кому надо, стёр,
+// и в системе чисто»* — the note becomes a way to show somebody something and then make it never have
+// happened. Append-only removes the move instead of policing it. A correction is a new note, and this
+// service surface is what makes that structural rather than a convention: there is no verb to call.
+//
+// ⚠️ **A note is a MASKING-BYPASS CHANNEL, which is why this exists as its own contract** (R35). The
+// customer's phone is withheld from `Player` by tier; nothing stops an author typing it into free text
+// one line below. So `AddPlayerNote` runs the contact-shape detector, and `ADD_NOTE_OUTCOME_NEEDS_ACK`
+// is the answer that carries the warning back to its author.
+//
+// ⚠️ **`NEEDS_ACK` stores NOTHING and is not a refusal.** U17 rejected a hard block, because *«телефон:
+// восемь девять два…»* defeats one in two seconds and moves the behaviour where no detector can see it.
+// The same request with `acknowledged = true` stores the note and writes ONE audit entry
+// (`player.note_flagged`). No body is unstorable; what changes is that the trail records a deliberate
+// act instead of a system noticing afterwards.
+//
+// ⚠️ **The reads are NOT on `UsersReadService`, and the writes could not be**: a write on a service named
+// *Read* is a lie in the contract (`tests/users-read/no-outbound.spec.ts` enforces it). New service,
+// EXISTING package, so no new hosting entry is needed — a claim `hosting.spec.ts` verifies.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service PlayerNotesService {
+  rpc ListPlayerNotes(ListPlayerNotesRequest) returns (PlayerNotePage);
+  rpc AddPlayerNote(AddPlayerNoteRequest) returns (AddPlayerNoteResult);
+}
+
+message ListPlayerNotesRequest {
+  // ⚠️ BOTH are required. A bare platform id names two customers — the same value under two brands is
+  // routinely two different human beings (feature 020), so there is no correct record to answer with,
+  // only a lucky one.
+  string brand_id = 1;
+  string player_id = 2;
+}
+
+message PlayerNote {
+  string id = 1;
+  // The prose itself. Tier-equivalent to `am_only` — served only to a caller cleared for this record,
+  // and the service refuses rather than returning an empty page to anyone else.
+  string body = 2;
+  // WHO WROTE IT: the AUTH user id. The stable fact, and what the screen falls back to when no profile
+  // resolves a name.
+  string author_ref = 3;
+  // ⚠️ Resolved WITHOUT the `active` filter, deliberately: a note written by somebody who has since left
+  // must still name them. W32 hands the portfolio over exactly when somebody leaves, and their notes are
+  // what the successor inherits — an unattributed one invites the reader to mistake it for their own
+  // conclusion, which is the failure the operator's «подписана автором и датой» exists to prevent.
+  // EMPTY when no operator row resolves at all; the caller then shows `author_ref`.
+  string author_display_name = 4;
+  string created_at = 5; // RFC3339
+  // What the author was warned about when they added it (`email` · `handle` · `phone`), if anything.
+  // A record of what was SHOWN at the time — never recomputed, so a better detector later cannot
+  // silently rewrite what somebody was told.
+  repeated string pattern_kinds = 6;
+}
+
+message PlayerNotePage {
+  repeated PlayerNote notes = 1; // newest first
+}
+
+message AddPlayerNoteRequest {
+  string brand_id = 1;
+  string player_id = 2;
+  string body = 3;
+  // "I saw the warning and mean to add it anyway."
+  bool acknowledged = 4;
+  // ⚠️ Idempotence keys off THIS and never off the body: two identical observations on different days
+  // are two facts, and on an append-only store a silent no-op would be indistinguishable from a write
+  // that vanished. A retried request is one row.
+  string client_ref = 5;
+}
+
+enum AddNoteOutcome {
+  // ⚠️ Not decoration. The gRPC wire drops zero values, so a client that receives no outcome reads
+  // `UNSPECIFIED` and must treat it as a failure — never as "stored". `gotchas/grpc-wire-encoding` twice.
+  ADD_NOTE_OUTCOME_UNSPECIFIED = 0;
+  ADD_NOTE_OUTCOME_STORED = 1;
+  // Nothing was stored. The kinds below say what was recognised.
+  ADD_NOTE_OUTCOME_NEEDS_ACK = 2;
+  ADD_NOTE_OUTCOME_EMPTY_BODY = 3;
+  ADD_NOTE_OUTCOME_TOO_LONG = 4;
+  ADD_NOTE_OUTCOME_NO_SUCH_PLAYER = 5;
+}
+
+message AddPlayerNoteResult {
+  AddNoteOutcome outcome = 1;
+  // Present on STORED — including an idempotent replay, where it is the FIRST row.
+  PlayerNote note = 2;
+  // Present on NEEDS_ACK.
+  repeated string pattern_kinds = 3;
+  // True when this call matched an earlier `client_ref` instead of writing. The caller can tell
+  // "stored now" from "already stored" without comparing timestamps.
+  bool replayed = 4;
+}

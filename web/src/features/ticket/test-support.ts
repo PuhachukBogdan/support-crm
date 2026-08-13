@@ -2,6 +2,9 @@ import type { DataAccess, RealtimeEvent } from '@/data/data-access';
 import type { DataError, PaginatedResult, Query, ResourceName } from '@/data/types';
 import { WIRE_STATUSES, type StatusWireRow } from '@/features/inbox/test-support';
 import type { CannedResponseWire, ConversationDetail, LabelWire, MacroWire, ThreadMessage } from './types';
+// ⭐ W35 / feature 040: the note wire, imported from the hook that defines it rather than restated —
+// a stub answering a shape the hook does not read is the fake-more-permissive failure in miniature.
+import type { PlayerNoteWire } from './use-player-notes';
 
 /**
  * A `DataAccess` for the ticket window (W7). Same philosophy as the Inbox's stub: it proves the
@@ -44,6 +47,32 @@ export interface TicketStubOptions {
   fieldView?: Record<string, unknown>;
   /** The field-view read fails — the block must degrade ALONE (the TagsBlock rule). */
   failFieldViewWith?: DataError;
+  /**
+   * ⭐ W35 / feature 040 — the notes area on the player card.
+   *
+   * Defaults to an EMPTY list rather than to a refusal, so every pre-W35 case keeps meaning what it
+   * meant: the area renders its empty state and nothing else changes.
+   */
+  notes?: PlayerNoteWire[];
+  /**
+   * The notes read fails with this. ⚠️ Pass `{ code: 'refused' }` for the clearance case — the area must
+   * then be ABSENT, not empty, because an empty list would answer "nobody wrote anything" to a caller
+   * who may not be told.
+   */
+  failNotesWith?: DataError;
+  /**
+   * What `create player-notes` answers.
+   *
+   * ⚠️ The stub deliberately runs **no detector of its own**. The rule lives in `@crm/common` and is
+   * enforced by the server; a stub that re-implemented it would be a third copy of a security check, and
+   * a stub that guessed differently from the server would make this suite lie in whichever direction it
+   * guessed. So the CASE declares the outcome, exactly as the wire would carry it.
+   */
+  addNoteAnswer?:
+    | { outcome: 'stored' }
+    | { outcome: 'needs_acknowledgement'; patternKinds: string[] };
+  /** `create player-notes` fails outright (a 500, a dropped connection). */
+  failAddNoteWith?: DataError;
   /**
    * ⭐ 2026-08-10 — the Assignee chooser's two reads (`use-assignable-operators.ts`).
    *
@@ -91,6 +120,8 @@ export interface TicketStub extends DataAccess {
   listCalls: Query[];
   /** W10: how many times the player record was read — 0 proves "asks nothing when unidentified". */
   playerReads: number;
+  /** ⭐ W35: how many times the notes were read — 0 proves the same for the notes area. */
+  noteReads: number;
   /**
    * 2026-08-10: the `authUserIds` each translation call asked for, in order. The chooser must ask for
    * the ids it got from the staff list and nothing else — an unbounded or invented request here would
@@ -158,6 +189,7 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
     detailReads: 0,
     listCalls: [],
     playerReads: 0,
+    noteReads: 0,
     operatorLookups: [],
     async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
       stub.listCalls.push(query);
@@ -189,6 +221,12 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
       if (resource === 'staff') {
         if (opts.failStaffWith) throw opts.failStaffWith;
         return page((opts.staff ?? DEFAULT_STAFF) as unknown as T[]);
+      }
+      // ⭐ W35: the notes on the card. Newest first, exactly as the server orders them.
+      if (resource === 'player-notes') {
+        if (opts.failNotesWith) throw opts.failNotesWith;
+        stub.noteReads += 1;
+        return page((opts.notes ?? []) as unknown as T[]);
       }
       throw new Error(`unexpected list: ${resource}`);
     },
@@ -271,6 +309,29 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
         // renders the new message — the same "appears when the read returns it" the product has.
         messages = [...messages, makeMessage({ id: `m-sent-${writes.length}`, body, kind })];
         return { id: `m-sent-${writes.length}` } as unknown as T;
+      }
+      // ⭐ W35: adding a note. The stub answers what the case declared (see `addNoteAnswer`) and runs no
+      // detector of its own — and on `needs_acknowledgement` it stores NOTHING, like the server.
+      if (resource === 'player-notes') {
+        if (opts.failAddNoteWith) throw opts.failAddNoteWith;
+        const answer = opts.addNoteAnswer ?? { outcome: 'stored' as const };
+        if (answer.outcome === 'needs_acknowledgement' && (input as { acknowledged?: boolean }).acknowledged !== true) {
+          return { outcome: 'needs_acknowledgement', patternKinds: answer.patternKinds } as unknown as T;
+        }
+        const body = (input as { body?: string }).body ?? '';
+        return {
+          outcome: 'stored',
+          replayed: false,
+          note: {
+            id: `note-${writes.length}`,
+            body,
+            authorRef: 'auth-me',
+            authorDisplayName: 'Me Myself',
+            createdAt: '2026-08-13T10:00:00.000Z',
+            patternKinds:
+              answer.outcome === 'needs_acknowledgement' ? answer.patternKinds : [],
+          },
+        } as unknown as T;
       }
       throw new Error(`unexpected create: ${resource}`);
     },

@@ -173,6 +173,145 @@ export function parseListQuery(query: Record<string, unknown>): ListQuery {
   };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⭐ W35 / feature 040 — player notes at the edge.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * The note projection — an EXPLICIT list, like the player one above and for the same reason: a field
+ * added to the message must not reach a browser because nobody remembered this file.
+ *
+ * ⚠️ Unlike `toPlayerResponse` this does NOT drop default-valued fields, and the difference is
+ * deliberate. That rule exists so a MASKED field is indistinguishable from an empty one — a note has no
+ * masked fields: the whole row is either served or refused. Dropping empties here would instead delete
+ * meaning, because `authorDisplayName: ''` is a real answer ("no profile resolves this author, show the
+ * reference") and `patternKinds: []` is another ("nothing was flagged"). An absent key would make the
+ * screen guess at both.
+ */
+const NOTE_FIELDS = ['id', 'body', 'authorRef', 'authorDisplayName', 'createdAt', 'patternKinds'] as const;
+
+export const PROJECTED_NOTE_FIELDS: readonly string[] = NOTE_FIELDS;
+
+export function toNoteResponse(msg: unknown): Record<string, unknown> {
+  const src = (msg ?? {}) as Record<string, unknown>;
+  return {
+    id: String(src.id ?? ''),
+    body: String(src.body ?? ''),
+    authorRef: String(src.authorRef ?? ''),
+    authorDisplayName: String(src.authorDisplayName ?? ''),
+    createdAt: String(src.createdAt ?? ''),
+    patternKinds: Array.isArray(src.patternKinds) ? src.patternKinds.map(String) : [],
+  };
+}
+
+export function toNotePageResponse(page: unknown): { notes: Record<string, unknown>[] } {
+  const src = (page ?? {}) as { notes?: unknown[] };
+  return { notes: (src.notes ?? []).map(toNoteResponse) };
+}
+
+/**
+ * The notes LIST query.
+ *
+ * ── ⚠️ WHY THIS EXISTS AND IS NOT `parseGetQuery` ────────────────────────────────────────────────
+ * The first version reused `parseGetQuery` (brandId and nothing else) and the LIVE RUN found it: the
+ * browser's transport sends `pageSize` on every list read — it comes from the route registry's own row,
+ * not from the screen — so every notes read in a real browser answered
+ * **`400 unknown query parameter: pageSize`**. Nothing in the suite could see it: the unit tests call the
+ * controller directly, and the API legs of the live check hand-build the query without paging.
+ *
+ * ⓘ And it hid twice over on the screen, which is the part worth remembering: the page LOOKED fine
+ * because a stored note is prepended from the POST response, so «add a note and see it appear» passed
+ * while the READ was failing the whole time. The panel, which has no POST, is where it surfaced.
+ *
+ * ⛔ `pageToken` is REFUSED rather than accepted-and-ignored. This contract has no paging: the card
+ * section is one page by design, and the service clamps the size. Accepting a cursor we do not honour is
+ * the silently-dropped-filter failure — the exact shape feature 017's live run found one layer deeper.
+ */
+export function parseNotesListQuery(query: Record<string, unknown>): { brandId: string; pageSize: number } {
+  const allowed = ['brandId', 'pageSize'];
+  const unknown = Object.keys(query ?? {}).filter((k) => !allowed.includes(k));
+  // KEY names only — a query value can be a customer identifier (SEC-26).
+  if (unknown.length > 0) {
+    throw new BadRequestException(`unknown query parameter: ${unknown.sort().join(', ')}`);
+  }
+  const brandId = typeof query?.brandId === 'string' ? query.brandId.trim() : '';
+  if (!brandId) throw new BadRequestException('brandId is required');
+  return { brandId, pageSize: parsePageSize(query?.pageSize) };
+}
+
+/**
+ * The add-note body, validated at the edge that accepts it.
+ *
+ * ⚠️ **`body` is NEVER echoed in an error message.** A validation failure that quoted the text would put
+ * a note — possibly containing the very contact value this feature exists to notice — into the gateway's
+ * error responses and, from there, into whatever logs them (SEC-26). Lengths and key names only.
+ */
+export interface AddNoteBody {
+  brandId: string;
+  body: string;
+  acknowledged: boolean;
+  clientRef: string;
+}
+
+const ALLOWED_NOTE_BODY_KEYS = ['brandId', 'body', 'acknowledged', 'clientRef'] as const;
+
+export function parseAddNoteBody(raw: unknown): AddNoteBody {
+  const src = (raw ?? {}) as Record<string, unknown>;
+  const unknown = Object.keys(src).filter(
+    (k) => !(ALLOWED_NOTE_BODY_KEYS as readonly string[]).includes(k),
+  );
+  // Refused, not ignored — the same fail-closed stance as the query parsers above. KEY names only.
+  if (unknown.length > 0) {
+    throw new BadRequestException(`unknown field: ${unknown.sort().join(', ')}`);
+  }
+
+  const brandId = typeof src.brandId === 'string' ? src.brandId.trim() : '';
+  if (!brandId) throw new BadRequestException('brandId is required');
+
+  const body = typeof src.body === 'string' ? src.body : '';
+  if (!body.trim()) throw new BadRequestException('body is required');
+
+  // ⚠️ The bound is restated here as well as in the owning service, and that is not duplication of a
+  // RULE — it is a parse limit. The service decides whether a note is acceptable; the edge declines to
+  // forward a megabyte to find out. The numbers agree by test, not by comment.
+  if (body.length > MAX_NOTE_BODY_LENGTH) throw new BadRequestException('body is too long');
+
+  const clientRef = typeof src.clientRef === 'string' ? src.clientRef.trim() : '';
+  if (!clientRef) throw new BadRequestException('clientRef is required');
+  if (clientRef.length > 64) throw new BadRequestException('clientRef is too long');
+
+  return { brandId, body, acknowledged: src.acknowledged === true, clientRef };
+}
+
+/** Mirrors `MAX_NOTE_LENGTH` in the owning service; `notes-edge.spec.ts` asserts they agree. */
+export const MAX_NOTE_BODY_LENGTH = 4_000;
+
+/**
+ * The outcome enum, decoded by NAME as well as by tag.
+ *
+ * ⚠️ proto-loader runs with `enums: String`, so the wire carries `"ADD_NOTE_OUTCOME_STORED"`. Feature
+ * 025 lost a live iteration to exactly this and it is written down twice
+ * (`gotchas/grpc-wire-encoding-enums-longs`), so both spellings are accepted here — and an UNRECOGNISED
+ * outcome is an upstream error, never a success. The wire drops zero values, so "no outcome" arrives as
+ * `UNSPECIFIED` and must not read as "stored".
+ */
+const OUTCOME_WORD: Readonly<Record<string, string>> = {
+  '1': 'stored',
+  '2': 'needs_acknowledgement',
+  '3': 'empty_body',
+  '4': 'too_long',
+  '5': 'no_such_player',
+  ADD_NOTE_OUTCOME_STORED: 'stored',
+  ADD_NOTE_OUTCOME_NEEDS_ACK: 'needs_acknowledgement',
+  ADD_NOTE_OUTCOME_EMPTY_BODY: 'empty_body',
+  ADD_NOTE_OUTCOME_TOO_LONG: 'too_long',
+  ADD_NOTE_OUTCOME_NO_SUCH_PLAYER: 'no_such_player',
+};
+
+export function outcomeWord(raw: unknown): string {
+  return OUTCOME_WORD[String(raw ?? '')] ?? '';
+}
+
 /**
  * Page size: absent ⇒ let the service decide; anything else invalid ⇒ 400.
  *

@@ -1034,6 +1034,32 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['get'],
   },
   /**
+   * ⭐ W35 / feature 040 (R35 · U17) — what somebody wrote about this customer. A CHILD COLLECTION of
+   * the player: `/players/{within}/notes`, `brandId` REQUIRED for the same reason every player read
+   * requires it (a platform id alone names two customers, and the server refuses rather than guessing).
+   *
+   * ⚠️ **`create` and NO `update`, NO `remove`, and that is the contract rather than an omission.** A
+   * note is append-only (Q20): a correction is a new note, and the server serves no verb that could
+   * change one. Declaring them here would make the client the only place in the stack that believes
+   * otherwise — and a screen would eventually offer a button whose request the server refuses.
+   *
+   * ⓘ `create` may answer `needs_acknowledgement` — a 200 in which NOTHING was stored, carrying which
+   * kinds of contact-shaped text the body contains. The caller then re-sends with `acknowledged: true`.
+   * That is the warning U17 asked for, and it is the server's answer rather than a browser-side regex,
+   * because `web/` imports nothing from the services' shared library — a second copy of a security rule
+   * is the divergence the repo's own guards exist to prevent.
+   */
+  {
+    resource: 'player-notes',
+    path: '/players/{within}/notes',
+    collection: 'notes',
+    params: { brandId: 'brandId' },
+    required: ['brandId'],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list', 'create'],
+  },
+  /**
    * ⭐ W9 / spec 035 (ADR 0044 §4) — the contact lookup. A CHILD SINGLETON with a POST verb: the
    * searched value rides the body (never a query a proxy would log), and the route exists only
    * under a conversation — there is deliberately no account-level lookup row here, because a

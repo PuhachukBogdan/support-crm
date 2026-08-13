@@ -12,6 +12,8 @@ import { relativeTime } from '@/features/inbox/wire-labels';
 import { usePanelChoice } from '@/components/shell/context-panel';
 import { useActiveTickets } from './use-active-tickets';
 import { usePlayerCard } from './use-player-card';
+// ⭐ W35 / feature 040: the notes area, shared verbatim with the full player page.
+import { PlayerNotes } from './player-notes';
 
 /**
  * W10 — the ticket window's right rail: **ONE consolidated area, not three widgets** (R27, the
@@ -261,6 +263,16 @@ function PlayerCard({
           <Skeleton className="h-10 w-full" />
         )}
       </div>
+
+      {/**
+       * ⭐ W35 (R35 · U17) — Manager notes, on the card the operator actually works from.
+       *
+       * The SAME component and the SAME hook the full player page mounts (W11's rule: two surfaces must
+       * never disagree about one customer, and a second read path is how they would). It renders NOTHING
+       * for a caller without the `am_only` clearance about this player — absent rather than empty,
+       * because an empty list would answer "nobody has written anything" to somebody who may not be told.
+       */}
+      <PlayerNotes playerId={playerId} brandId={brandId} variant="panel" />
 
       {/**
        * ⭐ The GR8 block. Nothing is behind it and the card SAYS so: balance, deposits, bonuses and

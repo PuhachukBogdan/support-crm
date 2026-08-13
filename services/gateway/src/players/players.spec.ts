@@ -77,6 +77,9 @@ describe('*** every route carries permission metadata *** (the 016 wire defect, 
   );
 
   it('the scan sees the real routes (guards against a vacuous pass)', () => {
+    // ⓘ W35's notes routes are NOT here and must not be: this controller is the read edge, and
+    // `tests/users-read/no-outbound.spec.ts` asserts every verb in its file is a `Get`. The notes
+    // surface has its own controller and its own key assertions (`notes-edge.spec.ts`).
     expect(ROUTES.sort()).toEqual(['getOperator', 'getPlayer', 'listOperators', 'listPlayers']);
   });
 

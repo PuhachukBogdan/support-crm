@@ -140,6 +140,10 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'contact.lookup',
     'conversation.player_attach',
     'conversation.player_detach',
+    // ⭐ W35 / 040 (R35, U17) — a note whose contact-shaped text was shown to its author, who added it
+    // anyway. Live with its writer, like the 038 set above. ⚠️ An ORDINARY note writes nothing: the row
+    // is append-only and signed, so it is its own record (the catalogue entry states the reasoning).
+    'player.note_flagged',
   ];
 
   it('every action resolves to a class and a writer', () => {
@@ -279,9 +283,12 @@ describe('actionsOfClass', () => {
     );
   });
 
-  it('groups access (a reveal, a record open, reading the log — and W9’s lookup)', () => {
+  it('groups access (a reveal, a record open, reading the log, W9’s lookup — and W35’s flagged note)', () => {
     expect(actionsOfClass('access').sort()).toEqual(
-      ['contact.reveal', 'record.open', 'audit.read', 'contact.lookup'].sort(),
+      // ⭐ `player.note_flagged` joins the anti-pitching family rather than starting a class: the
+      // question is the same one — did a protected contact detail move somewhere usable — and a note is
+      // simply the free-text route to it (R35). Splitting it off would split one reviewable filter.
+      ['contact.reveal', 'record.open', 'audit.read', 'contact.lookup', 'player.note_flagged'].sort(),
     );
   });
 

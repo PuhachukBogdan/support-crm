@@ -433,6 +433,72 @@ model PlayerAssignment {
 }
 
 /// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// ⭐ W35 / feature 040 (R35 · U17) — WHAT SOMEBODY WROTE about a customer.
+///
+/// A note stops being a FIELD ON THE PLAYER and becomes AN ENTRY SOMEBODY WROTE. That is the whole
+/// model change, and both halves of the block follow from it: an entry can be signed (the operator's
+/// decision of 2026-08-13 — a successor reads the previous manager's notes and can see whose view
+/// they are), and an entry can be append-only (Q20's default — *«вписал, показал кому надо, стёр, и в
+/// системе чисто»* is the move that append-only removes without needing a revision store).
+///
+/// ⚠️ **THIS IS A MASKING-BYPASS CHANNEL, and that is why the block is a spec at all** (R35). The
+/// customer's phone is withheld from the card by tier; nothing stops an author typing it one line
+/// below. So every write runs `contactShapedKinds` (`@crm/common`), the author is warned, the event is
+/// audited — and the save is still allowed, because U17 measured that a hard block is defeated in two
+/// seconds and moves the behaviour where no detector can see it.
+///
+/// ⚠️ **`Player.am_notes` is SUPERSEDED by this table and deliberately still there.** It never had a
+/// writer anywhere in the product, so there is nothing to migrate; it stays because it is a shipped
+/// wire field (`Player.am_notes = 6`), because the fail-closed tier map must classify every column
+/// that exists, and because its one non-null seed value is a feature-020 brand-collision fixture whose
+/// meaning is not about notes. Nothing reads it on any screen, and nothing writes it.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+model PlayerNote {
+  id         String @id @default(uuid())
+  account_id String
+
+  /// The player by the FULL identity (feature 020) — the same reasoning as `PlayerAssignment` above.
+  brand_id  String
+  player_id String
+
+  body String @db.Text
+
+  /// Soft ref to auth.User.id — WHO WROTE IT, resolved to a display name on read through
+  /// `OperatorRepository.resolveByAuthUserIds`.
+  ///
+  /// ⚠️ An AUTH user id, not an `Operator.id`, and the distinction is not pedantry: W31 shipped a
+  /// handover that moved nothing because an auth id was passed where `users.Operator.id` was matched,
+  /// and a structural guard is the only reason it was caught. Same identity as
+  /// `PlayerAssignment.am_auth_user_id`, so "the manager who wrote this" and "the manager attached"
+  /// are comparable without a translation step.
+  author_auth_user_id String
+
+  /// What the detector recognised WHEN THE AUTHOR WAS WARNED — a comma-joined subset of the closed
+  /// vocabulary (`email` · `handle` · `phone`), empty for an ordinary note.
+  ///
+  /// ⚠️ It records the warning that was shown, NOT a standing claim about the text. A better detector
+  /// later must not silently rewrite what somebody was told at the time — which is also why the note's
+  /// audit entry is written at the moment of the acknowledged save and never recomputed.
+  pattern_kinds String @default("")
+
+  /// Caller-supplied idempotence reference — one per compose action.
+  ///
+  /// ⚠️ Idempotence keys off THIS and never off the body. Two identical observations on different days
+  /// are two facts, and on an append-only store a silent no-op would be indistinguishable from a
+  /// successful write that vanished.
+  client_ref String
+
+  created_at DateTime @default(now())
+
+  /// A retried request is one row. Scoped to the account because that is what the reference means here
+  /// — a tenancy fact, not a per-player one.
+  @@unique([account_id, client_ref])
+  /// The only read there is: this player's notes, newest first.
+  @@index([account_id, brand_id, player_id, created_at])
+  @@index([account_id])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
 /// Feature 025 — AGENT PRESENCE, FOR ROUTING ONLY (roadmap 5.9, ADR 0042 §7 / U4).
 ///
 /// Keyed on `auth_user_id`, NOT on `Operator.id`, and that is a decision rather than a convenience

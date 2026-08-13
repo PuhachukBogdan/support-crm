@@ -493,6 +493,16 @@ message ListUsersRequest {
   // Keyset, as everywhere else: opaque token, never an offset (Principle VII).
   string page_token = 2;
   int32 page_size = 3;
+  /**
+   * The CALLER's effective permissions, forwarded by the gateway so this service can enforce
+   * `users.list.view` itself (Principle II — the service tier decides independently).
+   *
+   * ⚠️ It was missing from the first draft of this message and the field was silently dropped on
+   * the wire: the gateway sent an array, proto-loader discarded what the contract did not declare,
+   * and every call — including the owner's — arrived with no permissions and was refused. The
+   * symptom was a 500 at the edge, which reads like a broken service rather than a contract gap.
+   */
+  repeated string caller_permissions = 4;
 }
 
 message ListUsersResponse {

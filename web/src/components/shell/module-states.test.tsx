@@ -140,12 +140,33 @@ describe('*** the three states are configuration, not a code change (FR-021) ***
     expect(knowledge?.state).toBe('coming_soon');
   });
 
-  it('a coming-soon module needs no permission — nobody holds one for a thing that does not exist', () => {
-    // Gating placeholders on a permission would hide every reserved slot from everybody, including
-    // the one the operator explicitly wants to keep visible.
-    expect(resolveModules([], parseModuleOverrides('analytics:coming_soon')).map((m) => m.key)).toContain(
+  /**
+   * ⭐⭐ **REVERSED in W13, and the reversal is the interesting part.**
+   *
+   * This used to assert the opposite — *"a coming-soon module needs no permission"* — with a
+   * comment explaining that gating placeholders would hide every reserved slot from everybody.
+   * Signing in as a line agent on the stand showed them **Admin Center** and **Analytics**, which
+   * is exactly what R26 forbids (*«их не грузить лишними окнами»*). The rule was reasonable and the
+   * screen disagreed; the screen wins.
+   */
+  it('⭐ a coming-soon module that DECLARES a permission is gated by it (R26)', () => {
+    // Analytics declares `analytics.dashboard.view`: an agent without it does not see the slot…
+    expect(resolveModules([], parseModuleOverrides('analytics:coming_soon')).map((m) => m.key)).not.toContain(
       'analytics',
     );
+    // …and a supervisor who holds it does.
+    expect(
+      resolveModules(['analytics.dashboard.view'], parseModuleOverrides('analytics:coming_soon')).map((m) => m.key),
+    ).toContain('analytics');
+  });
+
+  it('…while a placeholder with NO permission stays visible to everyone', () => {
+    // Knowledge Base, Escalations and Workforce declare none — "reserved for the whole company"
+    // is what that actually means, and R19 wants the KB entry from day one.
+    const keys = resolveModules([]).map((m) => m.key);
+    expect(keys).toContain('knowledge');
+    expect(keys).toContain('escalations');
+    expect(keys).toContain('workforce');
   });
 
   it('⚠️ a malformed override is IGNORED — a typo must not black out a module', () => {

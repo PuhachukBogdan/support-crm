@@ -184,11 +184,25 @@ export function resolveModules(
     .map((m) => ({ ...m, state: overrides[m.key] ?? m.state }))
     .filter((m) => m.state !== 'hidden')
     .filter((m) => {
+      /**
+       * ⭐⭐ **W13 REVERSED this, and the live check is why.**
+       *
+       * The rule used to be *"a coming-soon module is a promise, not a capability, so show it to
+       * everyone"* — reasoning that nobody holds a permission for a thing that does not exist.
+       * Sound in the abstract, and wrong on the screen: signing in as a line agent on the stand
+       * showed them **Admin Center** and **Analytics**, reserved. That is precisely what R26
+       * forbids — *«их не грузить лишними окнами»*, the support rail is deliberately poor: tickets,
+       * knowledge, their own settings, their own status.
+       *
+       * ⇒ A placeholder that DECLARES a permission is gated by it like any other module. The slot
+       * still exists for the people it is for, and an agent is not shown a future admin screen they
+       * will never open. A placeholder with NO permission (Knowledge Base, Escalations, Workforce)
+       * stays visible to everyone — which is what "reserved for the whole company" actually means.
+       *
+       * ⚠️ Found by opening the product as two different roles, not by reading this file. The rule
+       * it replaces had a comment explaining why it was right.
+       */
       if (!m.permission) return true;
-      // A "coming soon" module is a promise, not a capability: nobody holds a permission for a thing
-      // that does not exist yet, so gating placeholders on one would hide every placeholder from
-      // everybody — including the reserved slot the operator explicitly wants visible.
-      if (m.state === 'coming_soon') return true;
       return permissionKeys.includes(m.permission);
     });
 }

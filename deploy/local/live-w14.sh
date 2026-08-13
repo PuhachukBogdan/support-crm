@@ -124,15 +124,16 @@ AUD=$(psql auth_db "select count(*) from \"AuditEntry\" where account_id='$ACC' 
   || fail "role changes audited" "entries=$AUD"
 
 # ── 5. desks: the membership engine answers, and a member is an ID ────────────────────────────────
+# ⚠️ Read from the FILE with grep rather than matching an interpolated variable: two earlier
+# versions of these lines produced the diagnostic "1000" — a message naming neither the status nor
+# the body. A pattern test that cannot say what it saw is not a check.
 GSTATUS=$(curl -s -o /tmp/w14.groups -w '%{http_code}' -b "$JOWNER" "$G/groups")
-GROUPS=$(cat /tmp/w14.groups)
-# ⚠️ Status and body captured SEPARATELY: the first version interpolated both into one variable and
-# printed "1000" on failure — a diagnostic that said nothing about what went wrong.
-case "$GSTATUS:$GROUPS" in
-  200:*'"groups"'*) pass "the desks list answers" ;;
-  *) fail "groups list" "http $GSTATUS body ${GROUPS:0:120}" ;;
-esac
-GID=$(printf '%s' "$GROUPS" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+if [ "$GSTATUS" = "200" ] && grep -q '"groups"' /tmp/w14.groups; then
+  pass "the desks list answers"
+else
+  fail "groups list" "http $GSTATUS — $(head -c 120 /tmp/w14.groups)"
+fi
+GID=$(grep -o '"id":"[^"]*"' /tmp/w14.groups | head -1 | cut -d'"' -f4)
 if [ -n "$GID" ]; then
   MEMBERS=$(curl -s -b "$JOWNER" "$G/groups/$GID/members")
   case "$MEMBERS" in

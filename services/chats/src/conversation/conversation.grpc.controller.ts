@@ -11,6 +11,7 @@ import { inPortfolio, narrowsToPortfolio } from './portfolio-scope';
 import {
   clampPageSize,
   decodeOrderedCursor,
+  portfolioFingerprint,
   encodeOrderedCursor,
   InvalidCursorError,
 } from '../shared/cursor';
@@ -96,12 +97,20 @@ export class ConversationReadController {
     }
     const order = orderWire ?? DEFAULT_INBOX_ORDER;
 
+    /**
+     * ⚠️ Resolved BEFORE the page token is decoded, because the token is validated **against it**
+     * (FR-014). A scope change is the order hazard by another door: same order, different row set, so a
+     * token minted under the previous portfolio would page a sequence that no longer exists — silently.
+     */
+    const portfolioIn = await this.portfolioScope(metadata);
+    const scopeFingerprint = portfolioIn ? portfolioFingerprint(portfolioIn) : undefined;
+
     let cursor;
     try {
       // ⭐ The token must have been minted under THIS order (research R8). Replaying one from the other
       // order would decode fine and then page a different sequence — a plausible list with rows
       // missing, invisible to whoever is reading it.
-      cursor = decodeOrderedCursor(req.pageToken, order);
+      cursor = decodeOrderedCursor(req.pageToken, order, scopeFingerprint);
     } catch (e) {
       if (e instanceof InvalidCursorError) {
         throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid page token' });
@@ -127,10 +136,8 @@ export class ConversationReadController {
       idIn = await this.sla.conversationIdsByOutcome(ctx.accountId, outcome);
     }
 
-    // Feature 030 (roadmap 4.14): resolved BEFORE the query and passed as a scope, so no filter the
-    // caller supplied can widen it — the scope has no wire representation at all.
-    const portfolioIn = await this.portfolioScope(metadata);
-
+    // Feature 030 (roadmap 4.14): passed as a scope, so no filter the caller supplied can widen it — the
+    // scope has no wire representation at all.
     const { rows, nextCursor } = await this.repo.list(ctx.accountId, {
       ...(portfolioIn ? { portfolioIn } : {}),
       status: wireToStatus(req.status),
@@ -148,7 +155,11 @@ export class ConversationReadController {
     });
     return {
       conversations: rows.map(toSummaryWire),
-      nextPageToken: nextCursor ? encodeOrderedCursor(nextCursor) : '',
+      // The scope travels with the token, beside the order, so page two cannot resume into a portfolio
+      // that has changed since page one (FR-014).
+      nextPageToken: nextCursor
+        ? encodeOrderedCursor({ ...nextCursor, ...(scopeFingerprint ? { scope: scopeFingerprint } : {}) })
+        : '',
     };
   }
 

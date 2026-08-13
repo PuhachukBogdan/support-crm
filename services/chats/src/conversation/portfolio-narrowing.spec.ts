@@ -151,6 +151,44 @@ describe('*** an AM is narrowed to their attached players (US1, FR-001/FR-002) *
     expect((ownerCalls.mock.calls[0]![0]!.where as { AND?: unknown[] }).AND).toBeUndefined();
   });
 
+  it('⭐ T020 a page token is bound to the SCOPE that minted it (FR-014)', async () => {
+    // A scope change is the order hazard by another door: same order, different row set, so resuming
+    // would silently skip or repeat rows — a plausible list nobody can see is wrong.
+    let members = [{ brandId: 'b1', playerId: 'pA' }];
+    const person = { attachedPlayersOfCaller: jest.fn(async () => members) } as unknown as PersonMembersClient;
+    // `limit + 1` rows so the controller mints a next token.
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...ROW_A, id: `c${i}` }));
+    const { ctrl } = ctrlWith(many, person);
+
+    const page1 = await ctrl.listConversations({ pageSize: 50 }, md('am'));
+    expect(page1.nextPageToken).not.toBe('');
+
+    // Replaying it under the SAME portfolio is fine — the positive control, without which the refusal
+    // below would be satisfied by a token that is simply always invalid.
+    await expect(
+      ctrl.listConversations({ pageSize: 50, pageToken: page1.nextPageToken }, md('am')),
+    ).resolves.toBeDefined();
+
+    members = [{ brandId: 'b1', playerId: 'pB' }]; // reassigned between page one and page two
+    await expect(
+      ctrl.listConversations({ pageSize: 50, pageToken: page1.nextPageToken }, md('am')),
+    ).rejects.toBeInstanceOf(RpcException);
+  });
+
+  it('⚠️ an AM may not replay a token minted while UNSCOPED', async () => {
+    // Minted by an administrator (no scope slot). Accepting it for a narrowed caller would resume into a
+    // sequence drawn from the whole account.
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...ROW_A, id: `c${i}` }));
+    const { ctrl } = ctrlWith(many, portfolioOf([{ brandId: 'b1', playerId: 'pA' }]));
+
+    const asAdmin = await ctrl.listConversations({ pageSize: 50 }, md('admin'));
+    expect(asAdmin.nextPageToken).not.toBe('');
+
+    await expect(
+      ctrl.listConversations({ pageSize: 50, pageToken: asAdmin.nextPageToken }, md('am')),
+    ).rejects.toBeInstanceOf(RpcException);
+  });
+
   it('⚠️ a failure to resolve the portfolio REFUSES the read — never an unnarrowed list', async () => {
     const broken = {
       attachedPlayersOfCaller: jest.fn(async () => {

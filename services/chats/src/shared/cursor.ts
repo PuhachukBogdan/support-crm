@@ -13,6 +13,8 @@
  * finds the other one — two copies with a note is reversible, three would be a convention.
  */
 
+import { createHash } from 'node:crypto';
+
 export const MAX_PAGE_SIZE = 100;
 export const DEFAULT_PAGE_SIZE = 50;
 
@@ -91,10 +93,42 @@ export interface OrderedCursor {
   id: string;
   /** The order this token was minted under. Presenting it under any other order is refused. */
   order: string;
+  /**
+   * Feature 030: fingerprint of the portfolio scope this token was minted under. **Absent means the
+   * caller was not portfolio-scoped** — not "any scope", which is why the comparison in
+   * {@link decodeOrderedCursor} runs both ways.
+   */
+  scope?: string;
+}
+
+/**
+ * ⭐ Feature 030 (roadmap 4.14, FR-014): a fingerprint of the portfolio a token was minted under.
+ *
+ * ⚠️ **A scope change is the order hazard by a different door.** Same order, same column, but a
+ * *different row set* — so the keyset predicate silently skips or repeats rows, and the result is not an
+ * error but a plausible list. An AM whose player is reassigned between page one and page two would get a
+ * page that is wrong in a way nobody can see. The order already travels inside the token for exactly this
+ * reason; the scope now travels beside it.
+ *
+ * Short on purpose: this is a **change detector**, not a secret and not an identifier. Sixteen base64url
+ * characters of a SHA-256 make an accidental collision irrelevant, and the pairs are sorted first so two
+ * equal portfolios always agree regardless of the order `users` returned them in.
+ */
+export function portfolioFingerprint(
+  members: ReadonlyArray<{ brandId: string; playerId: string }>,
+): string {
+  const canonical = [...members]
+    .map((m) => `${m.brandId}:${m.playerId}`)
+    .sort()
+    .join('|');
+  return createHash('sha256').update(canonical, 'utf8').digest('base64url').slice(0, 16);
 }
 
 export function encodeOrderedCursor(c: OrderedCursor): string {
-  return Buffer.from(JSON.stringify([c.sortKey, c.id, c.order]), 'utf8').toString('base64url');
+  // The scope slot is OMITTED when there is none, so a caller who is not portfolio-scoped keeps minting
+  // exactly the tokens it did before — no migration, and no token invalidated by shipping this.
+  const parts = c.scope ? [c.sortKey, c.id, c.order, c.scope] : [c.sortKey, c.id, c.order];
+  return Buffer.from(JSON.stringify(parts), 'utf8').toString('base64url');
 }
 
 /**
@@ -105,19 +139,32 @@ export function encodeOrderedCursor(c: OrderedCursor): string {
 export function decodeOrderedCursor(
   token: string | undefined | null,
   expectedOrder: string,
+  /**
+   * Feature 030: the fingerprint of the caller's portfolio right now, or `undefined` when they are not
+   * portfolio-scoped. A mismatch — in either direction — is refused rather than paged.
+   */
+  expectedScope?: string,
 ): OrderedCursor | null {
   if (!token) return null;
   try {
     const parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as unknown;
     if (
       Array.isArray(parsed) &&
-      parsed.length === 3 &&
+      (parsed.length === 3 || parsed.length === 4) &&
       typeof parsed[0] === 'string' &&
       typeof parsed[1] === 'string' &&
       typeof parsed[2] === 'string' &&
       parsed[2] === expectedOrder
     ) {
-      return { sortKey: parsed[0], id: parsed[1], order: parsed[2] };
+      const scope = parsed.length === 4 ? parsed[3] : undefined;
+      /**
+       * ⚠️ Compared BOTH ways. A scoped caller presenting an unscoped token is as wrong as a mismatched
+       * fingerprint: it was minted when they were not narrowed, so continuing from it would page a
+       * different row set. `undefined === undefined` lets an unscoped caller through untouched.
+       */
+      if (scope !== undefined && typeof scope !== 'string') throw new InvalidCursorError();
+      if (scope !== expectedScope) throw new InvalidCursorError();
+      return { sortKey: parsed[0], id: parsed[1], order: parsed[2], ...(scope ? { scope } : {}) };
     }
   } catch {
     // fall through to the throw below

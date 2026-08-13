@@ -127,6 +127,27 @@ message attachments. Acyclic — users never calls chats. Because the config gua
 adding a cross-service client to chats is always a **two-file change**: this key and the matching entry
 in `compose.yaml`. Omitting either is a boot failure rather than a runtime surprise, which is the point.
 
+**Cross-service dependency (new in 030, roadmap 4.14):** chats → **users**
+(`ListAssignedPlayers`, on the existing `ChatsPersonModule` channel) to resolve **the caller's own
+portfolio** before a conversation read. Acyclic; no new configuration — `USERS_GRPC_TARGET` has been a
+boot requirement since 016.
+
+⚠️ **It is on a hot read path.** Every list or detail read by an account manager costs one extra gRPC
+round trip, and it is **not cached on purpose**: a cached scope outlives the fact it describes, and the
+symptom — an AM still seeing a player who is no longer theirs — is a data-access defect that looks like a
+stale UI. The gateway's 30-second RBAC cache produced exactly that class of false defect report at
+feature 017, one layer up. Measure before adding one.
+
+⚠️ **Fail closed.** If the portfolio cannot be established the read **fails**; it never falls back to an
+unnarrowed list, because an unavailable `users` and *"attached to nobody"* are indistinguishable unless
+one of them is an error — and the wrong one of those hands over every VIP conversation in the account. The
+downstream status is preserved, so *"you may not ask this"* stays separable from *"the source is down"*.
+
+ⓘ `amAuthUserId` is sent **empty**, which the users contract defines as *"the calling manager's own
+portfolio"*. Naming somebody else requires `users.list.view`; we never name anyone, so nothing is
+laundered and no extra permission is needed. Who is narrowed comes from `conversation/portfolio-scope.ts`,
+which imports 026's `visibleTiersFor` rather than deciding again.
+
 ## Run / test
 ```bash
 npm run test --workspace services/chats   # Track A (mocked Prisma; no Docker)

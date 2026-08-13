@@ -107,6 +107,50 @@ describe('*** an AM is narrowed to their attached players (US1, FR-001/FR-002) *
     await expect(ctrl.getConversation({ id: 'cB' }, md('am'))).resolves.toMatchObject({ id: 'cB' });
   });
 
+  it('⭐ T017/T018 a reassignment takes effect on the NEXT read, with no other action', async () => {
+    // The scope is a live question about the attachment, not a stamp applied at ticket creation — so a
+    // conversation that existed BEFORE the move follows the player.
+    let members = [{ brandId: 'b1', playerId: 'pA' }];
+    const person = { attachedPlayersOfCaller: jest.fn(async () => members) } as unknown as PersonMembersClient;
+    const { ctrl, findMany } = ctrlWith([ROW_A, ROW_B], person);
+
+    await ctrl.listConversations({}, md('am'));
+    members = [{ brandId: 'b1', playerId: 'pB' }]; // the player moves to another AM's book
+    await ctrl.listConversations({}, md('am'));
+
+    const scopeOf = (i: number) =>
+      (findMany.mock.calls[i]![0]!.where as { AND?: Array<{ OR?: unknown[] }> }).AND?.[0]?.OR;
+    expect(scopeOf(0)).toEqual([{ brand_id: 'b1', player_id: 'pA' }]);
+    expect(scopeOf(1)).toEqual([{ brand_id: 'b1', player_id: 'pB' }]);
+  });
+
+  it('⚠️ T019 the portfolio is NOT cached — it is resolved on every read', async () => {
+    // A cached scope outlives the fact it describes, and the failure is invisible: an AM keeps seeing a
+    // player who is no longer theirs. The gateway's 30-second RBAC cache already produced exactly this
+    // class of false defect report at feature 017, one layer up.
+    const person = portfolioOf([{ brandId: 'b1', playerId: 'pA' }]);
+    const { ctrl } = ctrlWith([ROW_A], person);
+
+    await ctrl.listConversations({}, md('am'));
+    await ctrl.listConversations({}, md('am'));
+    await ctrl.getConversation({ id: 'cA' }, md('am'));
+
+    expect((person.attachedPlayersOfCaller as jest.Mock)).toHaveBeenCalledTimes(3);
+  });
+
+  it('⭐ T025/T026 the exemption follows the CLEARANCE, not a role name (US4, SC-006)', async () => {
+    // `shift_am` sees am_only without masked_pii ⇒ narrowed, like `am`, without this file naming it.
+    const { ctrl: shift, findMany: shiftCalls } = ctrlWith([ROW_A], portfolioOf([{ brandId: 'b1', playerId: 'pA' }]));
+    await shift.listConversations({}, md('shift_am'));
+    expect((shiftCalls.mock.calls[0]![0]!.where as { AND?: unknown[] }).AND).toBeDefined();
+
+    // `super_admin` holds masked_pii — the administrative clearance — so it is exempt for the same
+    // reason `admin` is. Neither role is enumerated here; the tier map decides.
+    const { ctrl: owner, findMany: ownerCalls } = ctrlWith([ROW_A, ROW_B], portfolioOf([]));
+    await owner.listConversations({}, md('super_admin'));
+    expect((ownerCalls.mock.calls[0]![0]!.where as { AND?: unknown[] }).AND).toBeUndefined();
+  });
+
   it('⚠️ a failure to resolve the portfolio REFUSES the read — never an unnarrowed list', async () => {
     const broken = {
       attachedPlayersOfCaller: jest.fn(async () => {

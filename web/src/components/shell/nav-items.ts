@@ -145,7 +145,15 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
     label: 'Settings',
     href: '/settings',
     icon: Settings,
-    permission: 'platform.settings.manage',
+    /**
+     * ⭐ W18 REMOVED the permission here, and that is a correction, not a loosening. This entry is
+     * the PERSONAL settings shell (ADR 0035: your theme, your profile) — R26's own words put «their
+     * own settings» on every agent's minimal rail. The admin key it used to carry belonged to a
+     * different surface entirely: tenant configuration lives in the Admin Center (`/admin`), which
+     * has its own entry and its own gate. Gating a person's own theme behind `platform.settings.manage`
+     * meant no agent could reach it — the misreading is recorded in `module-states.test.tsx`, which
+     * asserted the wrong claim in R26's name.
+     */
     state: 'active',
   },
 ];

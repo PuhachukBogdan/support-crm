@@ -479,6 +479,23 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['create', 'update'],
   },
   /**
+   * ⭐ W18 (subpoints 5.2/5.3) — the operator's OWN UI preferences (`/me/ui-preferences`, feature
+   * 021). A SINGLETON like `/me/operator`: the subject is the session, an id would be a place to
+   * name somebody else. The PATCH body is `{values: {theme_mode: 'dark'}}` — keys from the closed
+   * catalogue in `libs/common/src/preferences/ui-preferences.ts`, validated by the owning service.
+   */
+  {
+    resource: 'ui-preferences',
+    path: '/me/ui-preferences',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get', 'update'],
+  },
+  /**
    * ⭐ W17 (subpoint 4.4) — the caller's OWN portfolio (`GET /me/players`, feature 026's read). The
    * subject is the session — there is nobody else this path can name, which is what makes it safe
    * for every role: a non-AM simply owns an empty portfolio.

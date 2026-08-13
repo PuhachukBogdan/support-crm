@@ -92,21 +92,28 @@ describe('*** the rail is assembled from permissions (FR-020) ***', () => {
     expect(keys).toContain('settings');
   });
 
-  it('⭐ a line agent gets the minimal rail — no settings, no contacts (R26)', () => {
+  it('⭐ a line agent gets the minimal rail — tickets, the placeholders, and THEIR OWN settings (R26)', () => {
+    // ⚠️ AMENDED by W18, and the amendment corrects a misreading this test itself shipped. It used
+    // to assert "no settings" in R26's name — but R26's actual words put «their own settings» on
+    // the minimal rail, and the entry it was hiding is the PERSONAL shell (ADR 0035), not tenant
+    // configuration (that is the Admin Center, which stays gated). The old assertion made a
+    // person's own theme unreachable for every agent.
     const keys = resolveModules(['crm.inbox.view']).map((m) => m.key);
     expect(keys).toContain('inbox');
-    expect(keys).not.toContain('settings');
+    expect(keys).toContain('settings');
     expect(keys).not.toContain('contacts');
+    expect(keys).not.toContain('admin');
+    expect(keys).not.toContain('vip');
   });
 
   it('⚠️ NO permissions means almost nothing — deny-by-default, never "unknown so show all"', () => {
     const keys = resolveModules([]).map((m) => m.key);
     expect(keys).not.toContain('inbox');
-    expect(keys).not.toContain('settings');
-    // Only the permissionless placeholders survive, and they grant nothing.
+    // Only the permissionless entries survive: placeholders that grant nothing, and the personal
+    // settings shell — which grants nothing either (it is the caller's own theme and profile).
     for (const key of keys) {
       const m = MODULE_CATALOGUE.find((c) => c.key === key)!;
-      expect(m.permission === undefined || m.state === 'coming_soon').toBe(true);
+      expect(m.permission).toBeUndefined();
     }
   });
 

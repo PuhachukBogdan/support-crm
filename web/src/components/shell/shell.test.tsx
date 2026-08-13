@@ -136,21 +136,29 @@ describe('*** the rail is rendered from server-resolved permissions (FR-020) ***
     );
   }
 
-  it('a settings permission produces a Settings link; its absence removes it', () => {
-    const withSettings = renderWith(['crm.inbox.view', 'platform.settings.manage']);
+  it('a permissioned module follows its key; PERSONAL settings need none (amended by W18)', () => {
+    // ⚠️ This test used to gate the Settings link on `platform.settings.manage` — the misreading
+    // W18 corrected: that entry is the operator's OWN settings shell (ADR 0035), on every rail by
+    // R26's own words; tenant configuration lives behind the Admin Center's gate. The permissioned
+    // claim is kept — asserted on Contacts, which genuinely follows a key.
+    const withKey = renderWith(['crm.inbox.view', 'crm.customers.browse']);
+    expect(screen.getByRole('link', { name: /contacts/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
-    withSettings.unmount();
+    withKey.unmount();
 
     renderWith(['crm.inbox.view']);
-    expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
-    // …and the positive control: the rail did render, so the absence means something.
+    expect(screen.queryByRole('link', { name: /contacts/i })).not.toBeInTheDocument();
+    // …and the positive controls: the rail rendered, and the personal entry survives the key loss.
     expect(screen.getByRole('link', { name: /inbox/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
   });
 
   it('⚠️ no permissions renders no privileged links at all (deny-by-default)', () => {
     renderWith([]);
     expect(screen.queryByRole('link', { name: /inbox/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /contacts/i })).not.toBeInTheDocument();
+    // The personal settings shell grants nothing and stays — it is the caller's own theme.
+    expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
   });
 
   it('⭐ R13: the reserved telephony slot is absent by configuration, not deleted from the product', () => {

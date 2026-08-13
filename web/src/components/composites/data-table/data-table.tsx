@@ -25,7 +25,28 @@ import { cn } from '@/lib/utils';
 import { ErrorState, LoadingRows } from '@/components/composites/states';
 import type { AsyncState, PaginatedResult, Query } from '@/data/types';
 
+/**
+ * The row height, and the ONE number the virtualizer and the DOM have to agree on.
+ *
+ * ⚠️ **The estimate is not a hint — it is the coordinate system.** `estimateSize` is never corrected
+ * by measurement here (deliberately: see `INITIAL_RECT` below), so every pixel of disagreement between
+ * this number and the row a browser actually lays out accumulates once per row. It shipped disagreeing:
+ * a `p-2` cell around a `text-sm` line plus the `border-b` measures ~37 px, so the model ran ~7 px per
+ * row ahead of reality — invisible at the top of the list and a couple of hundred pixels out by the
+ * middle. The operator saw exactly what that arithmetic predicts: *«скролл поддёргивает и дрожит и
+ * стоит на месте»* — part of the travel opened no new rows, because the model believed in content that
+ * was not there.
+ *
+ * So the row is **pinned** rather than the estimate guessed. Deriving the estimate from the real height
+ * instead would put font metrics, badge padding and the density scale into the virtualizer's
+ * coordinate system, where any theme change silently reintroduces the drift.
+ *
+ * ⚠️ These two constants are one fact written twice. `data-table.test.tsx` fails if they drift.
+ */
 const ROW_HEIGHT = 44;
+/** Tailwind's `h-11` = 2.75rem = 44 px, on the 0.25rem spacing scale the test re-derives. */
+export const ROW_HEIGHT_CLASS = 'h-11';
+export { ROW_HEIGHT };
 
 /**
  * First-paint guess for the scroll viewport, before it is measured.
@@ -214,18 +235,36 @@ export function DataTable<T>({
         ref={parentRef}
         data-testid="dt-scroll"
         className={cn(
-          'overflow-auto overscroll-contain rounded-md border border-border',
+          // ⚠️ `overflow-anchor:none` is load-bearing, not tidying. Scroll anchoring picks a node in
+          // view and preserves ITS position when the DOM around it changes — a good default, and the
+          // wrong one here, because virtualization removes the node it anchored to as a matter of
+          // course. Each unmount then lets the browser correct `scrollTop` underneath the virtualizer,
+          // which recomputes the range from the corrected value: the shake the operator reported.
+          'overflow-auto overscroll-contain [overflow-anchor:none] rounded-md border border-border',
           // Filling: take the remaining height of the column. Pinned: cap at the given number.
           fills && 'min-h-0 flex-1',
         )}
         style={fills ? undefined : { maxHeight: height }}
       >
-        <Table>
+        {/**
+         * ⚠️ **`table-fixed` is part of the row-height contract, not styling.**
+         *
+         * `columns.ts` states the rule — when width runs out, low-priority columns are dropped and the
+         * rest TRUNCATE, never scroll sideways. Only the subject cell implemented it, so every other
+         * cell **wrapped** once squeezed, and a wrapped cell is a row taller than {@link ROW_HEIGHT}.
+         * That is the same drift the pinned height fixes, arriving through width instead of content:
+         * fine maximised, visible at half screen, which is exactly how it was reported.
+         *
+         * Auto layout would size columns to content, so forbidding the wrap would push the table wider
+         * instead — trading a jitter for the sideways scroll the same rule forbids. Fixed layout makes
+         * the declared widths authoritative, so a cell can only clip.
+         */}
+        <Table className="table-fixed">
           <TableHeader className="sticky top-0 z-sticky bg-card">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead key={header.id} className="truncate">
                     {header.isPlaceholder ? null : onSortChange && header.column.id !== '__select' ? (
                       <button
                         type="button"
@@ -251,9 +290,21 @@ export function DataTable<T>({
             {vItems.map((vi) => {
               const row = rows[vi.index]!;
               return (
-                <TableRow key={row.id} data-index={vi.index} data-selected={row.getIsSelected()}>
+                <TableRow
+                  key={row.id}
+                  // Pinned so the row a browser lays out is the row the virtualizer budgeted for.
+                  className={ROW_HEIGHT_CLASS}
+                  data-index={vi.index}
+                  data-selected={row.getIsSelected()}
+                >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell
+                      key={cell.id}
+                      // Single line, clipped — so no cell can make the row taller than the pin.
+                      // ⓘ Not on the checkbox column: `overflow-hidden` there clips its focus ring,
+                      // and a checkbox has nothing to truncate anyway.
+                      className={cell.column.id === '__select' ? undefined : 'truncate'}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}

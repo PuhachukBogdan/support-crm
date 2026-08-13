@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { DataTable } from './data-table';
+import { DataTable, ROW_HEIGHT, ROW_HEIGHT_CLASS } from './data-table';
 import { makeDemoRecords, type DemoRecord } from '@/data/mock/demo-data';
 import type { AsyncState, PaginatedResult } from '@/data/types';
 
@@ -40,6 +40,77 @@ describe('DataTable', () => {
     expect(rendered.length).toBeGreaterThan(0);
     expect(rendered.length).toBeLessThan(200); // bounded — NOT 100k
     expect(items).toHaveLength(100_000);
+  });
+
+  /**
+   * The scroll-smoothness regression (reported 2026-08-04: *«скролл поддёргивает и дрожит и стоит на
+   * месте»*).
+   *
+   * ⚠️ **jsdom computes no layout, so nothing here can prove the scroll is smooth** — the two facts
+   * below are the invariants the smoothness rests on, and they are the only part that is checkable off
+   * a real browser. A headed run is what confirms the symptom is gone (see quickstart, Track B).
+   */
+  describe('scroll geometry', () => {
+    it('pins every virtualized row to the height the virtualizer budgets for it', () => {
+      render(
+        <DataTable columns={columns} state={ready(makeDemoRecords(500))} getRowId={(r) => r.id} />,
+      );
+      const rendered = Array.from(document.querySelectorAll('tr[data-index]'));
+      expect(rendered.length).toBeGreaterThan(0);
+      // An unpinned row is laid out by its content (~37 px), and the difference accumulates per row.
+      for (const row of rendered) {
+        expect(row.className.split(/\s+/)).toContain(ROW_HEIGHT_CLASS);
+      }
+    });
+
+    it('keeps the pinned class and the estimate the same number', () => {
+      // Tailwind's height scale is 0.25rem per step at a 16 px root: `h-11` → 11 × 4 = 44 px.
+      const step = Number(ROW_HEIGHT_CLASS.replace(/^h-/, ''));
+      expect(Number.isFinite(step)).toBe(true);
+      expect(step * 4).toBe(ROW_HEIGHT);
+    });
+
+    /**
+     * Reported 2026-08-04, after the pin: *«если на полный экран открывать то не дергается но если на
+     * пол экрана то еще немножко дергается»*. A squeezed cell wrapped to a second line, so the row
+     * outgrew the pin — the drift returning through width instead of content.
+     */
+    it('keeps cells to one clipped line, so row height cannot depend on width', () => {
+      render(
+        <DataTable columns={columns} state={ready(makeDemoRecords(200))} getRowId={(r) => r.id} />,
+      );
+      const cells = Array.from(document.querySelectorAll('tr[data-index] > td'));
+      expect(cells.length).toBeGreaterThan(0);
+      for (const cell of cells) {
+        expect(cell.className.split(/\s+/)).toContain('truncate');
+      }
+      // Auto layout would answer a forbidden wrap by widening the table instead — `columns.ts` rules
+      // out sideways scrolling, so the declared widths have to be the authority.
+      expect(document.querySelector('table')?.className).toContain('table-fixed');
+    });
+
+    it('leaves the checkbox column unclipped', () => {
+      render(
+        <DataTable
+          columns={columns}
+          state={ready(makeDemoRecords(20))}
+          getRowId={(r) => r.id}
+          rowSelection={{ selected: [], onChange: () => {} }}
+        />,
+      );
+      // `overflow-hidden` on this one clips the focus ring, and there is nothing to truncate.
+      const first = document.querySelector('tr[data-index] > td');
+      expect(first?.className ?? '').not.toContain('truncate');
+    });
+
+    it('opts the scroll viewport out of browser scroll anchoring', () => {
+      render(
+        <DataTable columns={columns} state={ready(makeDemoRecords(500))} getRowId={(r) => r.id} />,
+      );
+      // Virtualization unmounts the node anchoring would try to hold still, so the browser must not
+      // correct scrollTop underneath it.
+      expect(screen.getByTestId('dt-scroll').className).toContain('[overflow-anchor:none]');
+    });
   });
 
   it('paginates by keyset: Load more calls onLoadMore when hasMore (SC-004)', () => {

@@ -32,6 +32,9 @@ const stub: DataAccess = {
   create: async () => ({}) as never,
   update: async () => ({}) as never,
   remove: async () => {},
+  // Feature 034: this stub has no transport, so nothing ever arrives — the no-op an implementation
+  // without realtime is required to return (FR-014).
+  subscribe: () => () => undefined,
 };
 
 describe('DataAccessProvider — swappable implementation', () => {

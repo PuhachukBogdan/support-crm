@@ -1,4 +1,4 @@
-import type { DataAccess, ResourceName } from '../data-access';
+import type { DataAccess, RealtimeEvent, ResourceName } from '../data-access';
 import type { Query, PaginatedResult, DataError } from '../types';
 import { MAX_PAGE_SIZE } from '../types';
 import { makeDemoRecords, type DemoRecord } from './demo-data';
@@ -129,5 +129,28 @@ export class MockDataAccess implements DataAccess {
   async remove(_resource: ResourceName, id: string): Promise<void> {
     await this.settle();
     this.records = this.records.filter((r) => r.id !== id);
+  }
+
+  /** Handlers registered against the demo store, and the hook a test uses to fire one. */
+  private readonly watchers = new Set<(event: RealtimeEvent) => void>();
+
+  /**
+   * The demo store has no server, so nothing ever arrives on its own (feature 034, W4).
+   *
+   * ⚠️ It is a **real registry** rather than a `() => () => undefined` stub, and the difference matters:
+   * `emit` lets a component test drive "an event arrived, did the screen re-read?" without a socket, a
+   * gateway or a Redis. A stub would have made that untestable and pushed the only coverage of the
+   * subscribe path into an end-to-end run.
+   */
+  subscribe(handler: (event: RealtimeEvent) => void): () => void {
+    this.watchers.add(handler);
+    return () => {
+      this.watchers.delete(handler);
+    };
+  }
+
+  /** Test-only: deliver an event as if the server had sent it. */
+  emit(event: RealtimeEvent): void {
+    for (const handler of this.watchers) handler(event);
   }
 }

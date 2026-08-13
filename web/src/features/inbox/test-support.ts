@@ -1,5 +1,5 @@
 import { fireEvent, screen, within } from '@testing-library/react';
-import type { DataAccess } from '@/data/data-access';
+import type { DataAccess, RealtimeEvent } from '@/data/data-access';
 import type { DataError, PaginatedResult, Query, ResourceName } from '@/data/types';
 import type { ConversationRow } from './types';
 
@@ -55,6 +55,15 @@ export function makeConversationRows(
 /** Records every list call, so a test can assert WHICH request the screen composed. */
 export interface ConversationsStub extends DataAccess {
   calls: Query[];
+  /**
+   * Deliver a realtime event as if the gateway had sent one (feature 034, W4).
+   *
+   * ⚠️ A real registry rather than a `() => () => undefined` stub, and that is the difference between
+   * testing this block and not: `calls` already records every read, so `emit` + `calls.length` is exactly
+   * *"an event arrived, and the screen re-read once"* — with no socket, no gateway and no Redis anywhere
+   * near it.
+   */
+  emit(event: RealtimeEvent): void;
 }
 
 export function stubConversations(opts: StubOptions = {}): ConversationsStub {
@@ -62,6 +71,7 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
   const pageSize = opts.pageSize ?? 50;
   const rows = makeConversationRows(total, opts.rowOverrides ?? {});
   const calls: Query[] = [];
+  const watchers = new Set<(event: RealtimeEvent) => void>();
 
   const stub: ConversationsStub = {
     calls,
@@ -91,6 +101,15 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
     },
     async remove(): Promise<void> {
       throw new Error('not used by the inbox');
+    },
+    subscribe(handler: (event: RealtimeEvent) => void): () => void {
+      watchers.add(handler);
+      return () => {
+        watchers.delete(handler);
+      };
+    },
+    emit(event: RealtimeEvent): void {
+      for (const handler of watchers) handler(event);
     },
   };
   return stub;

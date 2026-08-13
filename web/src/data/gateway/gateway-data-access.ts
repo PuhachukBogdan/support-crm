@@ -1,4 +1,5 @@
-import type { DataAccess } from '../data-access';
+import type { DataAccess, RealtimeEvent } from '../data-access';
+import type { RealtimePort } from './ws-port';
 import type { Query, PaginatedResult, ResourceName } from '../types';
 import { MAX_PAGE_SIZE } from '../types';
 import { clientRefusal, dataErrorForStatus } from '../errors';
@@ -21,7 +22,25 @@ import { createFetchPort, type HttpPort, type HttpResponse } from './http-port';
  * invention on top would make "empty" completely unreadable. See `contracts/gateway-rest.md`.
  */
 export class GatewayDataAccess implements DataAccess {
-  constructor(private readonly http: HttpPort = createFetchPort()) {}
+  constructor(
+    private readonly http: HttpPort = createFetchPort(),
+    /**
+     * The realtime transport (feature 034, W4). **Optional, and absent means inert** — every existing
+     * construction of this class (fixture ports, conformance, the recorded-response tests) keeps working
+     * and simply receives no events, which is the behaviour the whole app had until now.
+     */
+    private readonly realtime?: RealtimePort,
+  ) {}
+
+  /**
+   * Watch for *something changed*. The handler gets ids; the screen re-reads through `list`/`get`.
+   *
+   * ⚠️ With no transport this returns a no-op unsubscribe rather than throwing: a screen must not have to
+   * ask whether realtime exists, and one that forgets to check must not break (FR-014).
+   */
+  subscribe(handler: (event: RealtimeEvent) => void): () => void {
+    return this.realtime?.subscribe(handler) ?? (() => undefined);
+  }
 
   async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
     const row = this.rowWith(resource, 'list');

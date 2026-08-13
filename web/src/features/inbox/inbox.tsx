@@ -9,6 +9,7 @@ import { BucketRail } from './bucket-rail';
 import { SearchPlaceholder } from './coming-soon';
 import { useInboxQuery } from './use-inbox-query';
 import { useConversations } from './use-conversations';
+import { useLiveRefresh } from './use-live-refresh';
 
 /**
  * The Inbox — the agent's landing screen (feature 029, roadmap 9.2).
@@ -38,6 +39,11 @@ export function Inbox() {
     loadMore,
   } = useInboxQuery();
   const list = useConversations(query);
+  /**
+   * Feature 034 (W4): a ticket that arrives by itself appears by itself. The event carries ids only and
+   * nothing is merged from it — see the hook for why, and for why it holds off below page one.
+   */
+  useLiveRefresh(query, list.refetch);
   const [selected, setSelected] = useState<string[]>([]);
   // Row selection exists only where the actions it feeds do. An agent gets no checkboxes rather than
   // checkboxes that lead nowhere.

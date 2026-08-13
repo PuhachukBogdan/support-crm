@@ -49,6 +49,7 @@ describe('records saga', () => {
       create: async () => ({}) as never,
       update: async () => ({}) as never,
       remove: async () => {},
+      subscribe: () => () => undefined,
     };
     setDataAccess(leaky);
     const store = makeTestStore();
@@ -73,6 +74,7 @@ describe('records saga', () => {
       create: async () => ({}) as never,
       update: async () => ({}) as never,
       remove: async () => {},
+      subscribe: () => () => undefined,
     };
     setDataAccess(staged);
     const store = makeTestStore();

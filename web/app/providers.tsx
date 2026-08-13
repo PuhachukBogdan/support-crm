@@ -6,6 +6,7 @@ import { ThemeProvider } from 'next-themes';
 import { makeStore, type AppStore } from '../src/store';
 import { DataAccessProvider } from '@/data/provider';
 import { GatewayDataAccess } from '@/data/gateway/gateway-data-access';
+import { createWsPort } from '@/data/gateway/ws-port';
 import type { DataAccess } from '@/data/data-access';
 import { SessionProvider } from '@/session';
 import { StaleBuildRecovery } from '@/components/shell/stale-build-recovery';
@@ -52,7 +53,17 @@ export function Providers({
    */
   const dataAccessRef = useRef<DataAccess | null>(null);
   if (dataAccessRef.current === null) {
-    dataAccessRef.current = dataAccess ?? new GatewayDataAccess();
+    /**
+     * ⭐ Feature 034 (W4): the socket is handed to the real implementation **here**, in the one file
+     * allowed to name one — because the alternative is precisely the defect the comment above records.
+     * A `ws-port.ts` that existed, was tested, and was never passed to anything would be
+     * `wired-only-in-tests` a second time, in the same seam, four days later.
+     *
+     * ⓘ Reconnection needs no wiring here: the port delivers a `reconnected` event through the same
+     * subscription, so the screen that owns a query is the thing that re-reads (FR-013). The composition
+     * root deliberately knows nothing about queries — it chooses an implementation and nothing else.
+     */
+    dataAccessRef.current = dataAccess ?? new GatewayDataAccess(undefined, createWsPort());
   }
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>

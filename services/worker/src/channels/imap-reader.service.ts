@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ImapFlow } from 'imapflow';
-import { isHostAllowed } from '@crm/common';
+import { diagnose, isHostAllowed } from '@crm/common';
 import { RedisService } from '../queue/redis.service';
 import { ChatsMaintenanceClient } from '../chats/chats.client';
 import { UsersUploadsClient } from '../users/users.client';
@@ -401,46 +401,3 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * An envelope-free diagnostic: the error's CLASS, its `code` when it has one, and where it was thrown.
- *
- * ── Why `err.name` alone was not enough (W3 live round, 2026-08-05) ─────────────────────────────
- * ⚠️ The rule "log the name, never the message" is right and stays. But `name` on a plain `new Error(...)`
- * is the string `Error`, and most errors in this path are plain — so three separate failures in one
- * afternoon each logged exactly `mailbox reader: Error`, twelve times a minute, with **nothing to act on**.
- * Mail was refused for one reason, then a second, then a third, and the log was identical every time.
- *
- * ⭐ The two additions carry no customer data by construction:
- *   · `code` is a syscall / library code (`ECONNREFUSED`, `ETIMEDOUT`, `AUTHENTICATIONFAILED`) — a fact
- *     about a socket or a protocol, never about a person.
- *   · the top stack frame is `file:line` in our own source. It is the single most useful thing a reader
- *     can be given and it cannot quote a header, an address or a body.
- *
- * ⇒ *"Not logged" and "not diagnosable" are different requirements, and Principle IV only asks for the
- * first.* A log line that cannot distinguish three faults is the observability equivalent of the vacuous
- * pass this product keeps re-learning.
- */
-export function diagnose(err: unknown): string {
-  if (!(err instanceof Error)) return 'error';
-  const parts = [err.constructor?.name || err.name];
-  const code = (err as { code?: unknown }).code;
-  if (typeof code === 'string' && code !== '') parts.push(`code=${code}`);
-  // The first frame that is ours: a library's internals are noise, and `node_modules` paths are long.
-  //
-  // ⚠️ Both separators. A stack on Windows says `…\services\worker\…` and on Linux `…/services/worker/…`;
-  // a hardcoded `/` finds nothing on a developer's box and works in the container, so the log would be
-  // useful in exactly the place nobody is looking at it. (`tests/portability/no-hardcoded-path-separator`
-  // guards this class, and this function was written wrong first anyway.)
-  const OURS = /[\\/](services|libs)[\\/]/;
-  const frame = (err.stack ?? '')
-    .split('\n')
-    .slice(1)
-    .map((l) => l.trim())
-    .find((l) => OURS.test(l) && !l.includes('node_modules'));
-  if (frame) {
-    const at = /\(?([^\s()]+:\d+:\d+)\)?$/.exec(frame);
-    const where = at?.[1];
-    if (where) parts.push(`at=${where.split(OURS).pop() ?? where}`);
-  }
-  return parts.join(' ');
-}

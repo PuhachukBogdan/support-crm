@@ -1,4 +1,4 @@
-import { diagnose } from './imap-reader.service';
+import { diagnose } from './diagnose';
 
 /**
  * What a mail failure is allowed to say (Principle IV) — and what it MUST say to be worth logging.

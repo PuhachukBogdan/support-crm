@@ -43,6 +43,9 @@ export * from './channels';
 // socket is a second read path, and the only way it cannot bypass the REST read rules is by not being
 // a read path. There is no tenant-less channel name to build.
 export * from './realtime/events';
+// Feature 034: the envelope-free error diagnostic, shared because it was written in the worker and
+// needed again by chats the same day — two copies of a detector is one copy that is wrong.
+export * from './observability/diagnose';
 // Feature 028's mail transport, MOVED here by feature 033 (research R7): the port, the SMTP sender and
 // the two egress guards, so the boundary Principle III depends on is one place rather than one per
 // sender. ⚠️ Carries the `nodemailer` dependency — safe because nothing in `web/` imports this package;

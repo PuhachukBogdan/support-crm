@@ -315,6 +315,39 @@ service ChatsReadService {
   // customer data. ⚠️ Counted THROUGH the Label parent (`ConversationLabel` has no account_id of its
   // own), which is what keeps the aggregate tenant-scoped by construction.
   rpc ListLabelUsage(Empty) returns (LabelUsageList);
+
+  // ── ⭐ W20 (subpoints 6.2/6.3/6.4, roadmap 11.1 minimum) — the live numbers, read STRAIGHT from
+  // the journal (the operator's 2026-08-04 decision: the rollup store is post-MVP; what cannot be
+  // reconstructed is the JOURNAL, and it exists — 4.8a). Gated `analytics.dashboard.view`.
+  // Aggregates only: no conversation content, no customer field rides this wire.
+  rpc GetAnalyticsSnapshot(AnalyticsSnapshotRequest) returns (AnalyticsSnapshot);
+}
+
+// W20 — the dashboard's one read. `days` bounds the volume series (server-capped at 90: the MVP
+// reads the journal directly, and the cap is what keeps "straight from the journal" honest about
+// its own limits — the incremental rollup is the post-MVP answer for longer windows).
+message AnalyticsSnapshotRequest {
+  int32 days = 1; // 0 = the default (14)
+}
+
+message AnalyticsSnapshot {
+  int32 created_today = 1;                 // conversations created since UTC midnight
+  int32 open_now = 2;                      // non-terminal status categories, right now
+  // Average seconds to the first PUBLIC staff reply, over ConversationSlaState rows that have one.
+  // -1 = nothing measured yet — a real state on a fresh account, distinct from "instant".
+  int32 avg_first_reply_seconds = 3;
+  int32 first_reply_count = 4;             // how many replies the average stands on
+  repeated AnalyticsBucket by_channel = 5; // open_now split by arrival channel ('' = no channel)
+  repeated AnalyticsBucket by_agent = 6;   // open_now split by assignee ('' = unassigned)
+  // ⭐ 6.4 — the parking-lot number: `pending`-category tickets per agent. Pending removes a ticket
+  // from every active list AND is set by the agent themselves; this count makes the parking visible.
+  repeated AnalyticsBucket pending_by_agent = 7;
+  repeated AnalyticsBucket volume_by_day = 8; // key = YYYY-MM-DD (UTC), created that day
+}
+
+message AnalyticsBucket {
+  string key = 1;
+  int32 count = 2;
 }
 
 // W16 — one label with its usage count. `Label` above stays untouched: the pickers that read it a

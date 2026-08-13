@@ -116,7 +116,7 @@ describe('*** no request shape names another person ***', () => {
     const paths = [...SRC.matchAll(/@(?:Get|Patch|Post|Put|Delete)\('([^']*)'\)/g)].map((m) => m[1]);
     expect(paths.length).toBeGreaterThan(1);
     for (const p of paths) {
-      expect(p.startsWith('me/operator')).toBe(true);
+      expect(p?.startsWith('me/operator')).toBe(true);
       // Still no parameter anywhere on this surface — the isolation is the route table's shape.
       expect(p).not.toContain(':');
     }

@@ -214,6 +214,17 @@ export function buildSeed() {
       { id: SEED_LABEL_ID, account_id: SEED_ACCOUNT_ID, name: 'seed-demo' },
       // feature 013 (US2): a second label so attach/detach has a target that is NOT already linked.
       { id: SEED_LABEL_ID_2, account_id: SEED_ACCOUNT_ID, name: 'seed-followup' },
+      // ⭐ W21 (subpoint 7.3): the team's own Zendesk tag taxonomy, seeded 1:1 so the tag registry
+      // (W16) and the pickers read the vocabulary testers already know. A SEED, not a migration —
+      // names only, the six-figure usage counts stay in Zendesk (14.x owns history).
+      { id: 'seed-label-zd-000000000000001', account_id: SEED_ACCOUNT_ID, name: 'auto_confirmation' },
+      { id: 'seed-label-zd-000000000000002', account_id: SEED_ACCOUNT_ID, name: 'regular' },
+      { id: 'seed-label-zd-000000000000003', account_id: SEED_ACCOUNT_ID, name: 'bot_managed' },
+      { id: 'seed-label-zd-000000000000004', account_id: SEED_ACCOUNT_ID, name: 'bot_escalation' },
+      { id: 'seed-label-zd-000000000000005', account_id: SEED_ACCOUNT_ID, name: 'vip' },
+      { id: 'seed-label-zd-000000000000006', account_id: SEED_ACCOUNT_ID, name: 'bonus' },
+      { id: 'seed-label-zd-000000000000007', account_id: SEED_ACCOUNT_ID, name: 'payments' },
+      { id: 'seed-label-zd-000000000000008', account_id: SEED_ACCOUNT_ID, name: 'kyc' },
     ],
     conversations: [
       {

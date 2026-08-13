@@ -116,7 +116,8 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
     href: '/analytics',
     icon: BarChart3,
     permission: 'analytics.dashboard.view',
-    state: 'coming_soon',
+    // ⭐ W20: the slot became a screen — live numbers + one chart, read straight from the journal.
+    state: 'active',
   },
   /**
    * ⭐ W13 (subpoint 3.13) — the two remaining TOP-LEVEL surfaces the operator approved, each given

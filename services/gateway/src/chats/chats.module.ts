@@ -21,6 +21,8 @@ import { ChannelsController } from '../channels/channels.controller';
 import { ChannelsAdminController } from '../channels/channels-admin.controller';
 // ⭐ W15a (subpoint 3.14): the status authoring writes — the read stays on /conversations/statuses.
 import { StatusesAdminController } from './statuses-admin.controller';
+// ⭐ W20 (roadmap 11.1 minimum): the analytics snapshot — aggregates only.
+import { AnalyticsController } from './analytics.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -34,6 +36,7 @@ import { StatusesAdminController } from './statuses-admin.controller';
     ChannelsController,
     ChannelsAdminController,
     StatusesAdminController,
+    AnalyticsController,
     ConversationsController,
     MessagesController,
     FeedController,

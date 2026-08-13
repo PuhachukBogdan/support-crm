@@ -537,6 +537,34 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['get', 'update'],
   },
   /**
+   * ⭐ W20 (roadmap 11.1 minimum) — the dashboard's one read: aggregates straight from the journal
+   * (`analytics.dashboard.view`). A SINGLETON with a declared filter: `days` bounds the volume
+   * series (server-capped at 90).
+   */
+  {
+    resource: 'analytics-snapshot',
+    path: '/analytics/snapshot',
+    collection: '',
+    params: { days: 'days' },
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  {
+    // W20: the assignee axis resolves ids to NAMES through the read the inbox already owns
+    // (`GET /operators/:id`, `crm.inbox.view`) — never a second staff surface.
+    resource: 'operators',
+    path: '/operators',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['get'],
+  },
+  /**
    * ⭐ W17 (subpoint 4.4) — the caller's OWN portfolio (`GET /me/players`, feature 026's read). The
    * subject is the session — there is nobody else this path can name, which is what makes it safe
    * for every role: a non-AM simply owns an empty portfolio.

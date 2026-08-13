@@ -736,7 +736,15 @@ that merely hid a reply box would leave the path reachable.
 **schema:** [`prisma/schema.prisma`](prisma/schema.prisma) ·
 **the matrix:** [`libs/common/src/channels/`](../../libs/common/src/channels/)
 
-## Realtime publish (feature 034, MVP block W4)
+### The admin surface (MVP block W15 — subpoint 3.10, roadmap 6.8 minimum)
+
+`channel/channel-admin.grpc.controller.ts` — `ListChannels` + `UpsertEmailChannel`, both gated
+`platform.settings.manage` (tenant configuration: a channel row decides which tenant/brand an
+arriving delivery belongs to). The one write places a brand's mail address against the
+one-email-channel-per-brand unique; keys are **generated, never chosen**; every write is audited as
+`channel.config_changed` inside its own transaction (refs + kind — never the address, never a
+secret: the table holds none). Enable/disable, widgets and desk binding are the REST of 6.8, not
+built here.
 
 `realtime/realtime.publisher.ts` — **the first Redis in this service, and it is publish-only.** The
 original "chats has no Redis" decision protected two properties and both survive: Postgres stays the source

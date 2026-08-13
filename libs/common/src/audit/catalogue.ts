@@ -400,6 +400,24 @@ export const AUDIT_ACTIONS = {
     status: 'live',
     label: 'An outbound channel message was refused before sending',
   },
+  /**
+   * ⭐ W15 (roadmap 6.8 minimum, subpoint 3.10) — an admin created or changed a channel's configuration.
+   *
+   * The first channel action whose actor IS a person: the four above record what intake and egress did by
+   * themselves, this one records what an administrator did to the rows they act under. Audited because a
+   * channel row decides WHICH TENANT AND BRAND an arriving delivery belongs to (`channel.repository.ts`'s
+   * own warning) — a quiet edit here re-routes strangers' messages with nothing to point at.
+   *
+   * ⚠️ Class `assignment`, the same honest reuse `conversation.brand_changed` records two screens up: this
+   * is a statement about where arriving records will be filed. `brandRef` + `channelKind` only — never the
+   * address (the trail references the row, it does not copy it) and never a secret (the row holds none).
+   */
+  'channel.config_changed': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'A channel was created or its configuration changed',
+  },
 
   // ── retention (roadmap 7.3 + ADR 0015) ──
   'audit.trim': {

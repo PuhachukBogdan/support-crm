@@ -15,6 +15,9 @@ export interface ChannelRow {
    * which keeps "we have not decided where this channel routes" an honest state.
    */
   default_group_id: string | null;
+  /** W15: the stop button, now visible on the admin screen. `resolveByKey` filters on it, so a row
+   *  it returns always carries `true`. */
+  enabled: boolean;
 }
 
 /**
@@ -57,6 +60,7 @@ export class ChannelRepository {
         key: true,
         address: true,
         default_group_id: true,
+        enabled: true,
       },
     })) as (Omit<ChannelRow, 'kind'> & { kind: string }) | null;
 
@@ -68,7 +72,8 @@ export class ChannelRepository {
     return { ...row, kind: row.kind };
   }
 
-  /** The channels of one account — account-scoped, for the diagnostics and the live run. */
+  /** The channels of one account — account-scoped. W15's admin read (it now carries `enabled`,
+   *  which is the difference between "configured" and "configured but stopped" on the screen). */
   async listForAccount(accountId: string): Promise<ChannelRow[]> {
     const rows = (await this.prisma.forAccount(accountId).channel.findMany({
       select: {
@@ -79,9 +84,57 @@ export class ChannelRepository {
         key: true,
         address: true,
         default_group_id: true,
+        enabled: true,
       },
       orderBy: { key: 'asc' },
     })) as Array<Omit<ChannelRow, 'kind'> & { kind: string }>;
     return rows.filter((r): r is ChannelRow => isChannelKind(r.kind));
+  }
+
+  /** W15: the email channel of ONE brand, if configured — the read the upsert decides on. */
+  async emailChannelOf(accountId: string, brandId: string): Promise<ChannelRow | null> {
+    const rows = await this.listForAccount(accountId);
+    return rows.find((r) => r.brand_id === brandId && r.kind === 'email') ?? null;
+  }
+
+  /**
+   * W15 (roadmap 6.8 minimum) — change an existing email channel's address, with its audit entry in
+   * the same transaction (the `setBrand` shape: read → refuse → update+record; `updateMany` reports
+   * 0 for an id that is not there, and the caller must treat that as NOT_FOUND, not success).
+   */
+  async setEmailAddress(
+    accountId: string,
+    channelId: string,
+    address: string,
+    auditStatement: unknown,
+  ): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.channel.updateMany({ where: { id: channelId, kind: 'email' }, data: { address } }),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
+  }
+
+  /**
+   * W15 — create a brand's email channel, audit entry in the same transaction. The id is the
+   * CALLER's (generated before the write, so the audit statement can name its target); the
+   * `@@unique([account_id, brand_id, kind])` constraint turns a concurrent duplicate into a P2002
+   * the caller maps to ALREADY_EXISTS rather than a second mailbox silently competing for mail.
+   */
+  async createEmailChannel(
+    accountId: string,
+    row: { id: string; brandId: string; key: string; address: string },
+    auditStatement: unknown,
+  ): Promise<void> {
+    const db = this.prisma.forAccount(accountId);
+    await db.$transaction([
+      db.channel.create({
+        // `account_id` is also injected by the scoped client; stated here because the CREATE type
+        // requires it — the two values are the same by construction.
+        data: { id: row.id, account_id: accountId, brand_id: row.brandId, kind: 'email', key: row.key, address: row.address },
+      }),
+      auditStatement,
+    ] as never);
   }
 }

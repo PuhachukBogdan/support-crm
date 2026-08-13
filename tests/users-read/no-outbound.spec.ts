@@ -255,8 +255,19 @@ describe('*** FR-027: there is no write surface ***', () => {
 
     // Stated as a property rather than as a list, so a fifth read RPC does not have to touch this
     // test while a mutation does.
+    //
+    // ⭐ W9 (spec 035) named one read the prefix rule cannot see: `LookupPlayerByContact` poses a
+    // QUESTION — it mutates nothing in users_db except its own audit trail, which is the
+    // accountability the capability requires (every attempt recorded, ADR 0044 §4). A NAMED
+    // exemption rather than a widened prefix, so the next `Lookup*` rpc still has to argue its case
+    // here. ⚠️ Found red on 2026-08-06 by running the ROOT suite for W15 — the W9 gate ran the
+    // workspace suites and never this file, which is its own lesson about what "the gate" covers.
+    const namedReads = new Set(['LookupPlayerByContact']);
     for (const name of rpcs) {
-      expect({ name, isRead: /^(Get|List)/.test(name) }).toEqual({ name, isRead: true });
+      expect({ name, isRead: /^(Get|List)/.test(name) || namedReads.has(name) }).toEqual({
+        name,
+        isRead: true,
+      });
     }
   });
 

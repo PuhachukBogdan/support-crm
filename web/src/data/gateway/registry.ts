@@ -395,6 +395,38 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['list', 'update', 'remove'],
   },
   /**
+   * ⭐ W15 (roadmap 6.8 minimum, subpoint 3.10) — the account's configured channels, and the one
+   * write the admin screen has: a brand's mail address.
+   *
+   * ⚠️ `admin-channels` reads keys and addresses — OUR configuration, not customer data — and no
+   * secret can ride it: the Channel table holds none (the secret lives in deployment config,
+   * looked up by the key this list shows). The write is a PUT placement keyed by BRAND: a brand
+   * with no email channel gets one, a brand with one gets its address changed.
+   */
+  {
+    resource: 'admin-channels',
+    path: '/admin/channels',
+    collection: 'channels',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
+    // PUT /admin/channels/email/{brandId} — body {address}. The id is the BRAND, not the channel:
+    // the server owns the row's identity, the screen only knows which brand's mail it is placing.
+    resource: 'admin-email-channel',
+    path: '/admin/channels/email',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    ops: ['update'],
+  },
+  /**
    * ⭐ W11 (roadmap 9.17) — the account's brands. It exists because every player read REQUIRES a
    * brand and the browser had no way to learn which ones there are. ⚠️ A brand is a FILTER, not a
    * wall (ADR 0038 §1): this list decides nothing about access, and no screen may treat it as if

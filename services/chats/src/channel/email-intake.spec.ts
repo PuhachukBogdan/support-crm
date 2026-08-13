@@ -31,6 +31,7 @@ const CHANNEL: ChannelRow = {
   address: 'support@brand.test',
   // W5: pushes to a desk — the enqueue-on-create leg is asserted in its own describe below.
   default_group_id: 'desk-a',
+  enabled: true,
 };
 
 interface Written {

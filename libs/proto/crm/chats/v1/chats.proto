@@ -298,6 +298,16 @@ service ChatsReadService {
   // ⚠️ The rpc line is declared by US5 beside its handler — `every-rpc-is-served.spec.ts` refuses a
   // contract nothing serves, and this one arrived a phase early. The messages below stay: they describe
   // `libs/common/src/channels/capabilities.ts`, which exists and is tested.
+
+  // ── ⭐ W15 (roadmap 6.8 minimum, subpoint 3.10) — the account's CONFIGURED channels, for the admin
+  // screen. Unlike GetChannelCapabilities above (static product facts, `crm.inbox.view`), these are
+  // tenant CONFIGURATION rows and the gate is `platform.settings.manage` — admin and super-admin only.
+  //
+  // ⚠️ The row carries the channel's KEY — the public identifier a delivery names in its URL — and its
+  // own address. It cannot carry a secret, because the Channel table holds none (the secret lives in
+  // deployment configuration under `CHANNEL_SECRETS`, looked up BY this key). That absence is what makes
+  // "no channel credential is readable after creation" (6.8) structural rather than a filtering rule.
+  rpc ListChannels(Empty) returns (ChannelConfigList);
 }
 
 // Feature 033 — the capability matrix, as data (see `libs/common/src/channels/capabilities.ts`).
@@ -326,6 +336,37 @@ message ChannelCapability {
    * consumer deciding whether to offer a reply box must too.
    */
   bool outbound_transport = 7;
+}
+
+// ── ⭐ W15 (roadmap 6.8 minimum, subpoint 3.10) — one configured channel, as the admin screen reads it ──
+//
+// `kind` is the stored string from the closed vocabulary (`api | email | messenger`), not the enum below:
+// the enum's UNSPECIFIED means "no arrival channel" on a conversation, which is not a state a CONFIGURED
+// channel can be in. `address` is the channel's OWN mailbox address — ours, not a customer's — and '' when
+// the kind has none (the API channel legitimately has no address).
+message ChannelConfig {
+  string id = 1;
+  string brand_id = 2;
+  string kind = 3;
+  // The public identifier a delivery names (`POST /channels/{key}/inbound` for `api`; the worker's
+  // `CHANNEL_KEY` for `email`). NOT a secret — the secret is configuration, looked up by this key, and
+  // has no column it could be read from.
+  string key = 4;
+  string address = 5;
+  bool enabled = 6;
+}
+
+message ChannelConfigList {
+  repeated ChannelConfig channels = 1;
+}
+
+// W15 — add or change a brand's mail address. An UPSERT against the one-email-channel-per-brand unique
+// (`@@unique([account_id, brand_id, kind])`): a brand with no email channel gets a row with a generated
+// key; a brand with one gets its address changed. Nothing else is writable from the screen in the MVP —
+// enabling/disabling and widget registration are the rest of 6.8.
+message UpsertEmailChannelRequest {
+  string brand_id = 1;
+  string address = 2;
 }
 
 // The closed channel vocabulary (`libs/common/src/channels/kinds.ts`).
@@ -581,6 +622,12 @@ service ChatsWriteService {
   // accepted, already-accepted, refused-with-a-class. A duplicate here is ORDINARY rather than
   // exceptional — an IMAP reconnect re-reads its batch by design (FR-027c).
   rpc AcceptInboundEmail(AcceptInboundEmailRequest) returns (AcceptChannelDeliveryResponse);
+
+  // ── ⭐ W15 (roadmap 6.8 minimum, subpoint 3.10) — the admin screen's one write ────────────────────
+  // Upsert a brand's mail address (see UpsertEmailChannelRequest). Gated `platform.settings.manage` at
+  // both tiers; audited as `channel.config_changed` inside the write's own transaction. Declared WITH
+  // its handler (`channel/channel-admin.grpc.controller.ts`), per the standing rule above.
+  rpc UpsertEmailChannel(UpsertEmailChannelRequest) returns (ChannelConfig);
 }
 
 // ── Feature 033 (roadmap 6.1) — one signed delivery from an API channel ───────────────────────────

@@ -15,6 +15,10 @@ import { PersonController } from './person.controller';
 // caller holds no session, and grouping it with the session-guarded chats surface would invite somebody
 // to add a sibling that inherits the exemption by accident.
 import { ChannelsController } from '../channels/channels.controller';
+// ⭐ W15 (roadmap 6.8 minimum): the channels ADMIN edge — session-guarded, at `/admin/channels`,
+// deliberately a different prefix from the public intake route above (two authentication stories
+// must not share one).
+import { ChannelsAdminController } from '../channels/channels-admin.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -26,6 +30,7 @@ import { ChannelsController } from '../channels/channels.controller';
   imports: [GrpcClientsModule],
   controllers: [
     ChannelsController,
+    ChannelsAdminController,
     ConversationsController,
     MessagesController,
     FeedController,

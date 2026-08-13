@@ -78,6 +78,8 @@ import { ApiChannelAdapter } from './channel/adapters/api.adapter';
 // ⭐ Feature 033 US5 (roadmap 6.6): the third KIND — its contract and the read every later block stands on.
 import { MessengerChannelAdapter } from './channel/adapters/messenger.adapter';
 import { ChannelCapabilitiesController } from './channel/capabilities.grpc.controller';
+// ⭐ W15 (roadmap 6.8 minimum, subpoint 3.10): the channels admin surface — list + a brand's mail address.
+import { ChannelAdminController } from './channel/channel-admin.grpc.controller';
 import { CHANNEL_CONFIG, loadChannelConfig } from './config';
 import { StatusReadController } from './status/status.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
@@ -139,6 +141,9 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // W20's analytics all stand on it — and a controller nobody registers answers UNIMPLEMENTED while
     // looking perfectly healthy (feature 015's single live-only defect).
     ChannelCapabilitiesController,
+    // ⭐ W15 (roadmap 6.8 minimum): the channels ADMIN surface — tenant configuration, gated
+    // `platform.settings.manage` at both tiers, every write audited in its own transaction.
+    ChannelAdminController,
   ],
   providers: [
     PrismaService,

@@ -51,6 +51,8 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     label: 'Channels',
     summary: 'Mail addresses and the API-channel key.',
     point: '3.10',
+    // ⭐ W15: the second section that stopped being a promise.
+    href: '/admin/channels',
   },
   {
     key: 'statuses',

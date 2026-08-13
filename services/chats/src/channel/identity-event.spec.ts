@@ -29,6 +29,7 @@ const CHANNEL: ChannelRow = {
   // W5: deliberately NOT push-routed — this spec is about identity, and a null desk keeps the
   // enqueue leg out of its assertions (the intake spec owns that leg).
   default_group_id: null,
+  enabled: true,
 };
 
 function harness(opts: { playerId?: string; ambiguous?: boolean; identityDown?: boolean } = {}) {

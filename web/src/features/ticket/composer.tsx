@@ -3,8 +3,20 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { TicketState } from '@/store/ticket/ticket.slice';
+
+/** A status the composer may submit as — the ACTIVE slice of the account's own catalogue. */
+export interface SubmitStatusOption {
+  key: string;
+  agentName: string;
+}
 
 /**
  * The composer (W7, roadmap 9.3) — frame `031`: a type switch (public reply / internal note), the
@@ -21,19 +33,26 @@ import type { TicketState } from '@/store/ticket/ticket.slice';
 export function Composer({
   send,
   sendState,
+  statusOptions = [],
 }: {
-  send: (input: { kind: 'reply' | 'note'; body: string }) => void;
+  send: (input: { kind: 'reply' | 'note'; body: string; statusTo?: string }) => void;
   sendState: TicketState['send'];
+  /**
+   * «Submit as <status>» (frame 031's split button): message first, then the status, one gesture.
+   * Options are the account's ACTIVE statuses by agent name — a retired status is unofferable, the
+   * same rule the Inbox funnel learned. Empty ⇒ the split half simply does not render.
+   */
+  statusOptions?: readonly SubmitStatusOption[];
 }) {
   const [kind, setKind] = useState<'reply' | 'note'>('reply');
   const [body, setBody] = useState('');
   const sending = sendState.status === 'sending';
   const isNote = kind === 'note';
 
-  const submit = () => {
+  const submit = (statusTo?: string) => {
     const text = body.trim();
     if (!text || sending) return;
-    send({ kind, body: text });
+    send({ kind, body: text, ...(statusTo ? { statusTo } : {}) });
     // Optimistic ONLY about the draft box: the message itself appears when the re-read returns it.
     // A failed send keeps nothing to retype because the error keeps the state and the text is short-
     // lived; if this ever bites, the fix is restoring the draft on `sendFailed`, recorded here.
@@ -63,6 +82,7 @@ export function Composer({
           // accidental half-sent reply to a customer is not undoable.
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit();
         }}
+        aria-label={isNote ? 'Internal note' : 'Public reply'}
         placeholder={isNote ? 'Write an internal note — the customer never sees it' : 'Write a reply to the customer'}
         rows={3}
         className="resize-none bg-background"
@@ -76,14 +96,39 @@ export function Composer({
         ) : (
           <span />
         )}
-        <Button
-          data-testid="composer-send"
-          onClick={submit}
-          disabled={sending || body.trim() === ''}
-          variant={isNote ? 'secondary' : 'default'}
-        >
-          {sending ? 'Sending…' : isNote ? 'Add note' : 'Send reply'}
-        </Button>
+        <div className="flex items-center gap-px">
+          <Button
+            data-testid="composer-send"
+            onClick={() => submit()}
+            disabled={sending || body.trim() === ''}
+            variant={isNote ? 'secondary' : 'default'}
+            className={statusOptions.length > 0 ? 'rounded-r-none' : undefined}
+          >
+            {sending ? 'Sending…' : isNote ? 'Add note' : 'Send reply'}
+          </Button>
+          {statusOptions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  data-testid="composer-submit-as"
+                  disabled={sending || body.trim() === ''}
+                  variant={isNote ? 'secondary' : 'default'}
+                  className="rounded-l-none px-2"
+                  aria-label="Submit as a status"
+                >
+                  ▾
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {statusOptions.map((s) => (
+                  <DropdownMenuItem key={s.key} onSelect={() => submit(s.key)}>
+                    Submit as {s.agentName}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
     </div>
   );

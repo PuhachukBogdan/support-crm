@@ -1,11 +1,13 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/composites/states';
 import { useStatuses } from '@/features/inbox/use-statuses';
 import { useTicket } from './use-ticket';
+import { useTicketLive } from './use-ticket-live';
 import { FieldsColumn } from './fields-column';
 import { Thread } from './thread';
 import { Composer } from './composer';
@@ -25,9 +27,18 @@ import { Composer } from './composer';
  */
 export function TicketWindow({ id }: { id: string }) {
   const t = useTicket(id);
+  // A new message or a status/assignee change re-reads this window by itself (subpoint 2.6's
+  // «подписка на события») — scoped to THIS conversation, since the stream is account-wide.
+  useTicketLive(id, t.refresh);
   const { statuses } = useStatuses();
 
   const statusName = (key: string) => statuses.find((s) => s.key === key)?.agentName ?? key;
+  // «Submit as …» offers the ACTIVE catalogue by agent name — a retired status renders on old rows
+  // but cannot be submitted to, the same unbuildable-contradiction rule as the Inbox funnel.
+  const submitStatuses = useMemo(
+    () => statuses.filter((s) => s.active).map((s) => ({ key: s.key, agentName: s.agentName })),
+    [statuses],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="ticket-window">
@@ -72,7 +83,7 @@ export function TicketWindow({ id }: { id: string }) {
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Thread state={t.thread} truncated={t.threadTruncated} onRetry={t.refresh} />
-          <Composer send={t.send} sendState={t.sendState} />
+          <Composer send={t.send} sendState={t.sendState} statusOptions={submitStatuses} />
         </main>
 
         {/* The right rail's future home (W10): the shell's context-panel slot, not this file. */}

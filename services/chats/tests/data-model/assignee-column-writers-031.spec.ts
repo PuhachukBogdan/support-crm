@@ -70,6 +70,10 @@ describe('writers of assignee_operator_id (T016)', () => {
     expect(names).toEqual([
       // The router: selects a candidate and claims the conversation (013/024, extended by 031).
       'assignment/assignment.repository.ts',
+      // Feature 031: the backlog FILTERS on the assignee (queued work must still be unowned) while
+      // writing `backlog_at`. It is on this list because the list is per FILE — a file that touches the
+      // column has to be looked at once, and once is the point.
+      'assignment/backlog.ts',
       'assignment/group-pool.ts',
       'assignment/round-robin-state.repository.ts',
       // ⭐ Automations and macros ASSIGN too — the two writers a search for "the routing path" misses,

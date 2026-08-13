@@ -47,7 +47,21 @@ function writesGuardedColumn(source: string): boolean {
   const code = stripComments(source);
   // `conversation.update…({ … data: { status: … } })` in any spelling we actually use.
   if (!/\bconversation\s*\.\s*update(Many)?\s*\(/.test(code)) return false;
-  return GUARDED_COLUMNS.some((col) => new RegExp(`\\b${col}\\s*:`).test(code));
+  /**
+   * ⚠️ **A WRITE, not a mention — narrowed 2026-08-04 (feature 031).**
+   *
+   * This used to match a guarded column anywhere in a file that also called `conversation.update…`, which
+   * conflated `data: { assignee_operator_id }` with `where: { assignee_operator_id: null }`. The first file
+   * to merely FILTER on the column while updating a different one (`assignment/backlog.ts`, which writes
+   * `backlog_at`) was then reported as an unwired writer of the transition stream.
+   *
+   * This guard's own instruction is *"wire the writer; do not add it to an exemption list"* — so the fix is
+   * to match what it always claimed to match. Both planted samples were already `data:` writes; the
+   * predicate case now has a sample of its own, asserting it does NOT count.
+   */
+  return GUARDED_COLUMNS.some((col) =>
+    new RegExp(`data\\s*:\\s*\\{[^}]*\\b${col}\\s*:`).test(code),
+  );
 }
 
 /** …and it records one if it reaches the recorder, by either entry point. */
@@ -75,6 +89,14 @@ describe('every writer of conversation status/assignee records a transition', ()
     expect(writesGuardedColumn(`db.conversation.updateMany({ data: { priority: 'x' } })`)).toBe(
       false,
     );
+    // ⭐ A PREDICATE is not a write. `assignment/backlog.ts` filters on the assignee while updating a
+    // different column, and reporting it as an unwired writer would be a false alarm that could only be
+    // silenced by an exemption — which this guard explicitly forbids.
+    expect(
+      writesGuardedColumn(
+        `db.conversation.updateMany({ where: { assignee_operator_id: null }, data: { backlog_at: at } })`,
+      ),
+    ).toBe(false);
     // A commented-out write must NOT count — this is why comments are stripped first.
     expect(writesGuardedColumn(`// db.conversation.updateMany({ data: { status: 'x' } })`)).toBe(
       false,

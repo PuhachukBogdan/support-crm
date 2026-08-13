@@ -9,6 +9,7 @@ import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import { GroupPoolService } from './group-pool';
+import { BacklogRepository } from './backlog';
 import type { RoundRobinCandidate } from './round-robin';
 
 interface AutoAssignRequestWire {
@@ -49,6 +50,7 @@ export class AutoAssignController {
     @Inject(RoundRobinStateRepository) private readonly rotation: RoundRobinStateRepository,
     @Inject(ConversationRepository) private readonly conversations: ConversationRepository,
     @Inject(GroupPoolService) private readonly pool: GroupPoolService,
+    @Inject(BacklogRepository) private readonly backlog: BacklogRepository,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'AutoAssignConversation')
@@ -130,8 +132,23 @@ export class AutoAssignController {
     // Everyone at capacity: the conversation stays as it was — never assigned to an over-capacity
     // operator just to have an answer (spec US3 #3).
     if (operatorId === null) {
+      /**
+       * ⭐ Feature 031 (roadmap 4.20): everyone is full, so the work WAITS instead of staying unowned.
+       *
+       * Before this, the answer was `NO_OPERATOR_AVAILABLE` and — in this file's own previous words —
+       * *"the conversation stays as it was"*: nothing recorded that it was waiting, in what order, or that
+       * it should be retried. That is the failure a queue exists to prevent.
+       *
+       * ⚠️ The reason code is UNCHANGED on purpose. Callers already handle it, and "nobody has room right
+       * now" is still the truth; what changed is that the conversation is now in a queue that will drain.
+       */
+      await this.backlog.enqueue(ctx.accountId, conversationId, new Date());
       return { assigned: false, operatorId: '', reason: NO_OPERATOR_AVAILABLE };
     }
+
+    // It has an owner now, so it is no longer waiting. Cleared here rather than inside the rotation's
+    // transaction because it is true for EVERY route to an owner, not only this one (FR-010).
+    await this.backlog.dequeue(ctx.accountId, conversationId);
 
     const updated = await this.conversations.getById(ctx.accountId, conversationId);
     return {

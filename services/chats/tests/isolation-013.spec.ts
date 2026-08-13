@@ -1,3 +1,4 @@
+import type { BacklogRepository } from '../src/assignment/backlog';
 import { Metadata } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../src/prisma.service';
@@ -195,6 +196,16 @@ const autoAssign = () =>
         throw new Error('group pool must not be consulted here');
       },
     } as unknown as GroupPoolService,
+    /**
+     * Feature 031: the backlog IS consulted on this path — a successful assignment clears the wait, and a
+     * full desk records one. ⚠️ A throwing stub was the first version and it was wrong: it asserted that
+     * this path does not touch the queue, which stopped being true the moment the queue existed. The stub
+     * records instead, so an isolation test stays about isolation.
+     */
+    {
+      enqueue: jest.fn(async () => undefined),
+      dequeue: jest.fn(async () => undefined),
+    } as unknown as BacklogRepository,
   );
 const labelsCtrl = () => new LabelsController(new LabelsRepository(prisma), conversationRepo());
 const macrosCtrl = () =>

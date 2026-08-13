@@ -33,6 +33,10 @@ model Conversation {
   category             String?
   sub_category         String?
   classified_by        String? // "ai" | operator id | null
+  /// Feature 031: when this conversation started waiting for capacity. NULL = not waiting.
+  /// See the `@@index([account_id, backlog_at])` note below for why the drain never rewrites it.
+  backlog_at           DateTime?
+
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt
   // ── Feature 022 (roadmap 4.13): the CONTACT facts, maintained on the message write ─────────────

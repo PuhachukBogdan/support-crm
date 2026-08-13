@@ -4,6 +4,7 @@ import { ConversationRepository } from '../conversation/conversation.repository'
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import type { GroupPoolService } from './group-pool';
+import type { BacklogRepository } from './backlog';
 import type { RoundRobinCandidate } from './round-robin';
 import {
   AutoAssignController,
@@ -93,6 +94,11 @@ function build(prisma: PrismaService, candidates: RoundRobinCandidate[] | Error)
     new RoundRobinStateRepository(prisma, new TransitionRecorder()),
     new ConversationRepository(prisma, new TransitionRecorder()),
     { candidatesFor } as unknown as GroupPoolService,
+    {
+      enqueue: jest.fn(async () => undefined),
+      dequeue: jest.fn(async () => undefined),
+      waiting: jest.fn(async () => []),
+    } as unknown as BacklogRepository,
   );
   return { controller, candidatesFor };
 }
@@ -292,5 +298,52 @@ describe('T014 — the routing decision names the router as the actor', () => {
     expect(row.actor_kind).toBe('system');
     // ⚠️ And it names WHICH system — "the system" is not an answer when three of them can assign.
     expect(String(row.actor_ref)).toContain('auto-assign');
+  });
+});
+
+/**
+ * T018/T021 on the router's own path (feature 031, roadmap 4.20).
+ *
+ * The unit tests for the queue live in `backlog.spec.ts`; these two assert the wiring — that work which
+ * does not fit **enters** the queue, and that work which gets an owner **leaves** it.
+ */
+describe('the router and the backlog', () => {
+  const withBacklog = (candidates: RoundRobinCandidate[]) => {
+    const prismaFake = fakePrisma();
+    const backlog = {
+      enqueue: jest.fn(async () => undefined),
+      dequeue: jest.fn(async () => undefined),
+      waiting: jest.fn(async () => []),
+    };
+    const controller = new AutoAssignController(
+      new RoundRobinStateRepository(prismaFake.prisma, new TransitionRecorder()),
+      new ConversationRepository(prismaFake.prisma, new TransitionRecorder()),
+      { candidatesFor: jest.fn(async () => ({ candidates, reason: null })) } as unknown as GroupPoolService,
+      backlog as unknown as BacklogRepository,
+    );
+    return { controller, backlog };
+  };
+
+  it('⭐ work that fits NOWHERE enters the queue instead of staying unowned', async () => {
+    // Before this feature the answer was NO_OPERATOR_AVAILABLE and the conversation "stayed as it was" —
+    // nothing recorded that it was waiting, in what order, or that it should be retried.
+    const { controller, backlog } = withBacklog([cand('op-a', 4, 4)]);
+
+    const res = await controller.autoAssignConversation({ conversationId: 'c1', groupId: 'g-1' }, md());
+
+    expect(res.assigned).toBe(false);
+    expect(backlog.enqueue).toHaveBeenCalledTimes(1);
+    expect(backlog.dequeue).not.toHaveBeenCalled();
+  });
+
+  it('⭐ POSITIVE CONTROL: work that FITS is assigned and leaves the queue', async () => {
+    // Without this, the assertion above is satisfied by a router that queues everything.
+    const { controller, backlog } = withBacklog([cand('op-a', 4, 0)]);
+
+    const res = await controller.autoAssignConversation({ conversationId: 'c1', groupId: 'g-1' }, md());
+
+    expect(res.assigned).toBe(true);
+    expect(backlog.dequeue).toHaveBeenCalledTimes(1);
+    expect(backlog.enqueue).not.toHaveBeenCalled();
   });
 });

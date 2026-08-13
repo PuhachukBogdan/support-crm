@@ -1,3 +1,4 @@
+import type { BacklogRepository } from './backlog';
 import { Metadata } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import type { PrismaService } from '../prisma.service';
@@ -100,6 +101,11 @@ const build = (prisma: PrismaService, pool: GroupPoolService = noPool) =>
     new RoundRobinStateRepository(prisma, new TransitionRecorder()),
     new ConversationRepository(prisma, new TransitionRecorder()),
     pool,
+    {
+      enqueue: jest.fn(async () => undefined),
+      dequeue: jest.fn(async () => undefined),
+      waiting: jest.fn(async () => []),
+    } as unknown as BacklogRepository,
   );
 
 const cand = (operatorId: string, capacity = 5, currentLoad = 0) => ({
@@ -288,8 +294,11 @@ describe('AutoAssignConversation — scope & access', () => {
    * `noPool` above, which THROWS if the pool is consulted on that path. So the property is still
    * asserted; it is asserted by behaviour now rather than by counting.
    */
-  it('takes exactly three dependencies — and the group pool is never consulted on this path', () => {
-    expect(AutoAssignController.length).toBe(3);
+  it('takes exactly FOUR dependencies — and neither the pool nor the backlog is consulted on this path', () => {
+    // Feature 031 added the backlog as a fourth dependency. The count is pinned deliberately: a
+    // constructor that quietly grows is how a router acquires a second source of truth about capacity,
+    // and this is the cheapest place to notice.
+    expect(AutoAssignController.length).toBe(4);
     // The behavioural half: every case in this file runs through `noPool`, which throws on use, so a
     // handler that started resolving a group pool without being asked would fail the whole suite.
   });

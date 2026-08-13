@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Providers } from '../../../app/providers';
 import { ContextPanelProvider, useContextPanel } from '@/components/shell/context-panel';
 import { TicketContextPanel } from './context-panel';
@@ -80,6 +80,8 @@ describe('the rail is ONE area with exactly three buttons (R27, revised 2026-08-
 describe('the player card', () => {
   it('renders identity and history, and the GR8 block SAYS there is nothing behind it', async () => {
     renderPanel(stubTicket());
+    // W26: the panels rest closed — the card is one click away, on its own rail button.
+    fireEvent.click(screen.getByTestId('rail-player'));
     expect(await screen.findByTestId('player-card')).toHaveTextContent('seed-player-001');
     expect(await screen.findByTestId('contact-history')).toHaveTextContent('conversations in total');
     // ⭐ An empty area would read as broken; a labelled one reads as reserved.
@@ -90,9 +92,90 @@ describe('the player card', () => {
   it('an UNIDENTIFIED ticket gets a card that says so and points at the search — it asks for nothing', async () => {
     const stub = stubTicket();
     renderPanel(stub, { identified: false, playerId: '' });
+    fireEvent.click(screen.getByTestId('rail-player'));
     expect(await screen.findByTestId('player-card-unidentified')).toHaveTextContent('No player attached');
     // No player, no reads: a request with a blank id would be a 404 wearing a failure's clothes.
     expect(stub.playerReads).toBe(0);
+  });
+});
+
+describe('⭐⭐ W26 (R42) — the panels SLIDE OUT and rest closed', () => {
+  it('rests CLOSED: the icon rail alone, no drawer content, nothing claims to be expanded', () => {
+    renderPanel(stubTicket());
+    expect(screen.getByTestId('context-drawer')).toHaveAttribute('data-state', 'closed');
+    expect(screen.queryByTestId('player-card')).not.toBeInTheDocument();
+    for (const b of screen.getByLabelText('Context panels').querySelectorAll('button')) {
+      expect(b).toHaveAttribute('aria-expanded', 'false');
+    }
+  });
+
+  it('⭐ a click slides the panel out; the SAME click takes it back — «повторно — убирается»', async () => {
+    renderPanel(stubTicket());
+    fireEvent.click(screen.getByTestId('rail-active'));
+    expect(screen.getByTestId('context-drawer')).toHaveAttribute('data-state', 'open');
+    expect(screen.getByTestId('rail-active')).toHaveAttribute('aria-expanded', 'true');
+    await screen.findByTestId('active-tickets');
+
+    fireEvent.click(screen.getByTestId('rail-active'));
+    expect(screen.getByTestId('context-drawer')).toHaveAttribute('data-state', 'closed');
+    expect(screen.queryByTestId('active-tickets')).not.toBeInTheDocument();
+  });
+
+  it('⭐ the open panel SURVIVES the panel being rebuilt for another ticket — «переживает переход»', async () => {
+    // The provider outlives the pushed component (a new ticket = a new element), so the choice must
+    // come back open on the rebuilt instance — the exact reset this block forbids.
+    const stub = stubTicket();
+    setDataAccess(stub);
+    const ui = (id: string, key: string) => (
+      <Providers dataAccess={getDataAccess()}>
+        <ContextPanelProvider>
+          <TicketContextPanel
+            key={key}
+            playerId="seed-player-001"
+            brandId="brand-a"
+            identified
+            currentConversationId={id}
+          />
+        </ContextPanelProvider>
+      </Providers>
+    );
+    const { rerender } = render(ui('c1', 'k1'));
+    fireEvent.click(screen.getByTestId('rail-active'));
+    await screen.findByTestId('active-tickets');
+
+    rerender(ui('c2', 'k2')); // a different KEY forces a fresh component, as navigation does
+    expect(screen.getByTestId('context-drawer')).toHaveAttribute('data-state', 'open');
+    expect(screen.getByTestId('rail-active')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('Escape closes the drawer and hands focus back to the rail button that owns it', async () => {
+    renderPanel(stubTicket());
+    fireEvent.click(screen.getByTestId('rail-kb'));
+    const drawer = screen.getByTestId('context-drawer');
+    expect(drawer).toHaveAttribute('data-state', 'open');
+
+    fireEvent.keyDown(screen.getByTestId('kb-placeholder'), { key: 'Escape' });
+    expect(drawer).toHaveAttribute('data-state', 'closed');
+    // Closing must not drop focus on <body> — the keyboard floor of the production standard.
+    expect(screen.getByTestId('rail-kb')).toHaveFocus();
+  });
+
+  it('⚠️ a FAILED active-tickets read says so — an error must never pose as an empty list', async () => {
+    const stub = stubTicket({ failActiveWith: { message: 'boom', retryable: true } });
+    renderPanel(stub);
+    fireEvent.click(screen.getByTestId('rail-active'));
+
+    const error = await screen.findByTestId('active-tickets-error');
+    expect(error).toHaveTextContent('could not load');
+    expect(screen.queryByTestId('active-tickets-empty')).not.toBeInTheDocument();
+
+    // …and "Try again" is a real control: it asks the server again, not a decoration.
+    const before = stub.listCalls.filter((q) => q.filters?.openedByOperatorId !== undefined).length;
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    await waitFor(() => {
+      const after = stub.listCalls.filter((q) => q.filters?.openedByOperatorId !== undefined).length;
+      expect(after).toBe(before + 1);
+    });
   });
 });
 

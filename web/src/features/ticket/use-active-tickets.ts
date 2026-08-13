@@ -30,12 +30,16 @@ const ACTIVE_CATEGORIES = 'new,open';
 export function useActiveTickets(): {
   items: ConversationRow[];
   loading: boolean;
+  /** W26: a failed read is a FACT the panel states — an error shown as an empty list would tell an
+   *  agent they have no open work while the truth is unknown (production floor: empty ≠ broken). */
+  failed: boolean;
   refresh: () => void;
 } {
   const dataAccess = useDataAccess();
   const me = useMyOperator();
   const [items, setItems] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
@@ -47,6 +51,7 @@ export function useActiveTickets(): {
     if (!operatorId) return;
     let alive = true;
     setLoading(true);
+    setFailed(false);
     void dataAccess
       .list<ConversationRow>('conversations', {
         limit: 25,
@@ -62,10 +67,11 @@ export function useActiveTickets(): {
         setLoading(false);
       })
       .catch(() => {
-        // The tab is an accelerator beside the record, not the record: a failed read shows an empty
-        // tab rather than taking the window down with it.
+        // The panel is an accelerator beside the record, not the record: a failed read must not
+        // take the window down with it — but it SAYS it failed rather than posing as an empty list.
         if (!alive) return;
         setItems([]);
+        setFailed(true);
         setLoading(false);
       });
     return () => {
@@ -73,5 +79,5 @@ export function useActiveTickets(): {
     };
   }, [dataAccess, me.operatorId, nonce]);
 
-  return { items, loading, refresh };
+  return { items, loading, failed, refresh };
 }

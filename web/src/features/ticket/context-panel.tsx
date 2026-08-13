@@ -1,13 +1,15 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef } from 'react';
 // `BookOpen` is the left rail's Knowledge Base glyph — the same destination gets the same icon.
 import { BookOpen, IdCard, ListChecks, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ComingSoonBadge } from '@/features/inbox/coming-soon';
 import { relativeTime } from '@/features/inbox/wire-labels';
+import { usePanelChoice } from '@/components/shell/context-panel';
 import { useActiveTickets } from './use-active-tickets';
 import { usePlayerCard } from './use-player-card';
 
@@ -46,6 +48,20 @@ import { usePlayerCard } from './use-player-card';
  * list nobody sees. The Knowledge Base icon is the SAME one the left rail uses for its Knowledge Base
  * entry (`BookOpen`) — one destination, one glyph, wherever it appears.
  */
+/**
+ * ⭐ **W26 (R42) — the panels SLIDE OUT, and rest closed.**
+ *
+ * *«нажимаешь — соответствующая панель красиво выезжает»*, and again hides — so the resting shape is
+ * the icon rail alone, the same philosophy as the left rail (R41: collapsed, no expander). Which
+ * panel is open lives in the SHELL's choice context, not here: this component is re-created for
+ * every ticket, and the block's own words are that the open panel *«переживает переход между
+ * тикетами»* — state that must outlive the component cannot be the component's state (the 2026-08-10
+ * preset lesson, one floor up: put the fact where its lifetime is).
+ *
+ * The drawer animates width with `--motion-base`/`--ease-standard` (the panel moment of the four),
+ * respects `prefers-reduced-motion`, and `Escape` inside it closes and hands focus back to the rail
+ * button that owns the panel — the keyboard floor of the production standard.
+ */
 type PanelId = 'active' | 'player' | 'kb';
 
 /** The rail, in the order the operator named. Data, so the order is a line rather than a layout. */
@@ -67,33 +83,58 @@ export function TicketContextPanel({
   identified: boolean;
   currentConversationId: string;
 }) {
-  const [panel, setPanel] = useState<PanelId>('player');
+  const { openId, toggle, close } = usePanelChoice();
+  const railRef = useRef<HTMLElement>(null);
+  const open = PANELS.find((p) => p.id === openId);
 
   return (
-    <div className="flex h-full min-h-0 gap-2" data-testid="ticket-context-panel">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* No tab strip: the rail says which panel is open, and saying it twice was the complaint. */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {panel === 'active' ? (
+    <div className="flex h-full min-h-0" data-testid="ticket-context-panel">
+      {/*
+       * The drawer. Width is the animated property (the region PUSHES the window, it does not cover
+       * it), the inner sheet keeps its full width and stays glued to the rail, so opening reads as
+       * the panel sliding out from under the icons rather than text reflowing as it grows.
+       */}
+      <div
+        data-testid="context-drawer"
+        data-state={open ? 'open' : 'closed'}
+        role="region"
+        aria-label={open?.label}
+        className={`relative min-h-0 overflow-hidden transition-[width] duration-base ease-standard motion-reduce:transition-none ${
+          open ? 'w-80' : 'w-0'
+        }`}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape' || !open) return;
+          e.stopPropagation();
+          close();
+          // Focus goes back to the button that owns the panel — closing must not drop it on <body>.
+          railRef.current
+            ?.querySelector<HTMLButtonElement>(`[data-testid="rail-${open.id}"]`)
+            ?.focus();
+        }}
+      >
+        <div className="absolute inset-y-0 right-0 w-80 overflow-y-auto border-r border-border p-4">
+          {open?.id === 'active' ? (
             <ActiveTickets currentConversationId={currentConversationId} />
-          ) : panel === 'player' ? (
+          ) : open?.id === 'player' ? (
             <PlayerCard playerId={playerId} brandId={brandId} identified={identified} />
-          ) : (
+          ) : open?.id === 'kb' ? (
             <KnowledgePlaceholder />
-          )}
+          ) : null}
         </div>
       </div>
 
-      {/* The icon rail. Three buttons, and the absence of Zendesk's other three is a decision. */}
+      {/* The icon rail — always visible, the panel's resting shape. Three buttons, and the absence
+          of Zendesk's other three is a decision. */}
       <nav
-        className="flex shrink-0 flex-col gap-1 border-l border-border pl-2"
+        ref={railRef}
+        className="flex w-12 shrink-0 flex-col items-center gap-1 p-2"
         aria-label="Context panels"
       >
         {PANELS.map((p) => (
           <RailButton
             key={p.id}
-            active={panel === p.id}
-            onClick={() => setPanel(p.id)}
+            active={openId === p.id}
+            onClick={() => toggle(p.id)}
             testId={`rail-${p.id}`}
             label={p.label}
             icon={p.icon}
@@ -123,11 +164,12 @@ function RailButton({
       // ⚠️ The label survives as `aria-label` and `title`: an icon-only control that names itself
       // nowhere is unreachable by a screen reader and a guess for everyone else.
       aria-label={label}
-      aria-pressed={active}
+      // W26: the buttons became disclosure toggles — `expanded`, not `pressed`, is the fact now.
+      aria-expanded={active}
       title={label}
       data-testid={testId}
       onClick={onClick}
-      className={`flex h-8 w-8 items-center justify-center rounded ${
+      className={`flex h-8 w-8 items-center justify-center rounded transition-colors duration-fast motion-reduce:transition-none ${
         active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
       }`}
     >
@@ -257,10 +299,22 @@ function KnowledgePlaceholder() {
 
 /** R17 — the agent's own open work, where the operator asked for it. */
 function ActiveTickets({ currentConversationId }: { currentConversationId: string }) {
-  const { items, loading } = useActiveTickets();
+  const { items, loading, failed, refresh } = useActiveTickets();
   const router = useRouter();
 
   if (loading) return <Skeleton className="h-24 w-full" />;
+  if (failed) {
+    // ⚠️ Not the empty state: "you have no open work" and "the list could not load" are different
+    // facts, and an agent acts differently on them (production floor: empty ≠ broken).
+    return (
+      <div className="space-y-2" data-testid="active-tickets-error">
+        <p className="text-xs text-destructive">Your active tickets could not load.</p>
+        <Button type="button" variant="outline" size="sm" onClick={refresh}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
   if (items.length === 0) {
     return (
       <p className="text-xs text-muted-foreground" data-testid="active-tickets-empty">

@@ -44,9 +44,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             <main className="min-w-0 flex-1 overflow-auto p-6">{children}</main>
 
             {node && (
+              /**
+               * W26 (R42): the slot has NO width of its own any more — the pushed node is an icon
+               * rail plus a slide-out drawer and sizes itself (closed = the rail alone). Padding and
+               * scrolling moved inside for the same reason: the drawer scrolls, the rail does not.
+               */
               <aside
                 data-testid="context-panel"
-                className="w-80 shrink-0 overflow-auto border-l border-border bg-card p-4"
+                className="flex shrink-0 border-l border-border bg-card"
               >
                 {node}
               </aside>

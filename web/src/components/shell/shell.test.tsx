@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from 'next-themes';
-import { ContextPanelProvider } from './context-panel';
+import { ContextPanelProvider, useContextPanel, usePanelChoice } from './context-panel';
 import { AppShell } from './app-shell';
 import { SessionProvider, GatewaySession } from '@/session';
 import type { HttpPort } from '@/data/gateway/http-port';
@@ -174,5 +174,68 @@ describe('*** the rail is rendered from server-resolved permissions (FR-020) ***
     expect(screen.queryByRole('link', { name: /telephony/i })).not.toBeInTheDocument();
     // The catalogue still carries it — `module-states.test.tsx` asserts that, and it is what makes
     // "bring it back" a configuration value rather than a code change.
+  });
+});
+
+/**
+ * ⭐⭐ W26 (R42) — «панель выезжает и убирается без перезагрузки списка под ней».
+ *
+ * The structural half of that sentence: toggling a slide-out panel must not re-render the page in
+ * the content slot. The choice context is SEPARATE from the node context precisely so a click on
+ * the rail re-renders the panel subtree and nothing above it — this test is what keeps the two
+ * from being quietly merged back into one provider (the render-storm direction W6/W10 paid for).
+ */
+describe('W26 — toggling a panel leaves the page beneath alone', () => {
+  it('the page in the content slot does not re-render when a panel opens and closes', () => {
+    let pageRenders = 0;
+    function CountingPage() {
+      pageRenders += 1;
+      return <div>page body</div>;
+    }
+    function PanelPusher() {
+      const { setPanel } = useContextPanel();
+      const { openId, toggle } = usePanelChoice();
+      return (
+        <div>
+          <button type="button" data-testid="push-node" onClick={() => setPanel(<span>panel</span>)}>
+            push
+          </button>
+          <button type="button" data-testid="toggle-panel" onClick={() => toggle('active')}>
+            toggle
+          </button>
+          <span data-testid="open-state">{openId ?? 'none'}</span>
+        </div>
+      );
+    }
+    render(
+      <ThemeProvider attribute="class" defaultTheme="light">
+        <SessionProvider impl={new GatewaySession(silentPort)} seed={SIGNED_IN}>
+          <ContextPanelProvider>
+            <PanelPusher />
+            <AppShell>
+              <CountingPage />
+            </AppShell>
+          </ContextPanelProvider>
+        </SessionProvider>
+      </ThemeProvider>,
+    );
+
+    const after = (label: string, act: () => void) => {
+      const before = pageRenders;
+      act();
+      return { label, delta: pageRenders - before };
+    };
+
+    // Opening, switching…, closing: the page's render count must not move.
+    expect(after('open', () => fireEvent.click(screen.getByTestId('toggle-panel'))).delta).toBe(0);
+    expect(screen.getByTestId('open-state')).toHaveTextContent('active');
+    expect(after('close', () => fireEvent.click(screen.getByTestId('toggle-panel'))).delta).toBe(0);
+    expect(screen.getByTestId('open-state')).toHaveTextContent('none');
+
+    // The positive control: pushing a NODE is allowed to re-render the shell — the slot appears —
+    // but the PAGE subtree still bails out because its element identity is stable.
+    fireEvent.click(screen.getByTestId('push-node'));
+    expect(screen.getByTestId('context-panel')).toBeInTheDocument();
+    expect(pageRenders).toBe(1);
   });
 });

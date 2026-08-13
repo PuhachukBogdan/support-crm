@@ -29,6 +29,8 @@ export interface TicketStubOptions {
   failMacroWith?: DataError;
   /** W10 — what the Active-tickets tab is served. */
   activeTickets?: { id: string; subject: string }[];
+  /** W26 — the active-tickets read fails: the panel must SAY so, never pose as an empty list. */
+  failActiveWith?: DataError;
   /** W9 — what the lookup answers, and its refusal (403 without the key, 429 over the cap). */
   lookupAnswer?: { matched: boolean; ambiguous: boolean; playerId: string; brandId: string };
   failLookupWith?: DataError;
@@ -153,6 +155,7 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
       stub.listCalls.push(query);
       // W10: the agent's own rail — assigned to me ∧ opened by me ∧ non-terminal.
       if (resource === 'conversations') {
+        if (opts.failActiveWith) throw opts.failActiveWith;
         return page((opts.activeTickets ?? [
           { id: 'conv-active-1', subject: 'Active one' },
         ]) as unknown as T[]);

@@ -61,6 +61,20 @@ export class LabelsController {
     return { labels: rows.map(toLabelWire) };
   }
 
+  /**
+   * ⭐ W16 (subpoint 3.11) — the registry: every label with its usage count. The same key as the
+   * list above: the registry is the label vocabulary enriched with an aggregate, not a new fact
+   * class, and a second key would be one nobody remembers to grant. A SEPARATE rpc rather than a
+   * field on ListLabels: the pickers read that one constantly and must not pay for the count.
+   */
+  @GrpcMethod('ChatsReadService', 'ListLabelUsage')
+  @RequiresChatsPermission('crm.labels.manage')
+  async listLabelUsage(_req: unknown, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const rows = await this.labels.listWithUsage(ctx.accountId);
+    return { labels: rows.map((l) => ({ ...toLabelWire(l), usageCount: l.usageCount })) };
+  }
+
   @GrpcMethod('ChatsReadService', 'ListConversationLabels')
   @RequiresChatsPermission('crm.labels.manage')
   async listConversationLabels(req: ConversationIdRequestWire, metadata: Metadata) {

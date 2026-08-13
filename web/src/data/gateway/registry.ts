@@ -233,6 +233,41 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['list', 'create'],
   },
   {
+    // ⭐ W16 (subpoint 3.11) — the registry: every label with its usage count. A separate row from
+    // `labels` because it is a separate read: the pickers must not pay for the aggregate.
+    resource: 'label-usage',
+    path: '/labels/usage',
+    collection: 'labels',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  /**
+   * ⭐ W16 (subpoint 3.12) — the audit log, read over feature 015's federated `GET /audit`
+   * (`platform.audit.view`). The filters are the route's own closed set; `action`/`actionClass`
+   * are mutually exclusive and the SERVER refuses the pair — the client sends what the screen
+   * picked and does not re-implement that rule.
+   */
+  {
+    resource: 'audit-entries',
+    path: '/audit',
+    collection: 'entries',
+    params: {
+      action: 'action',
+      actionClass: 'actionClass',
+      actorUserId: 'actorUserId',
+      targetRef: 'targetRef',
+      from: 'from',
+      to: 'to',
+    },
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
     // Attach = PUT /conversations/{id}/labels/{labelId} (idempotent placement), detach = DELETE
     // same path. `update` with an empty patch IS the attach — the link has no body to carry.
     resource: 'conversation-labels',

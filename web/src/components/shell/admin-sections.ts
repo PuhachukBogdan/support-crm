@@ -79,13 +79,17 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     label: 'Tag registry',
     summary: 'Every tag with how many tickets carry it.',
     point: '3.11 / 9.15',
+    // ⭐ W16: the fourth section that stopped being a promise.
+    href: '/admin/tags',
   },
   {
     key: 'audit',
     label: 'Audit log',
     summary:
-      'Who granted a permission, revealed a contact, exported or reassigned. Written since April — with nowhere to read it.',
+      'Who granted a permission, revealed a contact, exported or reassigned. Written since April — readable at last.',
     point: '3.12 / 9.18',
+    // ⭐ W16: the fifth — and the one the trail waited four months for.
+    href: '/admin/audit',
   },
   {
     key: 'retention',

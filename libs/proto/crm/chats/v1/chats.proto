@@ -308,6 +308,26 @@ service ChatsReadService {
   // deployment configuration under `CHANNEL_SECRETS`, looked up BY this key). That absence is what makes
   // "no channel credential is readable after creation" (6.8) structural rather than a filtering rule.
   rpc ListChannels(Empty) returns (ChannelConfigList);
+
+  // ── ⭐ W16 (subpoint 3.11, roadmap 9.15 minimum) — the tag registry: every label with how many
+  // conversations carry it. Same gate as the label set itself (`crm.labels.manage`): the registry is
+  // the account's label vocabulary ENRICHED with an aggregate, not a new fact class — a count is not
+  // customer data. ⚠️ Counted THROUGH the Label parent (`ConversationLabel` has no account_id of its
+  // own), which is what keeps the aggregate tenant-scoped by construction.
+  rpc ListLabelUsage(Empty) returns (LabelUsageList);
+}
+
+// W16 — one label with its usage count. `Label` above stays untouched: the pickers that read it a
+// hundred times a day must not pay for an aggregate only the registry screen wants.
+message LabelUsage {
+  string id = 1;
+  string name = 2;
+  string color = 3;        // "" when unset
+  int32 usage_count = 4;   // conversations carrying it right now (links, not history)
+}
+
+message LabelUsageList {
+  repeated LabelUsage labels = 1;
 }
 
 // Feature 033 — the capability matrix, as data (see `libs/common/src/channels/capabilities.ts`).

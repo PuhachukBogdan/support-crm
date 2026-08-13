@@ -32,6 +32,22 @@ export class LabelsRepository {
     })) as LabelRow[];
   }
 
+  /**
+   * ⭐ W16 (subpoint 3.11) — the registry read: every label with how many conversations carry it.
+   *
+   * ⚠️ Counted THROUGH the Label parent, deliberately. `ConversationLabel` has no `account_id` (it
+   * is scoped via its parents), so a `groupBy` on it under `forAccount` would silently aggregate
+   * ACROSS accounts — the scope extension only guards enrolled models. `_count` on the scoped
+   * Label read keeps the aggregate tenant-bound by construction, in one query.
+   */
+  async listWithUsage(accountId: string): Promise<Array<LabelRow & { usageCount: number }>> {
+    const rows = (await this.prisma.forAccount(accountId).label.findMany({
+      orderBy: [{ name: 'asc' }],
+      select: { ...LABEL_SELECT, _count: { select: { conversations: true } } },
+    })) as Array<LabelRow & { _count: { conversations: number } }>;
+    return rows.map(({ _count, ...label }) => ({ ...label, usageCount: _count.conversations }));
+  }
+
   async create(accountId: string, name: string, color: string | null): Promise<LabelRow> {
     return (await this.prisma.forAccount(accountId).label.create({
       // account_id is injected by the scoped client too; set explicitly so the create type is met.

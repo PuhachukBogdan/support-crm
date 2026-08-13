@@ -32,6 +32,8 @@ interface AckWire {
 interface ChatsReadGrpc {
   listLabels(d: Record<string, unknown>, md?: unknown): Observable<LabelListWire>;
   listConversationLabels(d: Record<string, unknown>, md?: unknown): Observable<LabelListWire>;
+  // ⭐ W16 (subpoint 3.11): the registry — labels with usage counts.
+  listLabelUsage(d: Record<string, unknown>, md?: unknown): Observable<LabelListWire>;
 }
 interface ChatsWriteGrpc {
   createLabel(d: Record<string, unknown>, md?: unknown): Observable<LabelWire>;
@@ -69,6 +71,20 @@ export class LabelsController implements OnModuleInit {
   @RequiresPermission('crm.labels.manage')
   async list(@Req() req: ChatsReq) {
     return callChats(this.read.listLabels({}, this.meta(req)));
+  }
+
+  /**
+   * ⭐ W16 (subpoint 3.11) — the tag registry: every label with how many conversations carry it.
+   * Same key as the set itself — the registry is the vocabulary enriched with an aggregate, and a
+   * count is not customer data. ⚠️ Declared ABOVE any parameterised sibling so `usage` can never be
+   * read as a label id.
+   */
+  @Get('labels/usage')
+  @RequiresPermission('crm.labels.manage')
+  async usage(@Req() req: ChatsReq) {
+    const res = await callChats(this.read.listLabelUsage({}, this.meta(req)));
+    // proto3 omits an empty repeated field; "no labels" is a state, not a crash.
+    return { labels: res.labels ?? [] };
   }
 
   @Post('labels')

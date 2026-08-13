@@ -180,3 +180,35 @@ describe('Labels — managed create (unique per account)', () => {
     expect(label.create).not.toHaveBeenCalled();
   });
 });
+
+describe('⭐ W16 — the tag registry read (ListLabelUsage, subpoint 3.11)', () => {
+  it('counts THROUGH the scoped Label parent — never a bare groupBy on the unscoped link table', async () => {
+    // ConversationLabel has no account_id (scoped via its parents), so an aggregate on it under
+    // forAccount would silently count ACROSS accounts. The registry read therefore asks the LABEL
+    // model — enrolled in the scope — for a relation count, and this pins that shape.
+    const labelFindMany = jest.fn().mockResolvedValue([
+      { id: 'l1', name: 'bonus', color: null, _count: { conversations: 3 } },
+      { id: 'l2', name: 'kyc', color: '#f00', _count: { conversations: 0 } },
+    ]);
+    const { prisma, forAccount } = fakePrisma({ labelFindMany });
+
+    const res = await build(prisma).listLabelUsage({}, md('acc-1'));
+
+    expect(res.labels).toEqual([
+      { id: 'l1', name: 'bonus', color: '', usageCount: 3 },
+      { id: 'l2', name: 'kyc', color: '#f00', usageCount: 0 },
+    ]);
+    expect(forAccount).toHaveBeenCalledWith('acc-1');
+    const args = labelFindMany.mock.calls[0][0] as { select: Record<string, unknown> };
+    expect(args.select._count).toEqual({ select: { conversations: true } });
+  });
+
+  it('a label nobody uses reports ZERO — absence of links is a count, not a missing row', async () => {
+    const labelFindMany = jest.fn().mockResolvedValue([
+      { id: 'l2', name: 'dead_tag', color: null, _count: { conversations: 0 } },
+    ]);
+    const { prisma } = fakePrisma({ labelFindMany });
+    const res = await build(prisma).listLabelUsage({}, md('acc-1'));
+    expect(res.labels[0]).toMatchObject({ name: 'dead_tag', usageCount: 0 });
+  });
+});

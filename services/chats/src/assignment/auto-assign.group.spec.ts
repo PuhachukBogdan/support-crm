@@ -311,7 +311,9 @@ describe('the router and the backlog', () => {
   const withBacklog = (candidates: RoundRobinCandidate[]) => {
     const prismaFake = fakePrisma();
     const backlog = {
-      enqueue: jest.fn(async () => undefined),
+      enqueue: jest.fn(async (a: string, b: string, c: Date, d?: string) => {
+        void a; void b; void c; void d;
+      }),
       dequeue: jest.fn(async () => undefined),
       waiting: jest.fn(async () => []),
     };
@@ -344,6 +346,28 @@ describe('the router and the backlog', () => {
 
     expect(res.assigned).toBe(true);
     expect(backlog.dequeue).toHaveBeenCalledTimes(1);
+    expect(backlog.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('⭐ a NAMED DESK with nobody available also queues — the everyday case', async () => {
+    // Found live. "Everyone is full" is rarer than "nobody is at this desk at this minute" — a shift gap,
+    // a lunch hour, a night — and that half was answered without queueing anything: the work sat unowned
+    // with no record and no retry, which is the failure the queue exists to prevent.
+    const { controller, backlog } = withBacklog([]);
+
+    const res = await controller.autoAssignConversation({ conversationId: 'c1', groupId: 'g-1' }, md());
+
+    expect(res.assigned).toBe(false);
+    expect(backlog.enqueue).toHaveBeenCalledTimes(1);
+    // …and the DESK travels with it, or the drain has nothing to retry against.
+    expect(backlog.enqueue.mock.calls[0]![3]).toBe('g-1');
+  });
+
+  it('⛔ but a caller-supplied candidate list with nobody in it does NOT queue', async () => {
+    // There is no desk to retry against, so queueing would produce work the drain can only ever report as
+    // `no_desk`. The honest answer is the refusal the caller already handles.
+    const { controller, backlog } = withBacklog([]);
+    await controller.autoAssignConversation({ conversationId: 'c1', candidates: [] }, md());
     expect(backlog.enqueue).not.toHaveBeenCalled();
   });
 });

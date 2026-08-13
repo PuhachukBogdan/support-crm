@@ -111,6 +111,21 @@ export class AutoAssignController {
     // never arrive here as an empty pool — if they did, an outage would look exactly like an empty
     // desk and routing would stop for a whole team with every request still answering 200.
     if (candidates.length === 0) {
+      /**
+       * ⭐ Feature 031: a NAMED DESK with nobody available right now means the work WAITS.
+       *
+       * ⚠️ Found on the live run, and it is the everyday case rather than an edge: "everyone is full" is
+       * rarer than "nobody is at this desk at this minute" — a shift gap, a lunch hour, a night. Before
+       * this, that work was left unowned with no record that it was waiting and no retry, which is exactly
+       * the failure the queue exists to prevent. The over-capacity path was queued and this one was not,
+       * so the queue covered the rarer half of the problem.
+       *
+       * ⓘ Only when a desk was NAMED. With a caller-supplied candidate list there is no desk to retry
+       * against, so queueing would produce work the drain can only report as `no_desk` for ever.
+       *
+       * ⚠️ The reason code is unchanged: callers already handle it and it is still true.
+       */
+      if (groupId) await this.backlog.enqueue(ctx.accountId, conversationId, new Date(), groupId);
       return {
         assigned: false,
         operatorId: '',

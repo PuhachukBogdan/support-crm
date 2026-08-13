@@ -20,6 +20,7 @@ const ALL: FailureClass[] = [
   'no-session',
   'refused',
   'not-found',
+  'rate-limited',
   'unavailable',
 ];
 
@@ -29,6 +30,7 @@ describe('status → failure class', () => {
     [401, 'no-session'],
     [403, 'refused'],
     [404, 'not-found'],
+    [429, 'rate-limited'],
     [500, 'unavailable'],
     [502, 'unavailable'],
     [0, 'unavailable'], // the request never completed
@@ -44,9 +46,13 @@ describe('status → failure class', () => {
   });
 });
 
-describe('only an unavailable service is retryable', () => {
+describe('only an unavailable service — and, since W14, a rate limit — is retryable', () => {
+  // ⚠️ AMENDED by W14, which added the first UI action that can genuinely meet a 429 (the invite
+  // issuer is rate-limited per user). Rate-limited is retryable in the literal sense — the same
+  // request succeeds later — and its fixed message says to WAIT first, which is the difference
+  // between it and 'unavailable'.
   it.each(ALL)('%s', (cls) => {
-    expect(dataErrorFor(cls).retryable).toBe(cls === 'unavailable');
+    expect(dataErrorFor(cls).retryable).toBe(cls === 'unavailable' || cls === 'rate-limited');
   });
 
   it('a refusal is never retried — repeating it would fail identically and hammer the edge', () => {

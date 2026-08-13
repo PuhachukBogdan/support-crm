@@ -84,7 +84,27 @@ export function usePeople() {
     [dataAccess, refresh],
   );
 
-  return { staff, groups, mutation, refresh, setRole, setMembership };
+  /**
+   * W14 remainder (roadmap 3.8) — issue an invitation through the feature-010 engine. Returns the
+   * error rather than setting `mutation`: the outcome belongs BESIDE the form (which stays open on
+   * failure), not in the screen-wide banner that talks about the list. On success the list is
+   * refreshed, because the engine pre-creates the person as `invited` — the row appearing IS the
+   * visible receipt that something happened.
+   */
+  const invite = useCallback(
+    async (email: string, roleKey: string): Promise<DataError | null> => {
+      try {
+        await dataAccess.create('invites', { email, role: roleKey });
+        refresh();
+        return null;
+      } catch (e) {
+        return toDataError(e);
+      }
+    },
+    [dataAccess, refresh],
+  );
+
+  return { staff, groups, mutation, refresh, setRole, setMembership, invite };
 }
 
 /** The membership of ONE desk, read on demand — the list route returns counts, not member ids. */

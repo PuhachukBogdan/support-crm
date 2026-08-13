@@ -47,3 +47,17 @@ export const ASSIGNABLE_ROLES = [
   'teamlead',
   'admin',
 ] as const;
+
+/**
+ * W14 remainder (roadmap 3.8) — which roles the invite form OFFERS. Render-only, mirroring the
+ * server's `canInvite` (services/auth/src/auth/invite.service.ts, feature 010): a super-admin may
+ * invite any listed role; an admin may invite any of them EXCEPT `admin`; everybody else gets no
+ * form at all. The server re-checks regardless — this only avoids offering a control that 403s.
+ * `super_admin` is not here for the same reason it is not assignable: it originates only from the
+ * whitelist, and no invite path may create one.
+ */
+export function invitableRoles(callerRoles: readonly string[]): readonly string[] {
+  if (callerRoles.includes('super_admin')) return ASSIGNABLE_ROLES;
+  if (callerRoles.includes('admin')) return ASSIGNABLE_ROLES.filter((r) => r !== 'admin');
+  return [];
+}

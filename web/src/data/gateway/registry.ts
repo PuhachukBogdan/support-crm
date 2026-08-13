@@ -354,6 +354,21 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     itemSuffix: 'role',
     ops: ['update'],
   },
+  {
+    // ⭐ W14 (roadmap 3.8, the block's remainder) — POST /auth/invites, the feature-010 engine's
+    // edge, untouched since Phase 3. Body {email, role}; the INVITER is the session (claims), never
+    // a field. The email rides the body, so it can never land in a proxy's query log (SEC-26).
+    // Write-only: reading invitations back is not a capability this screen has or needs — the
+    // invited person appears in `staff` as status `invited`, which is the visible outcome.
+    resource: 'invites',
+    path: '/auth/invites',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create'],
+  },
   /**
    * ⭐ W14 (roadmap 3.9) — desks and their membership (the feature-024 engine, unchanged).
    * `groups` lists and creates; `group-members` adds/removes by user id under a group.

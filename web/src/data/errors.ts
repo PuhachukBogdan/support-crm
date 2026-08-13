@@ -43,6 +43,7 @@ export type FailureClass =
   | 'no-session'
   | 'refused'
   | 'not-found'
+  | 'rate-limited'
   | 'unavailable';
 
 /** Fixed text per class. Never interpolated, never derived from a response. */
@@ -51,6 +52,10 @@ const CLASS_MESSAGE: Record<FailureClass, string> = {
   'no-session': 'Your session has ended. Please sign in again.',
   refused: 'You do not have access to this.',
   'not-found': 'Not found.',
+  // W14: 429 is a deliberate server answer (the invite issuer is rate-limited per user), and it is
+  // the one failure where "please try again" is the WRONG instruction — retrying is what keeps it
+  // failing. Before the invite form, no UI action could reach a 429, so it rode 'unavailable'.
+  'rate-limited': 'Too many attempts in a row. Wait a minute, then try again.',
   unavailable: GENERIC_MESSAGE,
 };
 
@@ -60,6 +65,9 @@ const CLASS_RETRYABLE: Record<FailureClass, boolean> = {
   'no-session': false,
   refused: false,
   'not-found': false,
+  // Retryable in the literal sense — the same request succeeds later — but not immediately, and
+  // the message says which.
+  'rate-limited': true,
   unavailable: true,
 };
 
@@ -74,6 +82,8 @@ export function classifyStatus(status: number): FailureClass {
       return 'refused';
     case 404:
       return 'not-found';
+    case 429:
+      return 'rate-limited';
     default:
       return 'unavailable';
   }

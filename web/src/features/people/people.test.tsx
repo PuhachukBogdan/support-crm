@@ -24,7 +24,7 @@ interface Stub extends DataAccess {
   writes: Array<{ op: string; resource: ResourceName; id?: string; payload?: unknown; within?: string }>;
 }
 
-function stub(opts: { roleFails?: boolean; groupsFail?: boolean } = {}): Stub {
+function stub(opts: { roleFails?: boolean; groupsFail?: boolean; inviteFails?: boolean } = {}): Stub {
   const writes: Stub['writes'] = [];
   const page = <T,>(items: T[]): PaginatedResult<T> => ({ items, nextCursor: null, hasMore: false });
   return {
@@ -49,8 +49,11 @@ function stub(opts: { roleFails?: boolean; groupsFail?: boolean } = {}): Stub {
     async get<T = unknown>(): Promise<T> {
       throw new Error('not used');
     },
-    async create<T = unknown>(): Promise<T> {
-      throw new Error('not used');
+    async create<T = unknown>(resource: ResourceName, input: unknown): Promise<T> {
+      writes.push({ op: 'create', resource, payload: input });
+      if (resource === 'invites' && opts.inviteFails)
+        throw { message: 'Too many attempts in a row. Wait a minute, then try again.', retryable: true };
+      return { status: 'created', invitationId: 'inv1' } as T;
     },
     async update<T = unknown>(resource: ResourceName, id: string, patch: unknown, within?: string): Promise<T> {
       writes.push({ op: 'update', resource, id, payload: patch, within });
@@ -124,6 +127,51 @@ describe('⭐ the role control belongs to the owner, and the screen says so by a
 
     expect(await screen.findByTestId('people-error')).toHaveTextContent('forbidden');
     expect(screen.getByTestId('people-list')).toBeInTheDocument();
+  });
+});
+
+describe('the invite form (W14 remainder, roadmap 3.8)', () => {
+  it('an admin invites by email + role, and the outcome is said beside the form', async () => {
+    const s = stub();
+    renderPeople(s, ['admin']);
+    fireEvent.click(await screen.findByTestId('invite-open'));
+
+    fireEvent.change(screen.getByTestId('invite-email'), { target: { value: 'new@example.test' } });
+    fireEvent.click(screen.getByTestId('invite-send'));
+
+    expect(await screen.findByTestId('invite-sent')).toBeInTheDocument();
+    // The default role is the first invitable one — the common case, pickable away.
+    expect(s.writes.at(-1)).toMatchObject({
+      op: 'create',
+      resource: 'invites',
+      payload: { email: 'new@example.test', role: 'support_agent' },
+    });
+    // Cleared, not closed: inviting several people in a row is the ordinary admin session.
+    expect(screen.getByTestId('invite-email')).toHaveValue('');
+  });
+
+  it('a refusal keeps the form open and says WHY — a rate limit must not read as "try again now"', async () => {
+    renderPeople(stub({ inviteFails: true }), ['super_admin']);
+    fireEvent.click(await screen.findByTestId('invite-open'));
+    fireEvent.change(screen.getByTestId('invite-email'), { target: { value: 'new@example.test' } });
+    fireEvent.click(screen.getByTestId('invite-send'));
+
+    expect(await screen.findByTestId('invite-error')).toHaveTextContent('Wait a minute');
+    expect(screen.getByTestId('invite-form')).toBeInTheDocument();
+  });
+
+  it('⛔ below admin there is no invite entry point at all — absence, not a disabled button', async () => {
+    renderPeople(stub(), ['teamlead']);
+    await screen.findByTestId('people-list');
+    expect(screen.queryByTestId('invite-open')).not.toBeInTheDocument();
+  });
+
+  it('an admin may not offer the admin role — only a super-admin may (mirrors canInvite)', async () => {
+    renderPeople(stub(), ['admin']);
+    fireEvent.click(await screen.findByTestId('invite-open'));
+    fireEvent.keyDown(screen.getByTestId('invite-role'), { key: 'Enter' });
+    expect(await screen.findByText('teamlead')).toBeInTheDocument();
+    expect(screen.queryByText('admin')).not.toBeInTheDocument();
   });
 });
 

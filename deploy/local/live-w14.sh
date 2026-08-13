@@ -150,6 +150,64 @@ else
   fail "a desk to test membership on" "none returned"
 fi
 
+# ── 6. ⭐ the invite path — the block's remainder (3.8): a person is invited FROM the product ──────
+# The feature-010 engine has existed since Phase 3; what W14 finishes is the button. This section
+# asserts the wire under that button, positive control first (rule 2), refusals after.
+INVITEE="w14-invitee@beton.win"
+MAILS_BEFORE=$(curl -s "$M/api/v1/search?query=to%3A$INVITEE&limit=200" | grep -o '"ID":"' | wc -l | tr -d ' \r')
+INV=$(curl -s -o /tmp/w14.invite -w '%{http_code}' -b "$JOWNER" -X POST "$G/auth/invites" \
+  -H 'Content-Type: application/json' -d "{\"email\":\"$INVITEE\",\"role\":\"support_agent\"}")
+if [ "$INV" = "201" ] && grep -q '"status":"created"' /tmp/w14.invite; then
+  pass "⭐ the owner invites $INVITEE as support_agent (201 created)"
+else
+  fail "invite created" "http $INV — $(head -c 120 /tmp/w14.invite)"
+fi
+
+# The row and the email are one transaction (feature 028's rule) — so the email arriving is the
+# receipt that the invitation EXISTS, not merely that mail works. Delta, never an absolute: the
+# mailbox keeps history and this script runs twice.
+MAILS_AFTER="$MAILS_BEFORE"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  MAILS_AFTER=$(curl -s "$M/api/v1/search?query=to%3A$INVITEE&limit=200" | grep -o '"ID":"' | wc -l | tr -d ' \r')
+  [ "${MAILS_AFTER:-0}" -gt "${MAILS_BEFORE:-0}" ] && break
+  sleep 1
+done
+[ "${MAILS_AFTER:-0}" -gt "${MAILS_BEFORE:-0}" ] && pass "…and the invite email arrived (mailbox $MAILS_BEFORE → $MAILS_AFTER)" \
+  || fail "invite email delivered" "count stayed at $MAILS_BEFORE"
+
+# The engine pre-creates the person as `invited`, so the people LIST is the visible receipt the
+# screen relies on — assert the same read the screen makes.
+LIST2=$(curl -s -b "$JOWNER" "$G/admin/access/users?pageSize=100")
+case "$LIST2" in
+  *"$INVITEE"*) pass "…and the invitee appears in the people list" ;;
+  *) fail "invitee on the list" "not present in GET /admin/access/users" ;;
+esac
+
+# Idempotence where data is written: the same address again answers created (a fresh invitation is
+# a legitimate re-send) and the PERSON exists exactly once.
+INV2=$(curl -s -o /dev/null -w '%{http_code}' -b "$JOWNER" -X POST "$G/auth/invites" \
+  -H 'Content-Type: application/json' -d "{\"email\":\"$INVITEE\",\"role\":\"support_agent\"}")
+USERS=$(psql auth_db "select count(*) from \"User\" where email='$INVITEE'")
+if [ "$INV2" = "201" ] && [ "${USERS:-0}" = "1" ]; then
+  pass "a repeat invite is accepted and the person exists ONCE (user rows=$USERS)"
+else
+  fail "repeat invite idempotent on the person" "http $INV2, user rows=$USERS"
+fi
+
+# ⛔ The hierarchy holds on the wire: nobody may invite a super-admin, and a non-admin may invite
+# nobody — and a refusal leaves NO row behind.
+SUPER=$(curl -s -o /dev/null -w '%{http_code}' -b "$JOWNER" -X POST "$G/auth/invites" \
+  -H 'Content-Type: application/json' -d '{"email":"w14-nobody@beton.win","role":"super_admin"}')
+[ "$SUPER" = "403" ] && pass "⛔ inviting a super_admin is refused even for the owner (403)" \
+  || fail "super_admin invite refused" "http $SUPER"
+NONADM=$(curl -s -o /dev/null -w '%{http_code}' -b "$JPROBE" -X POST "$G/auth/invites" \
+  -H 'Content-Type: application/json' -d '{"email":"w14-nobody@beton.win","role":"support_agent"}')
+[ "$NONADM" = "403" ] && pass "⛔ a $START_ROLE may invite nobody (403)" \
+  || fail "non-admin invite refused" "http $NONADM"
+NOROW=$(psql auth_db "select count(*) from \"User\" where email='w14-nobody@beton.win'")
+[ "${NOROW:-1}" = "0" ] && pass "⛔ …and the refused invites created no user row" \
+  || fail "refusal leaves nothing" "user rows=$NOROW"
+
 echo
 echo "W14 live: $ok ok, $bad failed"
 [ "$bad" = "0" ]

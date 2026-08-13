@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/composites/page-header/page-header';
 import {
@@ -13,7 +14,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useSession } from '@/session';
 import { usePeople, useGroupMembers } from './use-people';
-import { ASSIGNABLE_ROLES, type StaffWire } from './types';
+import { ASSIGNABLE_ROLES, invitableRoles, type StaffWire } from './types';
+import type { DataError } from '@/data/types';
 
 /**
  * W14 — People & groups (roadmap 3.8 + 3.9): the two axes of one admin screen.
@@ -32,16 +34,37 @@ import { ASSIGNABLE_ROLES, type StaffWire } from './types';
  * their open work silently.
  */
 export function People() {
-  const { staff, groups, mutation, setRole, setMembership } = usePeople();
+  const { staff, groups, mutation, setRole, setMembership, invite } = usePeople();
   const session = useSession();
   const roles = session.state.kind === 'authenticated' ? session.state.roles : [];
   // Render-only, as always: the server refuses regardless, this just avoids offering a 403.
   const maySetRole = roles.includes('super_admin');
+  const inviteRoles = invitableRoles(roles);
+  const [inviting, setInviting] = useState(false);
   const [openGroup, setOpenGroup] = useState('');
 
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 overflow-y-auto py-2">
-      <PageHeader title="People & groups" />
+      <PageHeader
+        title="People & groups"
+        actions={
+          // W14 remainder (3.8): the invite entry point. Absent — not disabled — below admin, the
+          // same by-absence rule as the role control.
+          inviteRoles.length > 0 && (
+            <Button size="sm" data-testid="invite-open" onClick={() => setInviting((v) => !v)}>
+              {inviting ? 'Close' : 'Invite'}
+            </Button>
+          )
+        }
+      />
+
+      {inviting && (
+        <InviteForm
+          roles={inviteRoles}
+          onInvite={invite}
+          onDone={() => setInviting(false)}
+        />
+      )}
 
       {mutation && (
         <p className="rounded-md border border-destructive/40 p-2 text-sm text-destructive" data-testid="people-error">
@@ -108,6 +131,99 @@ export function People() {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * W14 remainder (roadmap 3.8) — the invite form over the feature-010 engine (POST /auth/invites).
+ * The inviter is the SESSION: nothing here names who is inviting, only who is invited and as what.
+ * Outcomes stay beside the form: created → the note below plus the new `invited` row in the list
+ * (the engine pre-creates the person, so the list refresh IS the receipt); refused/rate-limited →
+ * the server's class, verbatim from the sanitized error, with the form still open for a retry.
+ */
+function InviteForm({
+  roles,
+  onInvite,
+  onDone,
+}: {
+  roles: readonly string[];
+  onInvite: (email: string, roleKey: string) => Promise<DataError | null>;
+  onDone: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [roleKey, setRoleKey] = useState<string>(roles[0] ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<DataError | null>(null);
+  const [sent, setSent] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setSent(false);
+    const failure = await onInvite(email.trim(), roleKey);
+    setBusy(false);
+    if (failure) {
+      setError(failure);
+      return;
+    }
+    // Cleared rather than closed: inviting several people in a row is the ordinary admin session,
+    // and the note + the fresh `invited` row say the last one worked.
+    setSent(true);
+    setEmail('');
+  };
+
+  return (
+    <section className="space-y-2 rounded-md border border-border p-3" data-testid="invite-form">
+      <h2 className="text-sm font-medium">Invite a person</h2>
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <Input
+          type="email"
+          required
+          placeholder="email@company.example"
+          className="w-64"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          data-testid="invite-email"
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" data-testid="invite-role">
+              {roleKey}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {roles.map((r) => (
+              <DropdownMenuItem key={r} onSelect={() => setRoleKey(r)}>
+                {r}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button type="submit" size="sm" disabled={busy || !email.includes('@')} data-testid="invite-send">
+          Send invite
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+          Done
+        </Button>
+      </form>
+      {sent && (
+        <p className="text-sm text-muted-foreground" data-testid="invite-sent">
+          Invitation sent. The person appears in the list as “invited” until they register from the
+          emailed link.
+        </p>
+      )}
+      {error && (
+        <p className="text-sm text-destructive" data-testid="invite-error">
+          {error.message}
+        </p>
+      )}
+    </section>
   );
 }
 

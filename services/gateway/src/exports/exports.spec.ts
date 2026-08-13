@@ -72,7 +72,8 @@ describe('filters are parsed fail-closed AND TRANSLATED (FR-005/FR-027)', () => 
      */
     expect(
       parseExportFilters({
-        status: 'open',
+        status: 'vip_pending',
+        statusCategory: 'on_hold',
         priority: 'high',
         assigneeOperatorId: 'op-1',
         playerId: 'p-1',
@@ -80,7 +81,11 @@ describe('filters are parsed fail-closed AND TRANSLATED (FR-005/FR-027)', () => 
         slaOutcome: 'breached',
       }),
     ).toEqual({
-      status: 'CONVERSATION_STATUS_OPEN',
+      // ⭐ Feature 032: `status` becomes `statusKey` and is NOT translated — `status_key` is a proto
+      // STRING, so the enum-coercion trap this test was written for cannot occur on it. The CATEGORY is
+      // still an enum and still goes through the list's own converter.
+      statusKey: 'vip_pending',
+      statusCategory: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD',
       priority: 'high',
       assigneeOperatorId: 'op-1',
       playerId: 'p-1',
@@ -92,11 +97,14 @@ describe('filters are parsed fail-closed AND TRANSLATED (FR-005/FR-027)', () => 
   it('every accepted status and SLA outcome round-trips to a REAL wire member', () => {
     // The generalised form: no accepted value may map to UNSPECIFIED, because UNSPECIFIED means "no
     // filter" and is therefore the silent-widening (or silent-emptying) outcome.
-    for (const status of ['open', 'pending', 'resolved', 'snoozed']) {
-      const out = parseExportFilters({ status }).status!;
-      expect(out).toMatch(/^CONVERSATION_STATUS_/);
-      expect(out).not.toBe('CONVERSATION_STATUS_UNSPECIFIED');
+    // Feature 032: the enum here is the CATEGORY. A status key is a string and has no member to coerce.
+    for (const statusCategory of ['new', 'open', 'pending', 'on_hold', 'solved', 'closed']) {
+      const out = parseExportFilters({ statusCategory }).statusCategory!;
+      expect(out).toMatch(/^CONVERSATION_STATUS_CATEGORY_/);
+      expect(out).not.toBe('CONVERSATION_STATUS_CATEGORY_UNSPECIFIED');
     }
+    // …and a status key travels verbatim, including one no release of this product ever knew.
+    expect(parseExportFilters({ status: 'waiting_on_finance' }).statusKey).toBe('waiting_on_finance');
     for (const slaOutcome of ['running', 'met', 'breached']) {
       const out = parseExportFilters({ slaOutcome }).slaOutcome!;
       expect(out).toMatch(/^SLA_OUTCOME_/);
@@ -130,8 +138,12 @@ describe('filters are parsed fail-closed AND TRANSLATED (FR-005/FR-027)', () => 
   });
 
   it('an unknown enum member is refused rather than widened', () => {
-    expect(() => parseExportFilters({ status: 'nonsense' })).toThrow(BadRequestException);
+    expect(() => parseExportFilters({ statusCategory: 'nonsense' })).toThrow(BadRequestException);
     expect(() => parseExportFilters({ slaOutcome: 'maybe' })).toThrow(BadRequestException);
+    // ⚠️ NOT the status key: an unconfigured key is refused by `chats` against the CALLER's catalogue,
+    // which this tier has no copy of. A gateway-side allow-list would be a second vocabulary that goes
+    // stale the first time a supervisor adds a status — the drift this whole file was written about.
+    expect(parseExportFilters({ status: 'nonsense' }).statusKey).toBe('nonsense');
   });
 
   it('a non-object body and a non-string value are both refused', () => {

@@ -5,6 +5,7 @@ import type { AuthorAuthorityClient } from '../auth/auth.client';
 import type { LabelsRepository } from '../labels/labels.repository';
 import type { DomainEvent } from '../events/events.types';
 import { messageReceivedKey } from '../events/events.types';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * T017 (feature 014, US1) — the engine. FAILS before it exists, PASSES after.
@@ -83,6 +84,7 @@ function build(opts: {
     { listActiveByTrigger, applyWithRun, recordRun } as unknown as AutomationsRepository,
     { exists } as unknown as LabelsRepository,
     { resolve } as unknown as AuthorAuthorityClient,
+    fakeStatusRepository(),
   );
   return { engine, listActiveByTrigger, applyWithRun, recordRun, resolve, exists };
 }

@@ -1,4 +1,4 @@
-import { isValidPriority, isValidStatusWire } from '../shared/wire';
+import { isValidPriority } from '../shared/wire';
 import { isAutomationTrigger, type AutomationTrigger } from '../events/events.types';
 import {
   ACTION_PERMISSION,
@@ -102,7 +102,7 @@ export function parseTrigger(input: unknown): AutomationTrigger {
  * Validate an action list for a rule. Same vocabulary and same per-action value rules as a macro,
  * with one extra: the SLA sentinel `'*'` may never be a literal action value.
  */
-export function parseRuleActions(input: unknown): MacroAction[] {
+export function parseRuleActions(input: unknown, statusKeys: readonly string[]): MacroAction[] {
   if (!Array.isArray(input) || input.length === 0) {
     // A rule with no actions is a configuration error, not a harmless no-op: it would evaluate,
     // match, record a run and change nothing — indistinguishable from a broken rule.
@@ -114,7 +114,9 @@ export function parseRuleActions(input: unknown): MacroAction[] {
     const value = typeof a.value === 'string' ? a.value.trim() : '';
     if (!value) throw new RuleDefinitionError('action value must not be empty');
     if (value === ANY_SENTINEL) throw new RuleDefinitionError("'*' is not a valid action value");
-    if (a.type === 'MACRO_ACTION_TYPE_SET_STATUS' && !isValidStatusWire(value)) {
+    // Feature 032: a status KEY this account has configured and not retired (see `macro-definition.ts`
+    // for why the set is a required parameter rather than an option).
+    if (a.type === 'MACRO_ACTION_TYPE_SET_STATUS' && !statusKeys.includes(value)) {
       throw new RuleDefinitionError('SET_STATUS value is not a valid status');
     }
     if (a.type === 'MACRO_ACTION_TYPE_SET_PRIORITY' && !isValidPriority(value)) {
@@ -131,7 +133,11 @@ export function parseRuleActions(input: unknown): MacroAction[] {
  * message. Refusing it elsewhere at authoring time is the point: a rule that can never match is far
  * harder to debug than a rule that refused to be saved.
  */
-export function parseConditions(input: unknown, trigger: AutomationTrigger): RuleCondition[] {
+export function parseConditions(
+  input: unknown,
+  trigger: AutomationTrigger,
+  statusKeys: readonly string[],
+): RuleCondition[] {
   if (input === undefined || input === null) return [];
   if (!Array.isArray(input)) throw new RuleDefinitionError('conditions must be a list');
   return input.map((raw) => {
@@ -151,7 +157,16 @@ export function parseConditions(input: unknown, trigger: AutomationTrigger): Rul
     if (NEEDS_VALUE.has(c.field) && !value) {
       throw new RuleDefinitionError('condition value must not be empty');
     }
-    if (c.field === 'CONDITION_FIELD_STATUS' && !isValidStatusWire(value)) {
+    /**
+     * Feature 032: the comparand is a status KEY from this account's ACTIVE set.
+     *
+     * ⚠️ Active and not merely configured, deliberately, and it is a real trade-off: a rule matching
+     * tickets stuck in a status that was later retired becomes unsaveable. That case has no author today
+     * (there is no automations screen), while "a supervisor retires a status and it disappears from every
+     * authoring surface" is the behaviour retiring one is FOR. If the other case earns a user, it arrives
+     * as a second set here rather than as a widened one.
+     */
+    if (c.field === 'CONDITION_FIELD_STATUS' && !statusKeys.includes(value)) {
       throw new RuleDefinitionError('condition status is not a valid status');
     }
     if (c.field === 'CONDITION_FIELD_PRIORITY' && !isValidPriority(value)) {
@@ -162,7 +177,7 @@ export function parseConditions(input: unknown, trigger: AutomationTrigger): Rul
 }
 
 /** Parse a whole definition (an inbound request body or a stored blob). All-or-nothing. */
-export function parseDefinition(input: unknown): RuleDefinition {
+export function parseDefinition(input: unknown, statusKeys: readonly string[]): RuleDefinition {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new RuleDefinitionError('definition must be an object');
   }
@@ -170,9 +185,23 @@ export function parseDefinition(input: unknown): RuleDefinition {
   const trigger = parseTrigger(d.trigger);
   return {
     trigger,
-    conditions: parseConditions(d.conditions, trigger),
-    actions: parseRuleActions(d.actions),
+    conditions: parseConditions(d.conditions, trigger, statusKeys),
+    actions: parseRuleActions(d.actions, statusKeys),
   };
+}
+
+/**
+ * The TRIGGER of a stored definition, with no other validation (feature 032).
+ *
+ * ⚠️ Extracted because reading a rule's trigger must not depend on the account's status catalogue. The
+ * evaluation path filters rules by trigger BEFORE it decides whether any of them is applicable, and
+ * making that filter validate statuses would mean a retired status silently removing a rule from the
+ * trigger index — invisible, and with no run record to explain it. A rule that cannot be validated is
+ * refused later, loudly, WITH a run record (`engine.ts`).
+ */
+export function triggerOfStored(input: unknown): AutomationTrigger {
+  const d = (input ?? {}) as { trigger?: unknown };
+  return parseTrigger(d.trigger);
 }
 
 /** The storage shape for a validated definition. */

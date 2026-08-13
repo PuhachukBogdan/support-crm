@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma.service';
 import type { Cursor } from '../shared/cursor';
 import type { AutomationTrigger } from '../events/events.types';
 import type { MacroAction } from '../macros/macro-definition';
-import { parseDefinition, toStoredDefinition, type RuleDefinition } from './rule-definition';
+import { triggerOfStored, toStoredDefinition, type RuleDefinition } from './rule-definition';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { priorityWrite } from '../conversation/urgency';
 import {
@@ -311,13 +311,14 @@ export class AutomationsRepository {
             transitionStatements.push(
               this.transitions.buildStatement(
                 db as never,
-                statusChanged(accountId, before, statusFromWire(a.value), actor, now),
+                statusChanged(accountId, before, a.value, actor, now),
               ),
             );
           }
           return db.conversation.updateMany({
             where: { id: conversationId },
-            data: { status: statusFromWire(a.value) },
+            // Feature 032: the stored value IS the key (see `macros.repository.ts`).
+            data: { status: a.value },
           });
         case 'MACRO_ACTION_TYPE_SET_PRIORITY':
           return db.conversation.updateMany({
@@ -401,15 +402,16 @@ function runData(accountId: string, run: RunRecord) {
   };
 }
 
-/** Wire status name → storage scalar (definitions store the wire name). */
-function statusFromWire(wire: string): string {
-  return wire.replace('CONVERSATION_STATUS_', '').toLowerCase();
-}
-
-/** The trigger of a stored definition; null when the blob is unreadable (such a rule never runs). */
+/**
+ * The trigger of a stored definition; null when the blob is unreadable (such a rule never runs).
+ *
+ * Feature 032: reads the trigger ALONE (`triggerOfStored`), so the trigger index does not depend on the
+ * account's status catalogue — see that function for why a retired status must not silently un-index a
+ * rule.
+ */
 function safeTrigger(definition: unknown): string | null {
   try {
-    return parseDefinition(definition).trigger;
+    return triggerOfStored(definition);
   } catch {
     return null;
   }

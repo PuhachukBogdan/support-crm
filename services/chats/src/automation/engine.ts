@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { hasPermission } from '@crm/common';
 import { AuthorAuthorityClient, AuthorityUnavailableError } from '../auth/auth.client';
 import { LabelsRepository } from '../labels/labels.repository';
+import { StatusRepository } from '../status/status.repository';
 import type { DomainEvent } from '../events/events.types';
 import { matches } from './conditions';
 import {
@@ -45,6 +46,8 @@ export class AutomationEngine {
     @Inject(AutomationsRepository) private readonly automations: AutomationsRepository,
     @Inject(LabelsRepository) private readonly labels: LabelsRepository,
     @Inject(AuthorAuthorityClient) private readonly authority: AuthorAuthorityClient,
+    // Feature 032: step 1's re-validation now includes "is this a status this account still has".
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   /** Handle one event. Returns how many rules actually applied. */
@@ -52,13 +55,23 @@ export class AutomationEngine {
     const rules = await this.automations.listActiveByTrigger(event.accountId, event.trigger);
     if (rules.length === 0) return 0;
 
+    /**
+     * Read ONCE per pass, beside the authority cache and for the same reason: several rules validating
+     * against the same nine rows should cost one query, and there is no cross-request cache to go stale.
+     *
+     * ⚠️ Read AFTER the rules, so a retired status cannot remove a rule from the trigger index — it makes
+     * the rule refuse WITH a run record instead, which is the difference between an explainable
+     * *"nothing happened"* and an invisible one.
+     */
+    const statusKeys = await this.statuses.activeKeys(event.accountId);
+
     // Memoised ONLY for this pass: several rules by the same author cost one auth hop, and there is
     // no cross-request cache to go stale (research R5).
     const authorityCache = new Map<string, string[] | AuthorityUnavailableError>();
     let applied = 0;
 
     for (const rule of rules) {
-      if (await this.evaluate(rule, event, authorityCache)) applied += 1;
+      if (await this.evaluate(rule, event, authorityCache, statusKeys)) applied += 1;
     }
     return applied;
   }
@@ -68,11 +81,13 @@ export class AutomationEngine {
     rule: AutomationRow,
     event: DomainEvent,
     authorityCache: Map<string, string[] | AuthorityUnavailableError>,
+    statusKeys: readonly string[],
   ): Promise<boolean> {
-    // 1. Re-validate. A rule stored by a looser version must not run under a guessed meaning.
+    // 1. Re-validate. A rule stored by a looser version must not run under a guessed meaning — and, since
+    //    feature 032, one naming a status this account no longer has is refused here WITH a run record.
     let def: RuleDefinition;
     try {
-      def = parseDefinition(rule.definition);
+      def = parseDefinition(rule.definition, statusKeys);
     } catch (err) {
       await this.record(rule, event, 'refused', reasonOf(err, 'definition is not applicable'));
       return false;

@@ -109,7 +109,8 @@ describe('Automations REST edge — proxying', () => {
       req(),
     );
     expect(calls.createAutomation.mock.calls[0][0].definition.actions).toEqual([
-      { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+      // Feature 032: a status KEY, passed through — the gateway holds no catalogue.
+      { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
       { type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'high' },
     ]);
   });

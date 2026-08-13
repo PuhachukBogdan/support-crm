@@ -49,6 +49,9 @@ import {
   SEED_PLAYER_LINKED_B,
   SEED_CHANNEL_EMAIL,
   SEED_CHANNEL_API,
+  // Feature 032 (roadmap 4.16): the nine configured statuses — the SAME constant the SQL migration's
+  // backfill is written from, so a fresh database and a migrated one cannot disagree.
+  SEEDED_STATUSES,
 } from '@crm/common';
 // Feature 022 (roadmap 4.13): the seed derives its contact stamps with the PRODUCTION rule. Importing it
 // is the point — a copy here would be a third statement of the same fact (after the code and the
@@ -130,6 +133,28 @@ export function deriveContactStamps<
 
 export function buildSeed() {
   const seed = {
+    /**
+     * ⭐ Feature 032 (roadmap 4.16, ADR 0040 §3) — the nine statuses this team already works by.
+     *
+     * ⚠️ **Written BEFORE the conversations, and that ordering is load-bearing:** `Conversation.status`
+     * carries a composite foreign key into this table, so a fixture ticket cannot exist until the
+     * vocabulary it names does. The seed runner enforces the order; a future fixture that adds a
+     * conversation with a status nobody configured fails loudly on the constraint rather than quietly
+     * storing a word no read can resolve.
+     *
+     * Built from `SEEDED_STATUSES` in `@crm/common` — the same constant the SQL migration's nine rows come
+     * from, so a fresh database and a migrated one cannot end up with different vocabularies.
+     */
+    statuses: SEEDED_STATUSES.map((st) => ({
+      id: `seed-status-${st.key}`,
+      account_id: SEED_ACCOUNT_ID,
+      key: st.key,
+      category: st.category as string,
+      agent_name: st.agentName,
+      end_user_name: st.endUserName,
+      active: true,
+      order: st.order,
+    })),
     labels: [
       { id: SEED_LABEL_ID, account_id: SEED_ACCOUNT_ID, name: 'seed-demo' },
       // feature 013 (US2): a second label so attach/detach has a target that is NOT already linked.
@@ -205,7 +230,7 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_ID,
-        status: 'resolved',
+        status: 'solved',
         priority: 'low',
         channel: 'api',
         assignee_operator_id: SEED_OPERATOR_ID,
@@ -219,7 +244,9 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_ID,
-        status: 'pending', // feature 012: mixed lifecycle status for list filtering (4.1)
+        // ⭐ Feature 032: `vip_pending` — a status the flat enum had no room for. Left on a PENDING-category
+        // status so every list filter that used to select this row still selects it.
+        status: 'vip_pending',
         priority: 'normal',
         subject: 'Bonus wagering balance looks wrong' as string | null,
         subject_source: 'manual' as string | null,
@@ -237,7 +264,8 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_ID,
-        status: 'resolved',
+        // Feature 032: `resolved` → `solved` (ADR 0040 §5). The word changed; the meaning did not.
+        status: 'solved',
         priority: 'low',
         assignee_operator_id: SEED_OPERATOR_ID,
         subject: 'Verification documents rejected twice' as string | null,
@@ -283,7 +311,11 @@ export function buildSeed() {
         player_id: SEED_PLAYER_ID,
         subject: 'Promo code not applying at checkout' as string | null,
         subject_source: 'manual' as string | null,
-        status: 'open',
+        // ⭐ Feature 032: `in_progress` — category ON_HOLD, agent-facing *In progress*, player-facing
+        // *Open*. The dual naming is only visible on a row that actually uses it, and this is the row the
+        // live round reads to prove it. Non-terminal, so it still counts against its assignee's load —
+        // which the old `['open','pending']` list would have missed.
+        status: 'in_progress',
         priority: 'normal',
         assignee_operator_id: SEED_OPERATOR_ID,
         category: null as string | null,
@@ -496,7 +528,7 @@ export function buildSeed() {
         name: 'seed-triage',
         definition: {
           actions: [
-            { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+            { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
             { type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: SEED_LABEL_ID_2 },
           ],
         } as unknown,
@@ -509,7 +541,7 @@ export function buildSeed() {
         name: 'seed-triage-and-assign',
         definition: {
           actions: [
-            { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+            { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
             { type: 'MACRO_ACTION_TYPE_ASSIGN', value: SEED_OPERATOR_ID },
           ],
         } as unknown,
@@ -541,7 +573,7 @@ export function buildSeed() {
           ],
           actions: [
             { type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: SEED_LABEL_ID_2 },
-            { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+            { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
           ],
         } as unknown,
       },
@@ -583,7 +615,7 @@ export function buildSeed() {
         definition: {
           trigger: 'AUTOMATION_TRIGGER_STATUS_CHANGED',
           conditions: [],
-          actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' }],
+          actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' }],
         } as unknown,
       },
       {

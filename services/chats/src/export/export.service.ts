@@ -4,7 +4,6 @@ import { arraySink, hasPermission, scopeOf, type ExportScopeName } from '@crm/co
 import { AuditRepository } from '../audit/audit.repository';
 import { AuthorAuthorityClient, AuthorityUnavailableError } from '../auth/auth.client';
 import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.client';
-import type { ListFilters } from '../conversation/conversation.repository';
 import { errorLabel } from './error-label';
 import {
   ExportProducer,
@@ -251,7 +250,10 @@ export class ExportService {
   private filtersOf(row: ExportJobRow): ExportFilterSet {
     const raw = (row as unknown as { filters_json?: Record<string, unknown> }).filters_json ?? {};
     const out: ExportFilterSet = {};
-    if (typeof raw.status === 'string') out.status = raw.status as ListFilters['status'];
+    // Feature 032: a LIST of status keys, resolved at the edge from `status_key` / `status_category`. An
+    // empty array is stored and read faithfully — it means "no configured status satisfies the ask", and
+    // dropping it here would turn a deliberately empty export into an export of everything.
+    if (Array.isArray(raw.statusIn)) out.statusIn = raw.statusIn as string[];
     if (typeof raw.priority === 'string') out.priority = raw.priority;
     if (typeof raw.assigneeOperatorId === 'string') out.assigneeOperatorId = raw.assigneeOperatorId;
     if (typeof raw.playerId === 'string') out.playerId = raw.playerId;

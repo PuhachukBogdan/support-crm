@@ -28,11 +28,16 @@ const req = () =>
   }) as never;
 
 describe('ConversationsController (gateway proxy, US1)', () => {
-  it('proxies list with mapped status and x-actor metadata (identity from claims, R1)', async () => {
+  it('proxies list with the status key/category and x-actor metadata (identity from claims, R1)', async () => {
     const { ctrl, listConversations } = makeCtrl();
-    await ctrl.list({ status: 'open' }, req());
+    await ctrl.list({ status: 'vip_pending', statusCategory: 'pending' }, req());
     const [reqArg, md] = listConversations.mock.calls[0] as [Record<string, unknown>, Metadata];
-    expect(reqArg.status).toBe('CONVERSATION_STATUS_OPEN');
+    // ⭐ Feature 032: the KEY travels verbatim (the account owns that vocabulary) and the CATEGORY is
+    // translated here (the six are closed and this tier legitimately knows them). The retired `status`
+    // enum field is never sent at all — `chats` refuses it rather than mapping it.
+    expect(reqArg.statusKey).toBe('vip_pending');
+    expect(reqArg.statusCategory).toBe('CONVERSATION_STATUS_CATEGORY_PENDING');
+    expect(reqArg.status).toBeUndefined();
     expect(md.get('x-actor-account-id')[0]).toBe('acc-1');
     expect(md.get('x-actor-permissions')[0]).toContain('crm.inbox.view');
   });
@@ -43,11 +48,15 @@ describe('ConversationsController (gateway proxy, US1)', () => {
     expect((getConversation.mock.calls[0][0] as { id: string }).id).toBe('c1');
   });
 
-  it('maps the status body to the wire enum on PATCH status', async () => {
+  it('sends the status KEY on PATCH status, and refuses an empty one', async () => {
     const { ctrl, setConversationStatus } = makeCtrl();
-    await ctrl.setStatus('c1', { status: 'resolved' }, req());
-    const [arg] = setConversationStatus.mock.calls[0] as [{ conversationId: string; status: string }];
-    expect(arg).toMatchObject({ conversationId: 'c1', status: 'CONVERSATION_STATUS_RESOLVED' });
+    await ctrl.setStatus('c1', { status: 'supervisor_review' }, req());
+    const [arg] = setConversationStatus.mock.calls[0] as [
+      { conversationId: string; statusKey: string },
+    ];
+    expect(arg).toMatchObject({ conversationId: 'c1', statusKey: 'supervisor_review' });
+    // "Set the status to nothing" is malformed, and it is the one status check left at this tier.
+    await expect(ctrl.setStatus('c1', { status: '' }, req())).rejects.toMatchObject({ status: 400 });
   });
 
   it('declares the RBAC permission each route requires (enforced by the global PermissionGuard)', () => {

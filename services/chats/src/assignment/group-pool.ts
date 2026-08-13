@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { type HeldConversation, unitsUsed } from './capacity';
 import { AuthorAuthorityClient } from '../auth/auth.client';
 import { PersonMembersClient } from '../person/person-members.client';
+import { StatusRepository } from '../status/status.repository';
 import { isAvailableFor } from '@crm/common';
 import type { RoundRobinCandidate } from './round-robin';
 
@@ -60,8 +61,16 @@ export interface PoolOutcome {
   reason: string | null;
 }
 
-/** Statuses that count against an operator's load: work that is still theirs to finish. */
-const OPEN_STATUSES = ['open', 'pending'] as const;
+/**
+ * ⭐ Feature 032 (roadmap 4.16) — the statuses that count against an operator's load are now READ FROM
+ * THE ACCOUNT: every status whose CATEGORY is non-terminal.
+ *
+ * ⚠️ This replaced a literal `['open','pending']`, and it is a correctness fix rather than a refactor.
+ * The nine configured statuses include `in_progress`, `vip_pending`, `follow_up` and
+ * `supervisor_review` — all of them real work somebody is holding, and all of them invisible to the old
+ * list. An agent with four escalated tickets counted as idle and would have been handed a full load on
+ * top of them, which is precisely the *«всё валится в on hold»* complaint arriving as a routing bug.
+ */
 
 /**
  * ⭐ Feature 031 (roadmap 4.21, ADR 0042 §3) — the unit budget, **per brand**, with the deployment-wide
@@ -121,6 +130,7 @@ export class GroupPoolService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuthorAuthorityClient) private readonly auth: AuthorAuthorityClient,
     @Inject(PersonMembersClient) private readonly users: PersonMembersClient,
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   /**
@@ -256,7 +266,8 @@ export class GroupPoolService {
     const rows = await this.prisma.forAccount(accountId).conversation.findMany({
       where: {
         assignee_operator_id: { in: [...operatorIds] },
-        status: { in: [...OPEN_STATUSES] },
+        // Feature 032: the account's non-terminal statuses — see the note at the top of this file.
+        status: { in: await this.statuses.nonTerminalKeys(accountId) },
       },
       select: { assignee_operator_id: true, channel: true },
     });

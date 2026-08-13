@@ -73,6 +73,11 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'player.assign',
     'player.unassign',
     'conversation.unroutable',
+    // ⭐ Feature 032 (roadmap 4.16 — R22). A supervisor moved a conversation to another brand. Written by
+    // `chats`, inside the update's own transaction. Class `assignment` beside `player.link`: both are
+    // statements about WHICH RECORD a thing belongs to, and brand drives reporting and record identity
+    // even though ADR 0038 keeps it out of authorization.
+    'conversation.brand_changed',
   ];
 
   it('every action resolves to a class and a writer', () => {

@@ -1,5 +1,4 @@
 import type { ConversationFacts } from '../events/events.types';
-import { statusToWire } from '../shared/wire';
 import type { RuleCondition } from './rule-definition';
 
 /**
@@ -19,8 +18,11 @@ export function matches(conditions: RuleCondition[], facts: ConversationFacts): 
 function matchOne(c: RuleCondition, f: ConversationFacts): boolean {
   switch (c.field) {
     case 'CONDITION_FIELD_STATUS':
-      // Definitions store the WIRE status name, storage keeps the scalar — compare in wire space.
-      return compare(c.op, statusToWire(f.status), c.value);
+      // Feature 032: both sides are status KEYS now — the stored comparand and the conversation's own
+      // value. The translation into "wire space" that used to sit here existed only because a definition
+      // held an enum name and storage held a scalar; with one vocabulary there is nothing to translate,
+      // and nothing here that could disagree with the catalogue.
+      return compare(c.op, f.status, c.value);
     case 'CONDITION_FIELD_PRIORITY':
       return compare(c.op, f.priority, c.value);
     case 'CONDITION_FIELD_BRAND':

@@ -9,7 +9,9 @@ import {
   resolveBrandIn,
 } from '../security/actor-context';
 import { ChatsAccessGuard } from '../security/permission.guard';
-import { wireToSlaOutcome, wireToStatus } from '../shared/wire';
+import { wireToSlaOutcome } from '../shared/wire';
+import { StatusRepository } from '../status/status.repository';
+import { resolveStatusFilter, StatusFilterError } from '../status/status-filter';
 import { QuotaExhaustedError } from './export.quota';
 import { ExportMaintenance } from './export.maintenance';
 import {
@@ -22,7 +24,10 @@ import { ExportRepository, type ExportJobRow } from './export.repository';
 interface CreateWire {
   scope?: string;
   filters?: {
+    /** ⚠️ Feature 032: the DEPRECATED enum filter — refused, never mapped (see `status-filter.ts`). */
     status?: string;
+    statusKey?: string;
+    statusCategory?: string;
     priority?: string;
     assigneeOperatorId?: string;
     playerId?: string;
@@ -84,6 +89,7 @@ export class ExportController {
     @Inject(ExportService) private readonly service: ExportService,
     @Inject(ExportRepository) private readonly repo: ExportRepository,
     @Inject(ExportMaintenance) private readonly maintenance: ExportMaintenance,
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   @GrpcMethod('ChatsExportService', 'CreateExport')
@@ -91,6 +97,22 @@ export class ExportController {
     const ctx = readActorContext(metadata);
     const permissions = readActorPermissions(metadata);
     const f = req?.filters ?? {};
+
+    /**
+     * ⭐ Feature 032 — the SAME decoder the list uses (`status/status-filter.ts`), not a second reading
+     * of the same fields. This edge is where the two vocabularies drifted once already: feature 017
+     * accepted the enum name and cast it straight into the DB filter, producing an empty file that
+     * reported success. One function now, and the parity test polices the contract beside it.
+     */
+    let statusIn: string[] | undefined;
+    try {
+      statusIn = await resolveStatusFilter(this.statuses, ctx.accountId, f);
+    } catch (e) {
+      if (e instanceof StatusFilterError) {
+        throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: e.message });
+      }
+      throw e;
+    }
 
     try {
       const row = await this.service.create(
@@ -102,21 +124,14 @@ export class ExportController {
           /**
            * The filter set for production.
            *
-           * ⚠️ `wireToStatus`, exactly as `ListConversations` does it — added after Track B caught the
-           * omission. `status` arrives as a proto ENUM NAME (`CONVERSATION_STATUS_OPEN`), and the
-           * previous version cast it straight into the DB filter, where it matched no row: the export
-           * produced an empty file and reported success. Enum names on the wire are the documented house
-           * behaviour (`gotchas/grpc-wire-encoding-enums-longs`); the bug was treating this path as if it
-           * received the REST value.
+           * ⚠️ The status filter is decoded ABOVE, by the shared resolver — see the note there for what
+           * this edge got wrong in feature 017 and why the decoding is no longer written twice.
            *
            * `brandIn` intersects with the caller's permitted brands, the same narrowing the conversation
            * list applies — an export cannot widen a caller's reach.
            */
           filters: {
-            ...(() => {
-              const status = wireToStatus(f.status);
-              return status ? { status } : {};
-            })(),
+            ...(statusIn === undefined ? {} : { statusIn }),
             ...(f.priority ? { priority: f.priority } : {}),
             ...(f.assigneeOperatorId ? { assigneeOperatorId: f.assigneeOperatorId } : {}),
             ...(f.playerId ? { playerId: f.playerId } : {}),
@@ -138,10 +153,7 @@ export class ExportController {
           // The stored filter set, for production on a later tick. Stored DECODED, so `filtersOf` reads
           // DB values and no second decode step can be forgotten there.
           rawFilters: {
-            ...(() => {
-              const status = wireToStatus(f.status);
-              return status ? { status } : {};
-            })(),
+            ...(statusIn === undefined ? {} : { statusIn }),
             ...(f.priority ? { priority: f.priority } : {}),
             ...(f.assigneeOperatorId ? { assigneeOperatorId: f.assigneeOperatorId } : {}),
             ...(f.playerId ? { playerId: f.playerId } : {}),

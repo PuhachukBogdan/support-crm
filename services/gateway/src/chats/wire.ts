@@ -18,23 +18,47 @@ const reject = (field: string, value: string, allowed: readonly string[]): never
   throw new BadRequestException(`invalid ${field}: expected one of ${allowed.join(' | ')}`);
 };
 
-const CONVERSATION_STATUS: Record<string, string> = {
-  open: 'CONVERSATION_STATUS_OPEN',
-  pending: 'CONVERSATION_STATUS_PENDING',
-  resolved: 'CONVERSATION_STATUS_RESOLVED',
-  snoozed: 'CONVERSATION_STATUS_SNOOZED',
-};
-
-/** Absent/empty → UNSPECIFIED (no status filter). Unknown → 400. */
-export function toStatusWire(status?: string): string {
-  if (!status) return 'CONVERSATION_STATUS_UNSPECIFIED';
-  return CONVERSATION_STATUS[status] ?? reject('status', status, Object.keys(CONVERSATION_STATUS));
+/**
+ * ⭐ Feature 032 (roadmap 4.16, ADR 0040) — THE GATEWAY NO LONGER HOLDS A LIST OF STATUSES.
+ *
+ * The four-value map that used to live here was the right shape for a closed enum and is the wrong
+ * shape for configuration: statuses are per-account rows now, and a copy at this tier would be a
+ * second vocabulary that goes stale the first time a supervisor adds one — the drift feature 017 shipped
+ * (`pending` vs `running`) reappearing one layer up.
+ *
+ * ⇒ A status KEY passes through unvalidated and `chats` refuses an unknown one against the caller's own
+ * catalogue. That is not a weakening: the gateway never held the authority to say which statuses exist,
+ * and the check it used to perform was only ever a duplicate of a fact it had no source for.
+ *
+ * ⚠️ Empty is still a client error on a MUTATION: "set the status to nothing" is a malformed request,
+ * and refusing it here keeps the round trip short. The CATEGORY is a different matter — that vocabulary
+ * IS closed and IS the gateway's to know, so it is validated below.
+ */
+export function toStatusKey(status?: string): string {
+  const key = (status ?? '').trim();
+  if (!key) throw new BadRequestException('invalid status: must not be empty');
+  return key;
 }
 
-/** A status *mutation* must name a concrete status — empty is a client error, not "unspecified". */
-export function toStatusWireRequired(status?: string): string {
-  if (!status) return reject('status', '', Object.keys(CONVERSATION_STATUS));
-  return CONVERSATION_STATUS[status] ?? reject('status', status, Object.keys(CONVERSATION_STATUS));
+/** The closed category catalogue, mirrored from `libs/common/src/statuses/categories.ts`. */
+const STATUS_CATEGORY: Record<string, string> = {
+  new: 'CONVERSATION_STATUS_CATEGORY_NEW',
+  open: 'CONVERSATION_STATUS_CATEGORY_OPEN',
+  pending: 'CONVERSATION_STATUS_CATEGORY_PENDING',
+  on_hold: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD',
+  solved: 'CONVERSATION_STATUS_CATEGORY_SOLVED',
+  closed: 'CONVERSATION_STATUS_CATEGORY_CLOSED',
+};
+
+/**
+ * A status-CATEGORY filter. Absent/empty → UNSPECIFIED (no filter). Unknown → 400.
+ *
+ * Fail-closed like `order` and unlike `channel`: the six categories are a closed vocabulary this tier
+ * legitimately knows, so a typo is a client error rather than a query that quietly widens.
+ */
+export function toStatusCategoryWire(category?: string): string {
+  if (!category) return 'CONVERSATION_STATUS_CATEGORY_UNSPECIFIED';
+  return STATUS_CATEGORY[category] ?? reject('statusCategory', category, Object.keys(STATUS_CATEGORY));
 }
 
 /**
@@ -114,13 +138,13 @@ export function toMacroActionsWire(
     const type = toMacroActionTypeWire(a?.type);
     const raw = (a?.value ?? '').trim();
     if (!raw) throw new BadRequestException('invalid action value: must not be empty');
-    // A SET_STATUS action's value IS a conversation status — run it through the same allow-list the
-    // status endpoints use (and store the wire name), so a macro can never hold an unknown status.
     if (type === 'MACRO_ACTION_TYPE_SET_PRIORITY' && !(PRIORITIES as readonly string[]).includes(raw)) {
       reject('action priority', raw, PRIORITIES as unknown as string[]);
     }
-    const value = type === 'MACRO_ACTION_TYPE_SET_STATUS' ? toStatusWireRequired(raw) : raw;
-    return { type, value };
+    // ⚠️ Feature 032: a SET_STATUS value is a status KEY and passes through. The allow-list that used to
+    // run here belonged to a closed enum; the account's catalogue is the only authority now, and `chats`
+    // checks it at define AND at apply. `raw` is already non-empty by the check above.
+    return { type, value: raw };
   });
 }
 

@@ -55,6 +55,8 @@ import { ExportQuota } from './export/export.quota';
 import { ExportRepository } from './export/export.repository';
 import { ExportService } from './export/export.service';
 import { AuditReadController } from './audit/audit.grpc.controller';
+import { StatusRepository } from './status/status.repository';
+import { StatusReadController } from './status/status.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
 // Feature 016 (roadmap 4.9): attachments. chats holds a SOFT upload_id and validates it over the
 // users contract — never a cross-database join (Principle VIII). Acyclic: users never calls chats.
@@ -96,10 +98,16 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     AuditReadController,
     // Feature 017: the export surface + its two maintenance passes.
     ExportController,
+    // ⭐ Feature 032 (roadmap 4.16): the account's status catalogue — one read, no write counterpart
+    // until the authoring screen (roadmap 3.14) brings its own.
+    StatusReadController,
   ],
   providers: [
     PrismaService,
     ConversationRepository,
+    // Feature 032: read by the two write paths, both list filters, the macro/automation validators and
+    // the two load counters. Everything that used to know four status words now asks this.
+    StatusRepository,
     MessageRepository,
     ChatsAccessGuard,
     // Feature 023 (roadmap 4.8a). The recorder is injected into the repositories that own the write

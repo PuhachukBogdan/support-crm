@@ -61,7 +61,7 @@ describe('applyWithRun — atomicity + at-most-once', () => {
         'acc-1',
         'c1',
         [
-          { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+          { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
           { type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: 'l1' },
         ],
         RUN,
@@ -120,7 +120,7 @@ describe('applyWithRun — atomicity + at-most-once', () => {
       'acc-1',
       'c1',
       [
-        { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_RESOLVED' },
+        { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'solved' },
         { type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'high' },
         { type: 'MACRO_ACTION_TYPE_ASSIGN', value: 'op-1' },
         { type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: 'l1' },
@@ -133,7 +133,9 @@ describe('applyWithRun — atomicity + at-most-once', () => {
     expect(($transaction.mock.calls[0]![0] as unknown[])).toHaveLength(7);
     const updates = scoped.conversation.updateMany.mock.calls.map((c) => (c[0] as { data: unknown }).data);
     expect(updates).toEqual([
-      { status: 'resolved' }, // wire name → storage scalar
+      // Feature 032: the stored value IS the key — there is no wire-name → scalar decode step any more,
+      // and `resolved` became `solved` (ADR 0040 §5).
+      { status: 'solved' },
       // ⭐ Feature 031: the word AND its urgency rank, from one call. A rule that set the word alone would
       // leave the queue ordered by the priority it just replaced, and the list would look right.
       { priority: 'high', priority_rank: 3 },

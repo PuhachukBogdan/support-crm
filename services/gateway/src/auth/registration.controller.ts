@@ -16,6 +16,7 @@ import { AUTH_CLIENT } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, type GatewayConfig } from '../config';
 import { Public } from './public.decorator';
 import { setSessionCookies, type SessionTokens } from './session-cookie';
+import { EnsureOperatorProfile } from './ensure-operator-profile';
 
 interface TokenPairWire {
   accessToken: string;
@@ -59,6 +60,9 @@ export class RegistrationController implements OnModuleInit {
   constructor(
     @Inject(AUTH_CLIENT) private readonly client: ClientGrpc,
     @Inject(GATEWAY_CONFIG) private readonly cfg: GatewayConfig,
+    // MVP block W1 (roadmap 5.10): registration used to end here, leaving the person with an identity
+    // and NO operator profile — assignable to nothing.
+    @Inject(EnsureOperatorProfile) private readonly profile: EnsureOperatorProfile,
   ) {}
 
   onModuleInit(): void {
@@ -103,6 +107,10 @@ export class RegistrationController implements OnModuleInit {
         }),
       );
       setSessionCookies(res, this.cookiesFromPair(pair), { secure: this.cfg.COOKIE_SECURE });
+      // ⭐ The half registration never had (roadmap 5.10). Awaited so the common case is complete
+      // when the response returns — a person invited as an AM is assignable immediately — but it
+      // cannot fail the registration: it never throws, and every later login retries it.
+      await this.profile.fromAccessToken(pair.accessToken);
       return { status: 'ok' };
     } catch (err) {
       if ((err as { code?: number }).code === GrpcStatus.INVALID_ARGUMENT) {

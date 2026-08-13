@@ -9,6 +9,7 @@ import { LabelsRepository } from '../src/labels/labels.repository';
 import type { AuthorAuthorityClient } from '../src/auth/auth.client';
 import { messageReceivedKey } from '../src/events/events.types';
 import { TransitionRecorder } from '../src/transition/transition.recorder';
+import { fakeStatusRepository } from '../src/status/status.fixture';
 
 /**
  * T020 / T034 (feature 014) — cross-account isolation sweep for automations + SLA (Principle I /
@@ -209,7 +210,11 @@ function md(accountId: string, perms: string[] = ['crm.automations.manage']): Me
 
 // Feature 015: the controller also writes an audit entry inside the delete's transaction.
 const controller = () =>
-  new AutomationsController(new AutomationsRepository(prisma, new TransitionRecorder()), new AuditRepository(prisma));
+  new AutomationsController(
+    new AutomationsRepository(prisma, new TransitionRecorder()),
+    new AuditRepository(prisma),
+    fakeStatusRepository(),
+  );
 
 beforeEach(() => {
   writes.length = 0;
@@ -282,6 +287,9 @@ describe('the ENGINE’s caller-less writes stay inside the account (the new cas
           permissionKeys: ['crm.labels.manage', 'crm.conversation.assign', 'crm.conversation.reply'],
         })),
       } as unknown as AuthorAuthorityClient,
+      // Feature 032: the engine re-validates against the account's statuses. The fixture is the seeded
+      // nine, so this test stays about the ACCOUNT boundary and not about the vocabulary.
+      fakeStatusRepository(),
     ).handle({
       trigger: 'AUTOMATION_TRIGGER_MESSAGE_RECEIVED',
       accountId,

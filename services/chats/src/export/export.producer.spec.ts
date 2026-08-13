@@ -80,11 +80,11 @@ describe('the column set is the FR-004b claim', () => {
 describe('it reuses the conversation read path (FR-004a)', () => {
   it('reads through the account-scoped list with the caller filters, never its own query', async () => {
     const conv = fakeConversations([row(1)]);
-    await make(conv).produce('acc-1', SCOPE, { status: 'open' as never, playerId: 'p1' }, arraySink());
+    await make(conv).produce('acc-1', SCOPE, { statusIn: ['open'], playerId: 'p1' }, arraySink());
 
     expect(conv.list).toHaveBeenCalled();
     expect(conv.calls[0]!.accountId).toBe('acc-1');
-    expect(conv.calls[0]!.filters).toMatchObject({ status: 'open', playerId: 'p1' });
+    expect(conv.calls[0]!.filters).toMatchObject({ statusIn: ['open'], playerId: 'p1' });
   });
 
   it('pages until the read path says there is no more', async () => {

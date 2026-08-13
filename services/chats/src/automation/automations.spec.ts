@@ -5,6 +5,7 @@ import { AuditRepository } from '../audit/audit.repository';
 import { AutomationsRepository } from './automations.repository';
 import { AutomationsController } from './automations.grpc.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 function md(perms: string[], accountId = 'acc-1', userId = 'u1'): Metadata {
   const m = new Metadata();
@@ -56,6 +57,7 @@ describe('DeleteAutomation is audited (feature 015)', () => {
     const ctrl = new AutomationsController(
       new AutomationsRepository(prisma, new TransitionRecorder()),
       new AuditRepository(prisma),
+      fakeStatusRepository(),
     );
     return { ctrl, auditCreate, $transaction };
   }

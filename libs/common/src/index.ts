@@ -30,6 +30,9 @@ export * from './preferences';
 // (which owns the state) and chats (which asks the question). ⚠️ "presence STATE", never "status",
 // and never `Operator.active`, which means something else entirely (roadmap 3.16).
 export * from './presence';
+// Feature 032 (roadmap 4.16, ADR 0040): the closed status-CATEGORY catalogue + the seeded status set.
+// ⚠️ Categories are code; STATUSES are per-account rows in chats_db. Nothing branches on a status key.
+export * from './statuses';
 // Feature 018 (roadmap 5.1): keyset paging primitives. ⚠️ `services/chats/src/shared/cursor.ts` is a
 // second, service-local copy of the same shape that predates this one and was deliberately not
 // migrated (research R6) — a pointer sits in both files.

@@ -2,6 +2,7 @@ import { GroupPoolService } from './group-pool';
 import { MembershipUnavailableError } from '../person/person-members.client';
 import type { AssignableOperator, PersonMembersClient } from '../person/person-members.client';
 import type { AuthorAuthorityClient } from '../auth/auth.client';
+import { fakeStatusRepository } from '../status/status.fixture';
 import type { PrismaService } from '../prisma.service';
 import type { Metadata } from '@grpc/grpc-js';
 
@@ -50,7 +51,7 @@ function make(opts: { members?: string[]; operators?: AssignableOperator[] | Err
     }),
   } as unknown as PersonMembersClient;
 
-  return { pool: new GroupPoolService(prisma, auth, users) };
+  return { pool: new GroupPoolService(prisma, auth, users, fakeStatusRepository()) };
 }
 
 describe('the candidate pool honours availability (feature 025)', () => {

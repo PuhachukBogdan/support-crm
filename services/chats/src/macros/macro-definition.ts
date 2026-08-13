@@ -1,4 +1,4 @@
-import { isValidPriority, isValidStatusWire } from '../shared/wire';
+import { isValidPriority } from '../shared/wire';
 
 /**
  * Macro definition shape + validation (feature 013, US2 — research R4).
@@ -13,6 +13,16 @@ import { isValidPriority, isValidStatusWire } from '../shared/wire';
  * perform something this version does not understand.
  *
  * Pure module — no Prisma, no I/O, no clock. Unit-tested directly.
+ *
+ * ── ⭐ Feature 032: `statusKeys` is a REQUIRED parameter, not an option ───────────────────────────
+ * A `SET_STATUS` value used to be checked against a four-value enum in code. Statuses are now the
+ * ACCOUNT's configuration, so the check needs data the caller has and this module must not fetch.
+ *
+ * It is required rather than optional for the reason feature 023 made `actor` required on `setStatus`:
+ * an optional parameter lets every existing call site keep compiling while silently validating nothing,
+ * which is the exact hole the check exists to close. Call sites that fail to compile are the feature
+ * working. Pass the account's **active** keys — a retired status must not be selectable by a new
+ * definition, which is what retiring one means.
  */
 
 export const MACRO_ACTION_TYPES = [
@@ -55,7 +65,7 @@ const isActionType = (t: unknown): t is MacroActionType =>
  * Validate + normalise a list of actions (used by DefineMacro on the inbound request).
  * Throws {@link MacroDefinitionError} on anything unrecognised — never drops or coerces an action.
  */
-export function parseActions(input: unknown): MacroAction[] {
+export function parseActions(input: unknown, statusKeys: readonly string[]): MacroAction[] {
   if (!Array.isArray(input) || input.length === 0) {
     throw new MacroDefinitionError('a macro needs at least one action');
   }
@@ -66,7 +76,9 @@ export function parseActions(input: unknown): MacroAction[] {
     }
     const value = typeof a.value === 'string' ? a.value.trim() : '';
     if (!value) throw new MacroDefinitionError('macro action value must not be empty');
-    if (a.type === 'MACRO_ACTION_TYPE_SET_STATUS' && !isValidStatusWire(value)) {
+    // Feature 032: the value is a status KEY and must be one this account has configured and not
+    // retired. The message names no key back to the caller — the catalogue is theirs to read.
+    if (a.type === 'MACRO_ACTION_TYPE_SET_STATUS' && !statusKeys.includes(value)) {
       throw new MacroDefinitionError('macro SET_STATUS value is not a valid status');
     }
     // Feature 014: a stored SET_PRIORITY must name a priority the product understands. Refusing
@@ -79,9 +91,12 @@ export function parseActions(input: unknown): MacroAction[] {
 }
 
 /** Parse a stored `definition` Json blob back into validated actions (used by ApplyMacro). */
-export function parseDefinition(definition: unknown): MacroAction[] {
+export function parseDefinition(
+  definition: unknown,
+  statusKeys: readonly string[],
+): MacroAction[] {
   const d = (definition ?? {}) as { actions?: unknown };
-  return parseActions(d.actions);
+  return parseActions(d.actions, statusKeys);
 }
 
 /** The storage shape for a validated action list. */

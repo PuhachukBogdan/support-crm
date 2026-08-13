@@ -20,6 +20,11 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 // different rules from a customer read — no tier masking, no access audit — and putting the two side by
 // side invites one to inherit the other's treatment by proximity.
 import { OperatorRepository } from './operator/operator.repository';
+// MVP block W1 (roadmap 5.10): the join nobody owned — a registered person had no `Operator` row, so
+// they were unassignable while every seeded user worked. Self-scoped: the rpc can only ever create
+// the caller's own profile, which is what makes it reachable from the (public) registration tail.
+import { OperatorProfileService } from './operator/operator-profile.service';
+import { OperatorProfileController } from './operator/operator-profile.grpc.controller';
 import { PlayerAccessGuard } from './player/player.guard';
 import { PlayerReadController } from './player/player.grpc.controller';
 import { PersonService } from './player/person.service';
@@ -53,12 +58,19 @@ import { AssignmentModule } from './assignment/assignment.module';
     PresenceModule,
     AssignmentModule,
   ],
-  controllers: [HealthGrpcController, PingGrpcController, AuditReadController, PlayerReadController],
+  controllers: [
+    HealthGrpcController,
+    PingGrpcController,
+    AuditReadController,
+    PlayerReadController,
+    OperatorProfileController,
+  ],
   providers: [
     PersonService,
     PrismaService,
     PlayerRepository,
     OperatorRepository,
+    OperatorProfileService,
     ContactViewAuditService,
     AuditRepository,
     AuditAccessGuard,

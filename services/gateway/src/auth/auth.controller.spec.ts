@@ -5,6 +5,7 @@ import { of, throwError } from 'rxjs';
 import { AuthController } from './auth.controller';
 import { AUTH_CLIENT } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, type GatewayConfig } from '../config';
+import { EnsureOperatorProfile } from './ensure-operator-profile';
 
 /**
  * T014 (US1) — the REST session edge: `/auth/login` returns the challenge (no cookie),
@@ -28,6 +29,8 @@ describe('AuthController (feature 009)', () => {
       providers: [
         { provide: AUTH_CLIENT, useValue: { getService: () => auth } },
         { provide: GATEWAY_CONFIG, useValue: cfg },
+        // Roadmap 5.10 — stubbed; its own behaviour is asserted in `ensure-operator-profile.spec.ts`.
+        { provide: EnsureOperatorProfile, useValue: { fromAccessToken: async () => undefined } },
       ],
     }).compile();
     app = moduleRef.createNestApplication();
@@ -128,6 +131,7 @@ describe('*** GET /auth/me exposes the resolved permission keys (feature 029) **
     const ctrl = new AuthController(
       { getService: () => ({}) } as never,
       {} as never,
+      { fromAccessToken: async () => undefined } as never,
     );
     const res = ctrl.me({
       claims: { userId: 'u1', accountId: 'acc-1', roles: ['support_agent'] },
@@ -143,7 +147,11 @@ describe('*** GET /auth/me exposes the resolved permission keys (feature 029) **
 
   it('answers an EMPTY list rather than undefined when nothing resolved', () => {
     // Deny-by-default at the rendering layer too: a missing list must not read as "unknown, so allow".
-    const ctrl = new AuthController({ getService: () => ({}) } as never, {} as never);
+    const ctrl = new AuthController(
+      { getService: () => ({}) } as never,
+      {} as never,
+      { fromAccessToken: async () => undefined } as never,
+    );
     const res = ctrl.me({ claims: { userId: 'u1', accountId: 'a' } } as never) as {
       permissionKeys: string[];
     };

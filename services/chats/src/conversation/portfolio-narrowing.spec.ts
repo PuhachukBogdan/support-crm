@@ -5,6 +5,7 @@ import { ConversationRepository } from './conversation.repository';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import type { PersonMembersClient } from '../person/person-members.client';
 import type { SlaRepository } from '../sla/sla.repository';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * T009/T010 — the narrowing itself, through the controller (feature 030, roadmap 4.14).
@@ -52,6 +53,7 @@ const ctrlWith = (rows: unknown[], person: PersonMembersClient) => {
       new ConversationRepository(f.prisma, new TransitionRecorder()),
       noSla(),
       person,
+      fakeStatusRepository(),
     ),
   };
 };

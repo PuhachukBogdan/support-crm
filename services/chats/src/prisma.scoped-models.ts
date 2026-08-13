@@ -41,4 +41,8 @@ export const SCOPED_MODELS = [
   // left a false statement in the place a reader checks first. The project's own rule: when a
   // guarantee holds, check WHICH code makes it hold.
   'ConversationTransition',
+  // Feature 032 (roadmap 4.16): the per-account status catalogue. Scoped like every other tenant table
+  // and with NO method-level exception at all — every read of it happens for a caller, in that caller's
+  // account, so there is nothing here that resembles the three sweeps above.
+  'ConversationStatus',
 ] as const;

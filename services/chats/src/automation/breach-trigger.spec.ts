@@ -11,6 +11,7 @@ import type { AuthorAuthorityClient } from '../auth/auth.client';
 import type { PrismaService } from '../prisma.service';
 import type { ConversationRepository } from '../conversation/conversation.repository';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * T048 (feature 014, US3) — **the join**: a missed first-reply target is an event, so a rule can react
@@ -177,6 +178,7 @@ function assemble(w: ReturnType<typeof world>) {
         permissionKeys: ['crm.labels.manage', 'crm.conversation.reply'],
       })),
     } as unknown as AuthorAuthorityClient,
+    fakeStatusRepository(),
   );
   const dispatcher = new DomainEventDispatcher();
   dispatcher.subscribe((e) => engine.handle(e));

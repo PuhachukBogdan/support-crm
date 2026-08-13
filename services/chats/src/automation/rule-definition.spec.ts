@@ -1,12 +1,27 @@
 import {
   RuleDefinitionError,
-  parseDefinition,
-  parseRuleActions,
-  parseConditions,
+  parseDefinition as parseDefinitionWith,
+  parseRuleActions as parseRuleActionsWith,
+  parseConditions as parseConditionsWith,
   parseTrigger,
   requiredRulePermissions,
   toStoredDefinition,
 } from './rule-definition';
+
+/**
+ * ⭐ Feature 032 (roadmap 4.16) — the validator now takes the ACCOUNT's status keys, because a status is
+ * configuration rather than a value in code. These specs are about the VALIDATION RULES, so the catalogue
+ * is a fixture: three wrappers below bind it once, and every case below reads exactly as it did.
+ *
+ * ⚠️ `closed` is deliberately ABSENT from the fixture — it is the category with no seeded status, and the
+ * cases that used to prove "a bogus status is refused" now prove the same thing with a key this account
+ * does not have. `CONVERSATION_STATUS_*` names are gone from the vocabulary entirely.
+ */
+const KEYS = ['new', 'open', 'pending', 'vip_pending', 'in_progress', 'solved'] as const;
+const parseRuleActions = (input: unknown) => parseRuleActionsWith(input, KEYS);
+const parseConditions = (input: unknown, trigger: string) =>
+  parseConditionsWith(input, trigger as never, KEYS);
+const parseDefinition = (input: unknown) => parseDefinitionWith(input, KEYS);
 
 /**
  * T015 (feature 014, US1) — the pure rule validator. FAILS before the module exists, PASSES after.
@@ -65,7 +80,8 @@ describe('parseRuleActions', () => {
 
   it('refuses a bogus status or priority value inside an action', () => {
     expect(() =>
-      parseRuleActions([{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_CLOSED' }]),
+      // Feature 032: a key this account has not configured (`closed` has no seeded status).
+      parseRuleActions([{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'closed' }]),
     ).toThrow(RuleDefinitionError);
     expect(() =>
       parseRuleActions([{ type: 'MACRO_ACTION_TYPE_SET_PRIORITY', value: 'urgent' }]),
@@ -94,7 +110,7 @@ describe('parseConditions', () => {
 
   it('accepts each documented field/op pairing', () => {
     const ok = [
-      { field: 'CONDITION_FIELD_STATUS', op: 'CONDITION_OP_EQ', value: 'CONVERSATION_STATUS_OPEN' },
+      { field: 'CONDITION_FIELD_STATUS', op: 'CONDITION_OP_EQ', value: 'open' },
       { field: 'CONDITION_FIELD_PRIORITY', op: 'CONDITION_OP_NE', value: 'low' },
       { field: 'CONDITION_FIELD_BRAND', op: 'CONDITION_OP_EQ', value: 'b1' },
       { field: 'CONDITION_FIELD_CHANNEL', op: 'CONDITION_OP_EQ', value: 'web' },
@@ -177,7 +193,7 @@ describe('parseConditions', () => {
   it('refuses a status/priority value that is not in its allow-list', () => {
     expect(() =>
       parseConditions(
-        [{ field: 'CONDITION_FIELD_STATUS', op: 'CONDITION_OP_EQ', value: 'CONVERSATION_STATUS_CLOSED' }],
+        [{ field: 'CONDITION_FIELD_STATUS', op: 'CONDITION_OP_EQ', value: 'closed' }],
         T_MSG,
       ),
     ).toThrow(RuleDefinitionError);
@@ -197,7 +213,7 @@ describe('parseDefinition / round-trip', () => {
       { field: 'CONDITION_FIELD_ASSIGNEE', op: 'CONDITION_OP_ABSENT', value: '' },
       { field: 'CONDITION_FIELD_MESSAGE_TEXT', op: 'CONDITION_OP_CONTAINS', value: 'refund' },
     ],
-    actions: [ACT_LABEL, { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' }],
+    actions: [ACT_LABEL, { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' }],
   };
 
   it('round-trips a valid definition through storage unchanged', () => {

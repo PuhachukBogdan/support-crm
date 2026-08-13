@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import type { MacroAction } from './macro-definition';
 import { parseDefinition, toDefinition } from './macro-definition';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { StatusRepository } from '../status/status.repository';
 import {
   assigned,
   statusChanged,
@@ -33,6 +34,8 @@ export class MacrosRepository {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+    // Feature 032: re-validating a stored definition means asking the ACCOUNT which statuses exist.
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   async list(accountId: string): Promise<MacroRow[]> {
@@ -41,8 +44,11 @@ export class MacrosRepository {
       select: { id: true, name: true, definition: true },
     })) as { id: string; name: string; definition: unknown }[];
     // A stored definition is re-validated on read: a blob written by an older, looser version must
-    // not be presented as if this version understood it.
-    return rows.map((r) => ({ id: r.id, name: r.name, actions: safeActions(r.definition) }));
+    // not be presented as if this version understood it. Feature 032 adds the account's statuses to
+    // "understood" — a macro naming a retired status lists with NO actions rather than with a step the
+    // apply path would refuse, so the screen and the button agree.
+    const keys = await this.statuses.activeKeys(accountId);
+    return rows.map((r) => ({ id: r.id, name: r.name, actions: safeActions(r.definition, keys) }));
   }
 
   async create(accountId: string, name: string, actions: MacroAction[]): Promise<MacroRow> {
@@ -98,13 +104,16 @@ export class MacrosRepository {
             transitionStatements.push(
               this.transitions.buildStatement(
                 db as never,
-                statusChanged(accountId, before, statusFromWire(a.value), actor, now),
+                statusChanged(accountId, before, a.value, actor, now),
               ),
             );
           }
           return db.conversation.updateMany({
             where: { id: conversationId },
-            data: { status: statusFromWire(a.value) },
+            // Feature 032: the stored value IS the key. The `CONVERSATION_STATUS_` → scalar decoder that
+            // used to sit here is gone, and the account's FK is the last line: a key nobody configured
+            // cannot be written even if a definition somehow named one.
+            data: { status: a.value },
           });
         case 'MACRO_ACTION_TYPE_ADD_LABEL':
           return db.conversationLabel.upsert({
@@ -134,15 +143,10 @@ export class MacrosRepository {
   }
 }
 
-/** Wire status name → storage scalar (the definition stores the wire name, research R4). */
-function statusFromWire(wire: string): string {
-  return wire.replace('CONVERSATION_STATUS_', '').toLowerCase();
-}
-
 /** Re-validate a stored definition; an unreadable blob yields no actions rather than a crash. */
-function safeActions(definition: unknown): MacroAction[] {
+function safeActions(definition: unknown, statusKeys: readonly string[]): MacroAction[] {
   try {
-    return parseDefinition(definition);
+    return parseDefinition(definition, statusKeys);
   } catch {
     return [];
   }

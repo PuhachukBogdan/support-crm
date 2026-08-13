@@ -88,16 +88,22 @@ export const ORDERS: Record<ConversationOrderKey, readonly OrderPart[]> = {
 export function isConversationOrderKey(v: string): v is ConversationOrderKey {
   return Object.prototype.hasOwnProperty.call(ORDERS, v);
 }
-import type {
-  ConversationDetailRow,
-  ConversationSummaryRow,
-  DbStatus,
-} from '../shared/wire';
+import type { ConversationDetailRow, ConversationSummaryRow } from '../shared/wire';
 
 const SUMMARY_SELECT = {
   id: true,
   brand_id: true,
   player_id: true,
+  // ⭐ Feature 032 (roadmap 4.16): the status's CATEGORY, joined from the account's catalogue.
+  //
+  // On the SUMMARY and not only the detail, because the category is what a list may branch on — a badge
+  // colour, a group header, the Archive's grouping. Selected here rather than resolved per-controller so
+  // that every read path (inbox, player feed, person feed, export production) gets it without each
+  // remembering to; a read that forgot would project UNSPECIFIED and look merely unlabelled.
+  //
+  // ⓘ Nine rows on a unique key. Prisma issues one extra query per page for it, which is the cost of not
+  // denormalizing a category onto the largest table in the system, where it could then disagree.
+  status_def: { select: { category: true } },
   status: true,
   priority: true,
   assignee_operator_id: true,
@@ -126,7 +132,18 @@ const DETAIL_SELECT = {
 } as const;
 
 export interface ListFilters {
-  status?: DbStatus;
+  /**
+   * ⭐ Feature 032 (roadmap 4.16): the status keys this page may contain.
+   *
+   * A LIST rather than one value, because the two filters the caller can send collapse into the same
+   * predicate: `status_key` contributes one key, `status_category` contributes the account's keys in that
+   * category, and asking for both means the intersection. Resolved at the controller — the repository
+   * never reads the catalogue, so it cannot answer a question about a status the caller did not name.
+   *
+   * ⚠️ `[]` means "no configured status satisfies the ask" and must yield an EMPTY page, exactly as
+   * `idIn: []` does. `undefined` means no status filter at all.
+   */
+  statusIn?: string[];
   priority?: string;
   assigneeOperatorId?: string;
   playerId?: string;
@@ -210,7 +227,9 @@ export class ConversationRepository {
     const parts = ORDERS[orderKey];
 
     const where: Record<string, unknown> = {};
-    if (f.status) where.status = f.status;
+    // Feature 032: `in` even for a single key, so "one status" and "a category's statuses" are one
+    // predicate. An empty list narrows to nothing rather than widening to everything (the 012 lesson).
+    if (f.statusIn) where.status = { in: f.statusIn };
     if (f.priority) where.priority = f.priority;
     if (f.assigneeOperatorId) where.assignee_operator_id = f.assigneeOperatorId;
     if (f.playerId) where.player_id = f.playerId;
@@ -315,7 +334,8 @@ export class ConversationRepository {
   async setStatus(
     accountId: string,
     id: string,
-    status: DbStatus,
+    /** Feature 032: a status KEY the caller has already resolved against the account's catalogue. */
+    status: string,
     actor: TransitionActor,
     metadata?: Metadata,
   ): Promise<ConversationDetailRow | null> {
@@ -342,6 +362,45 @@ export class ConversationRepository {
 
     if (!changed) return null;
     return this.getById(accountId, id);
+  }
+
+  /**
+   * ⭐ Correct which BRAND a conversation belongs to (feature 032, roadmap 4.16 — R22, amends ADR 0038).
+   *
+   * ── Why this write is audited and the status write is not ────────────────────────────────────────
+   * A status is the everyday shape of the work and changes many times a day; brand is the record's
+   * IDENTITY. It decides which reports the conversation appears in and which brand's history it becomes
+   * part of, so a silent correction rewrites past numbers with nothing to point at. ADR 0019's store
+   * exists for exactly that class of act.
+   *
+   * The entry is a STATEMENT inside this transaction, never an `append()` beside it: the change and its
+   * trail land together or neither lands (feature 015's FR-009). `auditStatement` is built by the caller,
+   * because validation of an audit detail must happen BEFORE the transaction opens — a refused entry
+   * means the update never starts rather than being rolled back.
+   *
+   * ── No transition, deliberately ─────────────────────────────────────────────────────────────────
+   * R22 asks for accountability, which is the audit trail. A second `conversation.brand_changed` type in
+   * the transition catalogue would have no reader — the *written-with-nobody-to-read-it* shape this
+   * project already shipped once, when the audit log ran for five features with no screen.
+   *
+   * ── The caller must have read the row first ─────────────────────────────────────────────────────
+   * Same contract as `automations.repository.ts#removeAudited`, for the same reason: `updateMany` reports
+   * a count of 0 for an id that is not there and the transaction still commits, so calling this blind
+   * would file an entry for a change that never happened. A trail that records non-events is worse than
+   * one with a gap — a reader cannot tell the difference. Hence: read, refuse, then update+record.
+   */
+  async setBrand(
+    accountId: string,
+    id: string,
+    brandId: string,
+    auditStatement: unknown,
+  ): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.conversation.updateMany({ where: { id }, data: { brand_id: brandId } }),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
   }
 
   /**

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -19,8 +20,8 @@ import { RequiresPermission } from '../security/requires-permission.decorator';
 import { buildActorMetadata } from './actor-metadata';
 import { callChats } from './rpc';
 import {
-  toStatusWire,
-  toStatusWireRequired,
+  toStatusKey,
+  toStatusCategoryWire,
   toSlaOutcomeWire,
   toSubjectWire,
   toChannelFilter,
@@ -37,10 +38,17 @@ interface ConversationWire {
 interface ChatsReadGrpc {
   listConversations(d: Record<string, unknown>, md?: unknown): Observable<ConversationPageWire>;
   getConversation(d: { id: string }, md?: unknown): Observable<ConversationWire>;
+  // Feature 032 (roadmap 4.16): the account's configured statuses, read once per screen.
+  listConversationStatuses(d: Record<string, never>, md?: unknown): Observable<unknown>;
 }
 interface ChatsWriteGrpc {
   setConversationStatus(
-    d: { conversationId: string; status: string },
+    d: { conversationId: string; statusKey: string },
+    md?: unknown,
+  ): Observable<ConversationWire>;
+  // Feature 032 (roadmap 4.16 — R22): the one field an agent may not change.
+  setConversationBrand(
+    d: { conversationId: string; brandId: string },
     md?: unknown,
   ): Observable<ConversationWire>;
   // Feature 023 (roadmap 4.18): a person names the conversation, which locks the title.
@@ -96,13 +104,21 @@ export class ConversationsController implements OnModuleInit {
       channel?: string;
       /** Feature 029: updated_desc (default) | updated_asc. Unknown ⇒ 400, never the default. */
       order?: string;
+      /**
+       * ⭐ Feature 032 (roadmap 4.16). `status` IS the key now — free-form here on purpose: the account's
+       * catalogue is data this tier has no copy of, and `chats` refuses an unknown key against it.
+       * `statusCategory` is the closed six, so it fails closed at this edge like `order`.
+       */
+      statusCategory?: string;
     },
     @Req() req: ChatsReq,
   ) {
     return callChats(
       this.read.listConversations(
         {
-          status: toStatusWire(q.status),
+          // Feature 032: the retired `status` ENUM field is deliberately never sent — chats refuses it.
+          statusKey: (q.status ?? '').trim(),
+          statusCategory: toStatusCategoryWire(q.statusCategory),
           priority: q.priority ?? '',
           assigneeOperatorId: q.assigneeOperatorId ?? '',
           playerId: q.playerId ?? '',
@@ -124,6 +140,22 @@ export class ConversationsController implements OnModuleInit {
     );
   }
 
+  /**
+   * ⭐ Feature 032 (roadmap 4.16) — `GET /conversations/statuses`, the account's status catalogue.
+   *
+   * ⚠️ **DECLARED ABOVE `:id`, and it must stay there.** Nest matches routes in declaration order, so
+   * with these two swapped `GET /conversations/statuses` becomes a conversation lookup for the id
+   * `"statuses"` — a 404 that looks like a missing ticket rather than a mis-ordered route.
+   *
+   * Gated by `crm.inbox.view`: reading the words the list is labelled with is the same fact class as
+   * reading the list.
+   */
+  @Get('statuses')
+  @RequiresPermission('crm.inbox.view')
+  async statuses(@Req() req: ChatsReq) {
+    return callChats(this.read.listConversationStatuses({}, this.meta(req)));
+  }
+
   @Get(':id')
   @RequiresPermission('crm.inbox.view')
   async get(@Param('id') id: string, @Req() req: ChatsReq) {
@@ -135,7 +167,7 @@ export class ConversationsController implements OnModuleInit {
   async setStatus(@Param('id') id: string, @Body() body: { status: string }, @Req() req: ChatsReq) {
     return callChats(
       this.write.setConversationStatus(
-        { conversationId: id, status: toStatusWireRequired(body?.status) },
+        { conversationId: id, statusKey: toStatusKey(body?.status) },
         this.meta(req),
       ),
     );
@@ -161,5 +193,24 @@ export class ConversationsController implements OnModuleInit {
         this.meta(req),
       ),
     );
+  }
+
+  /**
+   * ⭐ Feature 032 (roadmap 4.16 — R22) — `PATCH /conversations/:id/brand`.
+   *
+   * Its own permission, not `crm.conversation.reply`: brand is set at ingestion, chosen when a ticket is
+   * raised by hand, and **read-only for agents** — a supervisor corrects it, and the correction is
+   * audited in the owning service, inside the update's transaction.
+   *
+   * The gateway checks the SHAPE only. Whether the brand exists is not this tier's question (brand ids
+   * are soft refs across a service boundary), and whether the conversation exists must not be answerable
+   * by an unauthorised caller at all — which is why the permission is on the route rather than after.
+   */
+  @Patch(':id/brand')
+  @RequiresPermission('crm.conversation.set_brand')
+  async setBrand(@Param('id') id: string, @Body() body: { brandId?: string }, @Req() req: ChatsReq) {
+    const brandId = (body?.brandId ?? '').trim();
+    if (!brandId) throw new BadRequestException('invalid brandId: must not be empty');
+    return callChats(this.write.setConversationBrand({ conversationId: id, brandId }, this.meta(req)));
   }
 }

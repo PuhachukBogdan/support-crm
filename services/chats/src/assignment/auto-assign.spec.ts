@@ -6,6 +6,7 @@ import { ConversationRepository } from '../conversation/conversation.repository'
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import type { GroupPoolService } from './group-pool';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { fakeStatusRepository } from '../status/status.fixture';
 import {
   AutoAssignController,
   GROUP_ROUTING_NOT_AVAILABLE,
@@ -107,7 +108,7 @@ const noPool = {
 
 const build = (prisma: PrismaService, pool: GroupPoolService = noPool) =>
   new AutoAssignController(
-    new RoundRobinStateRepository(prisma, new TransitionRecorder()),
+    new RoundRobinStateRepository(prisma, new TransitionRecorder(), fakeStatusRepository()),
     new ConversationRepository(prisma, new TransitionRecorder()),
     pool,
     {

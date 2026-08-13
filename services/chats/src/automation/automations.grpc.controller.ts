@@ -17,6 +17,7 @@ import {
   type AutomationRunRow,
 } from './automations.repository';
 import { AuditRepository } from '../audit/audit.repository';
+import { StatusRepository } from '../status/status.repository';
 
 interface DefinitionWire {
   trigger?: string;
@@ -49,12 +50,14 @@ interface ListRunsWire extends ListWire {
   conversationId?: string;
 }
 
-const toWire = (r: AutomationRow) => {
+const toWire = (r: AutomationRow, statusKeys: readonly string[]) => {
   // A stored blob is re-validated on read: a definition written by an older, looser version must not
-  // be presented as though this version understood it (the 013 ListMacros precedent).
+  // be presented as though this version understood it (the 013 ListMacros precedent). Feature 032 adds
+  // the account's statuses to that validation, so a rule naming a retired status reads as inapplicable
+  // on the screen instead of being shown as ready to run.
   let definition: RuleDefinition | null = null;
   try {
-    definition = parseDefinition(r.definition);
+    definition = parseDefinition(r.definition, statusKeys);
   } catch {
     definition = null;
   }
@@ -107,6 +110,8 @@ export class AutomationsController {
   constructor(
     @Inject(AutomationsRepository) private readonly automations: AutomationsRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
+    // Feature 032: a rule's SET_STATUS action and STATUS condition name a key from this account's catalogue.
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   @GrpcMethod('ChatsReadService', 'ListAutomations')
@@ -118,8 +123,9 @@ export class AutomationsController {
       clampPageSize(req?.pageSize),
       this.cursor(req?.pageToken),
     );
+    const statusKeys = await this.statuses.activeKeys(ctx.accountId);
     return {
-      automations: rows.map(toWire),
+      automations: rows.map((r) => toWire(r, statusKeys)),
       nextPageToken: nextCursor ? encodeCursor(nextCursor) : '',
     };
   }
@@ -151,7 +157,8 @@ export class AutomationsController {
       // refused (FR-024). Refusing to create it is clearer than storing a rule that cannot work.
       throw invalid('author identity is required');
     }
-    const definition = this.parse(req?.definition);
+    const statusKeys = await this.statuses.activeKeys(ctx.accountId);
+    const definition = this.parse(req?.definition, statusKeys);
 
     try {
       const row = await this.automations.create(ctx.accountId, {
@@ -161,7 +168,7 @@ export class AutomationsController {
         position: Number.isFinite(req?.position) ? Math.max(0, Math.trunc(req!.position!)) : 0,
         active: req?.active ?? true,
       });
-      return toWire(row);
+      return toWire(row, statusKeys);
     } catch {
       throw new RpcException({
         code: GrpcStatus.ALREADY_EXISTS,
@@ -190,7 +197,8 @@ export class AutomationsController {
       if (!name) throw invalid('name must not be empty');
       patch.name = name;
     }
-    if (req?.hasDefinition) patch.definition = this.parse(req.definition);
+    const statusKeys = await this.statuses.activeKeys(ctx.accountId);
+    if (req?.hasDefinition) patch.definition = this.parse(req.definition, statusKeys);
     if (req?.hasPosition) patch.position = Math.max(0, Math.trunc(req.position ?? 0));
     if (req?.hasActive) patch.active = req.active ?? false;
 
@@ -204,7 +212,7 @@ export class AutomationsController {
       });
     }
     if (!row) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
-    return toWire(row);
+    return toWire(row, statusKeys);
   }
 
   @GrpcMethod('ChatsWriteService', 'DeleteAutomation')
@@ -238,9 +246,12 @@ export class AutomationsController {
     return { ok: true };
   }
 
-  private parse(definition: DefinitionWire | undefined): RuleDefinition {
+  private parse(
+    definition: DefinitionWire | undefined,
+    statusKeys: readonly string[],
+  ): RuleDefinition {
     try {
-      return parseDefinition(definition);
+      return parseDefinition(definition, statusKeys);
     } catch (err) {
       throw invalid(
         err instanceof RuleDefinitionError && err.message ? err.message : 'invalid rule definition',

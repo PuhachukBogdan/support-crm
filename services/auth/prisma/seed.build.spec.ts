@@ -24,6 +24,48 @@ describe('auth seed builder', () => {
     expect(seed.credentials[0]!.secret_hash).toMatch(/PLACEHOLDER/);
   });
 
+  /**
+   * MVP block W1 (roadmap 1.7) — a seeded human being must be able to SIGN IN.
+   *
+   * The old shape is asserted above and still holds with no argument, which is the point: the
+   * placeholder is the default and working logins are opt-in.
+   */
+  describe('dev logins (roadmap 1.7)', () => {
+    it('⭐ with a hash supplied, EVERY seeded user gets a credential — the agents had none at all', () => {
+      const withLogins = buildSeed('$argon2id$fake-but-shaped-like-a-hash');
+
+      const userIds = withLogins.users.map((u) => u.id).sort();
+      const credUserIds = withLogins.credentials.map((c) => c.user_id).sort();
+      expect(credUserIds).toEqual(userIds);
+      expect(withLogins.credentials).toHaveLength(4); // admin + three routing agents
+      for (const cred of withLogins.credentials) {
+        expect(cred.secret_hash).toBe('$argon2id$fake-but-shaped-like-a-hash');
+        expect(cred.secret_hash).not.toMatch(/PLACEHOLDER/);
+        expect(cred.account_id).toBe(SEED_ACCOUNT_ID);
+      }
+    });
+
+    it('credential ids are deterministic, so a second seed run updates rather than accumulates', () => {
+      const a = buildSeed('h');
+      const b = buildSeed('h');
+      expect(a.credentials.map((c) => c.id)).toEqual(b.credentials.map((c) => c.id));
+      expect(new Set(a.credentials.map((c) => c.id)).size).toBe(a.credentials.length);
+    });
+
+    it('without a hash the dataset is UNCHANGED — no default password anywhere', () => {
+      const plain = buildSeed();
+      const explicitlyNothing = buildSeed(undefined);
+
+      expect(plain.credentials).toHaveLength(1);
+      expect(plain.credentials[0]!.secret_hash).toMatch(/PLACEHOLDER/);
+      // No hidden default: omitting the argument and passing nothing are the same dataset, so there is
+      // no fallback password a reader could miss.
+      expect(explicitlyNothing).toEqual(plain);
+      // Every credential is the labelled placeholder — nothing verifiable slipped in.
+      for (const cred of plain.credentials) expect(cred.secret_hash).toMatch(/PLACEHOLDER/);
+    });
+  });
+
   it('seeds the full 7-role set + a permission catalogue (feature 011)', () => {
     const keys = seed.roles.map((r) => r.key).sort();
     expect(keys).toEqual(

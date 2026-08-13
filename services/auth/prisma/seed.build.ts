@@ -21,7 +21,28 @@ const permId = (key: string): string => `seed-perm-${key}`;
  * every tenant row carries the seed account. The runner (seed.ts) upserts these via the feature-007
  * account-scoped client. `roles[0]` stays the historical `admin`/SEED_ROLE_ID so 008/009 fixtures hold.
  */
-export function buildSeed() {
+/**
+ * ⭐ MVP block W1 (roadmap 1.7) — WHY THIS PARAMETER EXISTS.
+ *
+ * Until now this file wrote `SEED_PLACEHOLDER_SECRET` into the one credential it created, so **no
+ * seeded user could sign in**, and only the seed admin had a credential at all. Nobody noticed for
+ * eleven features because Track A never signs in and each live script built its own user — until a
+ * round needed to read a queue *as an AM* and found there was no way to be anybody. A separate shell
+ * script (`deploy/local/seed-role-logins.sh`) then created six real logins through the API, which
+ * works and is not a fixture: a database restored from the seed alone still has nobody who can log in.
+ *
+ * ⚠️ **A hash is passed IN rather than computed here, and the default is deliberately absent.**
+ * `buildSeed()` is pure and unit-testable on the dev box (no I/O, no argon2); the runner supplies the
+ * hash only when `SEED_DEV_PASSWORD` is set. With the variable unset the behaviour is exactly what it
+ * was — one credential, placeholder, nobody can log in. So a seed run against anything but a dev box
+ * cannot silently mint working passwords, and the precedent is `APP_BASE_URL` (feature 028):
+ * introduced as required config with **no default**, because a guessed one produces something that
+ * looks perfect and is wrong.
+ *
+ * ⓘ **This is not an MFA bypass.** Login is two-step for every role (roadmap 3.11): the password gets
+ * a seeded human being to the code step, and the code still has to arrive by mail and be read.
+ */
+export function buildSeed(devPasswordHash?: string) {
   const roleKeys = Object.keys(ROLE_DEFAULTS);
   const roles = [
     { id: SEED_ROLE_ID, account_id: SEED_ACCOUNT_ID, key: 'admin', label: 'Administrator' },
@@ -76,15 +97,44 @@ export function buildSeed() {
         mfa_enabled: false,
       })),
     ],
-    credentials: [
-      {
-        id: SEED_CREDENTIAL_ID,
-        account_id: SEED_ACCOUNT_ID,
-        user_id: SEED_AUTH_USER_ID,
-        type: 'password',
-        secret_hash: SEED_PLACEHOLDER_SECRET, // labelled placeholder — NOT a real secret
-      },
-    ],
+    /**
+     * One credential per seeded user when a dev password hash was supplied; otherwise the historical
+     * single placeholder row.
+     *
+     * ⚠️ The three routing agents had **no credential row at all**, not merely a placeholder one — so
+     * "seeded users cannot log in" was true twice over, and adding a real hash to the admin alone
+     * would have left the agents unable to sign in for a different reason. Both halves are fixed here
+     * or neither is.
+     *
+     * Ids stay deterministic (`seed-cred-<user id>`) so the runner's upsert is idempotent and a second
+     * seed run does not accumulate credentials.
+     */
+    credentials: devPasswordHash
+      ? [
+          {
+            id: SEED_CREDENTIAL_ID,
+            account_id: SEED_ACCOUNT_ID,
+            user_id: SEED_AUTH_USER_ID,
+            type: 'password',
+            secret_hash: devPasswordHash,
+          },
+          ...SEED_ROUTING_USER_IDS.map((user_id) => ({
+            id: `seed-cred-${user_id}`,
+            account_id: SEED_ACCOUNT_ID,
+            user_id,
+            type: 'password',
+            secret_hash: devPasswordHash,
+          })),
+        ]
+      : [
+          {
+            id: SEED_CREDENTIAL_ID,
+            account_id: SEED_ACCOUNT_ID,
+            user_id: SEED_AUTH_USER_ID,
+            type: 'password',
+            secret_hash: SEED_PLACEHOLDER_SECRET, // labelled placeholder — NOT a real secret
+          },
+        ],
     userRoles: [
       { user_id: SEED_AUTH_USER_ID, role_id: SEED_ROLE_ID },
       ...SEED_ROUTING_USER_IDS.map((user_id) => ({

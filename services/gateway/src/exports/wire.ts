@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { toChannelFilter, toSlaOutcomeWire, toStatusWire } from '../chats/wire';
+import { toChannelFilter, toSlaOutcomeWire, toStatusCategoryWire } from '../chats/wire';
 
 /**
  * Fail-closed request parsing for the exports edge (feature 017 — FR-005/FR-027).
@@ -30,7 +30,11 @@ import { toChannelFilter, toSlaOutcomeWire, toStatusWire } from '../chats/wire';
  * mean anything: not the same words, the same code.
  */
 const ALLOWED_FILTERS = [
+  // ⭐ Feature 032 (roadmap 4.16): `status` is a status KEY (free-form, checked by the owning service
+  // against the account's catalogue) and `statusCategory` is one of the closed six. The retired enum
+  // filter is not accepted at all — see `../chats/wire.ts`.
   'status',
+  'statusCategory',
   'priority',
   'assigneeOperatorId',
   'playerId',
@@ -44,6 +48,8 @@ const ALLOWED_FILTERS = [
 
 export interface ExportFiltersWire {
   status?: string;
+  statusKey?: string;
+  statusCategory?: string;
   priority?: string;
   assigneeOperatorId?: string;
   playerId?: string;
@@ -87,7 +93,20 @@ export function parseExportFilters(body: unknown): ExportFiltersWire {
    * status filter", and the chats controller drops it. That is the one case where UNSPECIFIED is a real
    * answer rather than a coercion.
    */
-  if (out.status !== undefined) out.status = toStatusWire(out.status);
+  /**
+   * ⭐ Feature 032: `status` becomes `statusKey` and travels UNTRANSLATED.
+   *
+   * ⚠️ The header above describes a trap that no longer applies to this field, and the reason is worth
+   * keeping straight: `status_key` is a proto STRING, so there is no enum member for grpc-js to coerce to
+   * a zero value. The 017 defect it describes was specific to the enum, which this feature retired.
+   * `statusCategory` IS still an enum, so it goes through the list's own converter — one translation,
+   * one place, exactly as this file's header demands.
+   */
+  if (out.status !== undefined) {
+    out.statusKey = out.status;
+    delete out.status;
+  }
+  if (out.statusCategory !== undefined) out.statusCategory = toStatusCategoryWire(out.statusCategory);
   if (out.slaOutcome !== undefined) out.slaOutcome = toSlaOutcomeWire(out.slaOutcome);
   // Feature 029: `channel` is a plain proto string, not an enum, so there is no member to coerce — the
   // trap described in the header cannot occur here. It is still shape-checked by the list's own

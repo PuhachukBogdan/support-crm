@@ -17,6 +17,7 @@ import { AuthController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
 import { AUTH_CLIENT } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, type GatewayConfig } from '../config';
+import { EnsureOperatorProfile } from './ensure-operator-profile';
 
 /**
  * T025 (US3) — session cookies: correct httpOnly flags + maxAge (derived from the returned
@@ -78,6 +79,8 @@ describe('session cookies (feature 009, US3)', () => {
         providers: [
           { provide: AUTH_CLIENT, useValue: { getService: () => auth } },
           { provide: GATEWAY_CONFIG, useValue: cfg },
+          // Roadmap 5.10 — stubbed; asserted in `ensure-operator-profile.spec.ts`.
+          { provide: EnsureOperatorProfile, useValue: { fromAccessToken: async () => undefined } },
         ],
       }).compile();
       app = moduleRef.createNestApplication();

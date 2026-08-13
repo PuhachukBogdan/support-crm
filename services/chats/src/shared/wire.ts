@@ -3,34 +3,27 @@
  * (enums:String) and the DB scalar values in one place so controllers stay thin. `MessageKind` is
  * DERIVED from `author_type` + `private` (research R5) — storage keeps those two fields, not a kind.
  */
+import { categoryToWire } from '@crm/common';
 
 // ── Conversation status ───────────────────────────────────────────────────────
-export type DbStatus = 'open' | 'pending' | 'resolved' | 'snoozed';
-
-const STATUS_TO_WIRE: Record<DbStatus, string> = {
-  open: 'CONVERSATION_STATUS_OPEN',
-  pending: 'CONVERSATION_STATUS_PENDING',
-  resolved: 'CONVERSATION_STATUS_RESOLVED',
-  snoozed: 'CONVERSATION_STATUS_SNOOZED',
-};
-const WIRE_TO_STATUS: Record<string, DbStatus> = {
-  CONVERSATION_STATUS_OPEN: 'open',
-  CONVERSATION_STATUS_PENDING: 'pending',
-  CONVERSATION_STATUS_RESOLVED: 'resolved',
-  CONVERSATION_STATUS_SNOOZED: 'snoozed',
-};
-
-export function statusToWire(db: string): string {
-  return STATUS_TO_WIRE[db as DbStatus] ?? 'CONVERSATION_STATUS_UNSPECIFIED';
-}
-/** undefined = no filter / not a concrete status (UNSPECIFIED or unknown). */
-export function wireToStatus(wire: string | undefined): DbStatus | undefined {
-  if (!wire || wire === 'CONVERSATION_STATUS_UNSPECIFIED') return undefined;
-  return WIRE_TO_STATUS[wire];
-}
-export function isValidStatusWire(wire: string | undefined): boolean {
-  return !!wire && wire !== 'CONVERSATION_STATUS_UNSPECIFIED' && wire in WIRE_TO_STATUS;
-}
+/**
+ * ⭐ Feature 032 (roadmap 4.16, ADR 0040) — THE FOUR-VALUE MAPPER THAT USED TO LIVE HERE IS GONE.
+ *
+ * `DbStatus`, `statusToWire`, `wireToStatus` and `isValidStatusWire` encoded a closed vocabulary of
+ * `open | pending | resolved | snoozed`. A status is now a per-account row (`ConversationStatus`) whose
+ * key nothing in code may enumerate, and the only closed vocabulary left is the CATEGORY catalogue in
+ * `libs/common/src/statuses/categories.ts`.
+ *
+ * ⚠️ **Deleted rather than deprecated in place.** A mapper left behind is how the old vocabulary grows
+ * back: the next feature needing to turn a status into something finds a function that answers, and the
+ * answer is a guess about four values out of nine. `tests/statuses/no-status-key-branch.spec.ts` fails
+ * the build if any of the four names returns to `chats/src`.
+ *
+ * What replaced each of them:
+ *   • `statusToWire`      → the key IS the wire value (`status_key`); the category rides beside it.
+ *   • `wireToStatus`      → nothing. The legacy enum filter is REFUSED, not mapped (spec §4).
+ *   • `isValidStatusWire` → `StatusRepository.resolveActive`, which asks the ACCOUNT rather than the code.
+ */
 
 // ── SLA outcome (feature 014; moved HERE by feature 017) ──────────────────────
 /**
@@ -108,7 +101,17 @@ export interface ConversationSummaryRow {
   id: string;
   brand_id: string;
   player_id: string | null;
+  /** Feature 032: the status KEY. Its category comes from `status_def`, never from a guess about the key. */
   status: string;
+  /**
+   * Feature 032 — the joined catalogue row, selected by every conversation read (`SUMMARY_SELECT`).
+   *
+   * Optional in the TYPE only so a test fixture may omit it; a real read never does, and
+   * `status-projection.spec.ts` asserts that both projections carry a category for a row shaped like the
+   * database's. Absent ⇒ UNSPECIFIED on the wire rather than a category inferred from the key, which is
+   * the inference this whole feature exists to remove.
+   */
+  status_def?: { category: string } | null;
   priority: string | null;
   assignee_operator_id: string | null;
   channel: string | null;
@@ -136,7 +139,10 @@ export function toSummaryWire(r: ConversationSummaryRow) {
     id: r.id,
     brandId: r.brand_id,
     playerId: r.player_id ?? '',
-    status: statusToWire(r.status),
+    // Feature 032: the deprecated `status` enum field is NOT populated — see the header of this file and
+    // the proto comment. The pair below is the status, in the model of record.
+    statusKey: r.status,
+    statusCategory: categoryToWire(r.status_def?.category ?? ''),
     priority: r.priority ?? '',
     assigneeOperatorId: r.assignee_operator_id ?? '',
     channel: r.channel ?? '',
@@ -218,7 +224,8 @@ export function toDetailWire(r: ConversationDetailRow) {
     id: r.id,
     brandId: r.brand_id,
     playerId: r.player_id ?? '',
-    status: statusToWire(r.status),
+    statusKey: r.status,
+    statusCategory: categoryToWire(r.status_def?.category ?? ''),
     priority: r.priority ?? '',
     assigneeOperatorId: r.assignee_operator_id ?? '',
     channel: r.channel ?? '',

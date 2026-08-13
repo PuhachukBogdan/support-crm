@@ -6,9 +6,11 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
-import { toDetailWire, wireToStatus, isValidStatusWire } from '../shared/wire';
+import { toDetailWire } from '../shared/wire';
 import { MAX_SUBJECT_LENGTH } from '../subject/subject.derive';
 import { DomainEventPublisher } from '../events/events.publisher';
+import { StatusRepository } from '../status/status.repository';
+import { AuditRepository } from '../audit/audit.repository';
 import { ConversationRepository } from './conversation.repository';
 
 interface CreateConversationRequestWire {
@@ -20,7 +22,17 @@ interface CreateConversationRequestWire {
 }
 interface SetConversationStatusRequestWire {
   conversationId: string;
+  /**
+   * ⚠️ Feature 032: the legacy `status` enum field is NOT read. Declared here so a reader of this file
+   * knows that omission is deliberate — a caller sending only it gets `invalid status`, because guessing
+   * which of nine configured statuses `CONVERSATION_STATUS_PENDING` meant is worse than refusing.
+   */
   status?: string;
+  statusKey?: string;
+}
+interface SetConversationBrandRequestWire {
+  conversationId: string;
+  brandId?: string;
 }
 interface SetConversationSubjectRequestWire {
   conversationId: string;
@@ -42,6 +54,8 @@ export class ConversationWriteController {
   constructor(
     @Inject(ConversationRepository) private readonly repo: ConversationRepository,
     @Inject(DomainEventPublisher) private readonly events: DomainEventPublisher,
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
+    @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'CreateConversation')
@@ -69,7 +83,16 @@ export class ConversationWriteController {
   @RequiresChatsPermission('crm.conversation.reply')
   async setConversationStatus(req: SetConversationStatusRequestWire, metadata: Metadata) {
     const ctx = readActorContext(metadata);
-    if (!isValidStatusWire(req.status)) {
+    /**
+     * ⭐ Feature 032 (roadmap 4.16): validated against the ACCOUNT's active statuses, not against a
+     * vocabulary in code. Unknown and retired are the same refusal on purpose — "may I still set
+     * Follow-up?" must not have two different answers depending on who is asking.
+     *
+     * The resolve happens BEFORE the conversation is read, so an invalid key never causes a lookup of
+     * somebody's ticket, and the refusal names no status of ours back to the caller.
+     */
+    const target = await this.statuses.resolveActive(ctx.accountId, req.statusKey ?? '');
+    if (!target) {
       throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid status' });
     }
     // Resource-check the target's brand before mutating (no existence disclosure otherwise).
@@ -77,7 +100,7 @@ export class ConversationWriteController {
     if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
-    const newStatus = wireToStatus(req.status)!;
+    const newStatus = target.key;
     // Feature 023: the human who did it, and one correlation id for this act. Note the deliberate
     // ordering below — the durable TRANSITION is written inside `setStatus`'s own transaction, while
     // `this.events.statusChanged` further down is the in-process automation trigger (feature 014),
@@ -98,6 +121,66 @@ export class ConversationWriteController {
     );
     const fresh = await this.repo.getById(ctx.accountId, req.conversationId);
     return toDetailWire(fresh ?? updated);
+  }
+
+  /**
+   * ⭐ The one field an agent may NOT change (feature 032, roadmap 4.16 — R22, amends ADR 0038).
+   *
+   * ── A permission of its own, and not `crm.conversation.reply` ────────────────────────────────────
+   * Everything else on this controller is an everyday act by whoever handles the ticket. Brand decides
+   * which reports the conversation appears in and whose history it becomes part of, and the operator's
+   * rule is explicit: set at ingestion, chosen when a ticket is raised by hand, **read-only for agents**,
+   * corrigible by a supervisor. So `crm.conversation.set_brand` — one key per scope, the precedent
+   * 017/024/025 set — held by `teamlead`, `admin` and `super_admin`, and by no agent role.
+   *
+   * ⚠️ Brand is NOT an authorization wall (ADR 0038 §1): nobody is refused a conversation because of its
+   * brand, and this key does not change that. It gates the WRITE only.
+   *
+   * ── Refused when nothing would change ───────────────────────────────────────────────────────────
+   * Setting the brand it already has is INVALID_ARGUMENT rather than a silent success. The audit entry is
+   * the point of this handler, and an entry that records no change is noise in the store that exists to
+   * be read — the same reasoning that keeps a `Pending → Pending` toggle out of the audit catalogue.
+   *
+   * ── The detail carries REFS, never names ────────────────────────────────────────────────────────
+   * `fromBrandRef` / `toBrandRef` are ids. A brand's NAME lives in the brands service, and copying it
+   * here would make this trail store state instead of referencing it (feature 015: *"target_ref
+   * identifies, never copies"*).
+   */
+  @GrpcMethod('ChatsWriteService', 'SetConversationBrand')
+  @RequiresChatsPermission('crm.conversation.set_brand')
+  async setConversationBrand(req: SetConversationBrandRequestWire, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const brandId = (req.brandId ?? '').trim();
+    if (!brandId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid brand' });
+    }
+
+    // Read first: `updateMany` reports 0 for an id that is not there and the transaction still commits,
+    // so an unchecked call would file an entry for a change that never happened (see `setBrand`).
+    const existing = await this.repo.getById(ctx.accountId, req.conversationId);
+    if (!existing) {
+      throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    }
+    if (existing.brand_id === brandId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'brand unchanged' });
+    }
+
+    // Built here, so a detail that cannot be expressed refuses the ACTION rather than being rolled back.
+    const statement = this.audit.statement(ctx.accountId, {
+      actorUserId: ctx.userId,
+      actorKind: 'user',
+      underPreview: ctx.underPreview,
+      action: 'conversation.brand_changed',
+      targetRef: req.conversationId,
+      detail: { fromBrandRef: existing.brand_id, toBrandRef: brandId },
+    });
+
+    const count = await this.repo.setBrand(ctx.accountId, req.conversationId, brandId, statement);
+    if (count === 0) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    const fresh = await this.repo.getById(ctx.accountId, req.conversationId);
+    if (!fresh) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    return toDetailWire(fresh);
   }
 
   /**

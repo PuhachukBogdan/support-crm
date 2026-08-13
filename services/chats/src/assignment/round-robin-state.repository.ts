@@ -9,9 +9,13 @@ import {
 } from '../transition/conversation-transitions';
 import { selectRoundRobin, type RoundRobinCandidate } from './round-robin';
 import { unitsUsed } from './capacity';
+import { StatusRepository } from '../status/status.repository';
 
-/** The statuses that count as work in hand — the same set the pool counts (one definition, two readers). */
-const OPEN_STATUSES = ['open', 'pending'] as const;
+/**
+ * Feature 032: the statuses that count as work in hand come from the ACCOUNT — the same set the pool
+ * counts, and still one definition with two readers (`StatusRepository.nonTerminalKeys`). See
+ * `group-pool.ts` for why the old literal `['open','pending']` under-counted real work.
+ */
 
 export interface AutoAssignOutcome {
   operatorId: string | null;
@@ -78,6 +82,7 @@ export class RoundRobinStateRepository {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   /** The stored cursor for a group, or -1 when the rotation has never run. */
@@ -109,6 +114,10 @@ export class RoundRobinStateRepository {
     routedGroupId?: string,
   ): Promise<AutoAssignOutcome> {
     const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
+    // Feature 032: read BEFORE the transaction — it is the account's configuration, not part of the
+    // claim's serialisation, and holding the advisory lock while querying it would widen the lock for no
+    // gain. A supervisor retiring a status mid-claim changes the next claim, not this one.
+    const openStatuses = await this.statuses.nonTerminalKeys(accountId);
 
     // Called as a method so `this` stays the Prisma client (see TxCapableClient).
     return db.$transaction(async (tx) => {
@@ -144,7 +153,7 @@ export class RoundRobinStateRepository {
 
       const chosen = candidates.find((c) => c.operatorId === operatorId);
       const held = await tx.conversation.findMany({
-        where: { assignee_operator_id: operatorId, status: { in: [...OPEN_STATUSES] } },
+        where: { assignee_operator_id: operatorId, status: { in: openStatuses } },
         select: { channel: true },
       });
       // The SAME arithmetic the pool used, on a load re-read inside the lock. `'exclusive'` means the

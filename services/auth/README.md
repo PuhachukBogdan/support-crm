@@ -106,6 +106,18 @@ recorded alternative and was rejected: it would put a **live one-time code** int
   if it returns. Live rounds read codes from the delivered message.
 
 ## Gotchas
+- ⭐ **One credential per `(user_id, type)` — a UNIQUE constraint, and `LoginService` depends on it.**
+  The password is read with `findFirst({ user_id, type: 'password' })` and **no ordering**, so with two
+  rows the hash that gets verified is decided by Postgres row order: a correct password refusable, a
+  superseded one still working. Found on the stand (MVP block W1) when the seed began writing real
+  hashes and met a credential made by hand during feature 024's live round. Removed at the schema
+  instead of patched with an `ORDER BY`, so `findFirst` is deterministic by construction; pinned by
+  `prisma/credential-one-per-type.spec.ts`. **Do not add a second password row for a person** —
+  changing a password updates the existing one.
+- **Seeded people can sign in only when `SEED_DEV_PASSWORD` is set** (roadmap 1.7). No default, by
+  design: unset, the seed writes the labelled placeholder it always did and nobody can authenticate, so
+  no environment acquires working passwords by accident. Not an MFA bypass — login stays two-step, the
+  password only reaches the emailed-code step.
 - Codes/passwords/tokens are **never** logged (Principle IV) — nothing on a mail path may take an
   error object or a payload, and a structural test enforces it.
 - ⚠️ **SMTP bodies use CRLF.** Anything grepped out of a delivered message carries an invisible `\r`;

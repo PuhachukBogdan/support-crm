@@ -26,6 +26,14 @@ model Operator {
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
 
+  /// ⭐ ONE PROFILE PER PERSON PER ACCOUNT (roadmap 5.10, MVP block W1).
+  ///
+  /// Added with `EnsureOwnOperator`, which upserts on this pair. Without the constraint two
+  /// concurrent calls — register and the first login racing each other — produce two profiles for
+  /// one human being, and duplicate staff identities break both accountability and anti-pitching
+  /// (the hazard roadmap 3.16 spells out for re-hires). An upsert without a unique index is a
+  /// read-then-write with a window in it.
+  @@unique([account_id, auth_user_id])
   @@index([account_id])
 }
 

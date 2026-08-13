@@ -8,7 +8,6 @@ import { readActorContext } from '../security/actor-context';
 import { ContactSummaryRepository } from './contact-summary.repository';
 import { PersonMembersClient, toPersonRpc } from '../person/person-members.client';
 import { foldContactSummary, type ContactSummaryFacts } from './contact-summary.fold';
-import { statusToWire } from '../shared/wire';
 
 interface PlayerSummaryRequestWire {
   playerId?: string;
@@ -128,8 +127,10 @@ export function toWire(facts: ContactSummaryFacts) {
     lastOutboundAt: iso(facts.lastOutboundAt),
     lastContactAt: iso(facts.lastContactAt),
     conversationCount: facts.conversationCount,
+    // Feature 032: the KEY, not the retired enum. The counts are grouped by whatever the account has
+    // configured, so a card shows the nine buckets the team works by instead of four coerced ones.
     countsByStatus: facts.countsByStatus.map((c) => ({
-      status: statusToWire(c.status),
+      statusKey: c.status,
       conversationCount: c.conversationCount,
     })),
     channels: facts.channels.map((c) => ({

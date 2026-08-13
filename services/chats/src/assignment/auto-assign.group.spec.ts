@@ -6,6 +6,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import type { GroupPoolService } from './group-pool';
 import type { BacklogRepository } from './backlog';
 import type { RoundRobinCandidate } from './round-robin';
+import { fakeStatusRepository } from '../status/status.fixture';
 import {
   AutoAssignController,
   GROUP_ROUTING_NOT_AVAILABLE,
@@ -100,7 +101,7 @@ function build(prisma: PrismaService, candidates: RoundRobinCandidate[] | Error)
     return { candidates, reason: null };
   });
   const controller = new AutoAssignController(
-    new RoundRobinStateRepository(prisma, new TransitionRecorder()),
+    new RoundRobinStateRepository(prisma, new TransitionRecorder(), fakeStatusRepository()),
     new ConversationRepository(prisma, new TransitionRecorder()),
     { candidatesFor } as unknown as GroupPoolService,
     {
@@ -327,7 +328,11 @@ describe('the router and the backlog', () => {
       waiting: jest.fn(async () => []),
     };
     const controller = new AutoAssignController(
-      new RoundRobinStateRepository(prismaFake.prisma, new TransitionRecorder()),
+      new RoundRobinStateRepository(
+        prismaFake.prisma,
+        new TransitionRecorder(),
+        fakeStatusRepository(),
+      ),
       new ConversationRepository(prismaFake.prisma, new TransitionRecorder()),
       { candidatesFor: jest.fn(async () => ({ candidates, reason: null })) } as unknown as GroupPoolService,
       backlog as unknown as BacklogRepository,

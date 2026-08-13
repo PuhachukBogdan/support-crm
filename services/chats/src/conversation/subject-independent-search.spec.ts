@@ -43,7 +43,7 @@ const row = (id: string, subject: string | null) => ({
 });
 
 const FILTERS: ListFilters = {
-  status: 'open',
+  statusIn: ['open'],
   priority: 'normal',
   assigneeOperatorId: 'op-1',
   playerId: 'p-1',

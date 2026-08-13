@@ -45,7 +45,10 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   // `reasonClass` (feature 031) = WHY routing found nobody, as a class: 'desk_not_routable',
   // 'nobody_available', 'all_at_capacity'. A class and never a sentence, so no relay's wording and no
   // customer detail can arrive through it.
-  assignment: ['selfAssigned', 'managerRef', 'reasonClass'],
+  // `fromBrandRef` / `toBrandRef` (feature 032) = brand IDS, never a brand's name. The name lives in the
+  // brands service, and copying it here would make the trail store state instead of referencing it — the
+  // same rule that keeps a group's name out of `privilege` after a rename.
+  assignment: ['selfAssigned', 'managerRef', 'reasonClass', 'fromBrandRef', 'toBrandRef'],
   retention: ['deletedCount', 'olderThan'],
 };
 

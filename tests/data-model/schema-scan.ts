@@ -142,16 +142,55 @@ export function parseModel(service: Service, name: string, body: string): Model 
   };
 }
 
-/** Parse every `model {}` block in one service's schema. */
+/**
+ * Parse every `model {}` block in one service's schema.
+ *
+ * ── ⚠️ Comments are stripped BEFORE the blocks are found, and that is a FIX, not tidiness ────────
+ * This used to match `model X { … }` with a non-greedy `[\s\S]*?` up to the first `}`. A `}` inside a
+ * doc comment therefore ENDED the model — silently, and with the block attributes after it lost.
+ *
+ * It happened: block W1 documented `Credential` with a comment containing
+ * `findFirst({ user_id, type: 'password' })`, and the scan stopped there. `@@unique` and both `@@index`
+ * lines vanished from the parsed model, so `account-scope.spec.ts` and `indexes.spec.ts` reported that
+ * `Credential.account_id` was unindexed — pointing at the schema, which was correct all along.
+ *
+ * ⇒ Two changes, because either alone leaves the trap: comments go first (a brace in prose cannot be
+ * seen at all), and the block is delimited by BRACE DEPTH rather than by the first closing brace.
+ *
+ * ⇒ The general rule, worth more than the fix: **a structural guard that reads source as text can fail
+ * OPEN.** It reported a real invariant as broken here, which is the safe direction — but the same
+ * truncation would have hidden a genuinely missing index just as quietly.
+ */
 export function parseSchema(service: Service): Model[] {
-  const text = readSchema(service);
+  const text = stripComments(readSchema(service));
   const models: Model[] = [];
-  const re = /model\s+(\w+)\s*\{([\s\S]*?)\}/g;
+  const re = /model\s+(\w+)\s*\{/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    models.push(parseModel(service, m[1]!, m[2]!));
+    const bodyStart = m.index + m[0].length;
+    const bodyEnd = matchingBrace(text, bodyStart);
+    models.push(parseModel(service, m[1]!, text.slice(bodyStart, bodyEnd)));
+    re.lastIndex = bodyEnd;
   }
   return models;
+}
+
+/** Remove `///` doc comments and `//` line comments. Prisma has no block-comment form. */
+function stripComments(text: string): string {
+  return text.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\/.*$/gm, '');
+}
+
+/** Index of the `}` that closes the block opened before `from`, or the end of the text. */
+function matchingBrace(text: string, from: number): number {
+  let depth = 1;
+  for (let i = from; i < text.length; i += 1) {
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return text.length;
 }
 
 /** All models across all four schemas. */

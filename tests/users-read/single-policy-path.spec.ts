@@ -111,9 +111,16 @@ describe('*** exactly ONE tier map exists ***', () => {
 
   /**
    * ⚠️ `open` is EXCLUDED from this scan, and the reason is worth stating rather than hiding in a filter:
-   * it is also a **conversation status** in chats (`'open' | 'pending' | 'resolved' | 'snoozed'`), so
-   * scanning for it reports the chats domain as a tier-policy violation. That is noise, not signal, and a
-   * scan that cries wolf gets its expectation widened by the next person until it asserts nothing.
+   * it is also a **ticket-status word** in the chats domain, so scanning for it reports that domain as a
+   * tier-policy violation. That is noise, not signal, and a scan that cries wolf gets its expectation
+   * widened by the next person until it asserts nothing.
+   *
+   * ⭐ **The collision MOVED in feature 032 (roadmap 4.16) and the assertion below moved with it.** It
+   * used to live in `services/chats/src/shared/wire.ts` as one member of a four-value enum
+   * (`'open' | 'pending' | 'resolved' | 'snoozed'`). Statuses are per-account rows now, and the only
+   * status word left in code is the CATEGORY catalogue — where `open` is a category key. The exclusion is
+   * still justified; the file that justifies it is a different one, and pinning the new file is what keeps
+   * "excluded for a collision" from decaying into "excluded because it was inconvenient".
    *
    * The three remaining names are unambiguous and sufficient: a second classification of customer fields
    * has to name the tiers it distinguishes, and `open` alone distinguishes nothing — a map containing only
@@ -126,8 +133,14 @@ describe('*** exactly ONE tier map exists ***', () => {
     expect(all).toEqual(['am_only', 'masked_pii', 'open', 'operational']);
     expect([...DISTINCTIVE_TIERS].sort()).toEqual(['am_only', 'masked_pii', 'operational']);
     // The collision itself, asserted so the exclusion stops being justified if it ever disappears.
-    const chatsStatuses = SOURCES.find((s) => s.path === 'services/chats/src/shared/wire.ts');
-    expect(chatsStatuses?.code).toMatch(/['"`]open['"`]/);
+    const statusCategories = SOURCES.find(
+      (s) => s.path === 'libs/common/src/statuses/categories.ts',
+    );
+    expect(statusCategories?.code).toMatch(/['"`]open['"`]/);
+    // …and the file it USED to live in no longer contains the word at all, which is the other half of
+    // feature 032: the four-value status vocabulary was deleted rather than deprecated in place.
+    const chatsWire = SOURCES.find((s) => s.path === 'services/chats/src/shared/wire.ts');
+    expect(chatsWire?.code).not.toMatch(/['"`]open['"`]/);
   });
 
   it('no other file writes a distinctive tier NAME in code — the vocabulary has one home', () => {

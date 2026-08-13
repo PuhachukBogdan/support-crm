@@ -15,13 +15,9 @@ import {
   encodeOrderedCursor,
   InvalidCursorError,
 } from '../shared/cursor';
-import {
-  toSummaryWire,
-  toDetailWire,
-  wireToStatus,
-  wireToSlaOutcome,
-  wireToConversationOrder,
-} from '../shared/wire';
+import { toSummaryWire, toDetailWire, wireToSlaOutcome, wireToConversationOrder } from '../shared/wire';
+import { StatusRepository } from '../status/status.repository';
+import { resolveStatusFilter, StatusFilterError } from '../status/status-filter';
 import { SlaRepository } from '../sla/sla.repository';
 import {
   ConversationRepository,
@@ -31,7 +27,12 @@ import {
 
 // proto-loader (keepCase:false) delivers camelCase request objects.
 interface ListConversationsRequestWire {
+  /** ⚠️ Feature 032: the DEPRECATED enum filter. Present so it can be REFUSED, never mapped (spec §4). */
   status?: string;
+  /** Feature 032: an exact status key, validated against the account's catalogue. */
+  statusKey?: string;
+  /** Feature 032: a category from the closed catalogue, resolved into that account's keys. */
+  statusCategory?: string;
   priority?: string;
   assigneeOperatorId?: string;
   playerId?: string;
@@ -62,6 +63,7 @@ export class ConversationReadController {
     @Inject(ConversationRepository) private readonly repo: ConversationRepository,
     @Inject(SlaRepository) private readonly sla: SlaRepository,
     @Inject(PersonMembersClient) private readonly person: PersonMembersClient,
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   /**
@@ -91,6 +93,21 @@ export class ConversationReadController {
     // Feature 029 — the order is resolved FIRST, because the page token is validated against it.
     // An unrecognised order is refused, never coerced to the default: a list silently in a different
     // order than the caller asked for is the confidently-wrong-answer shape (the 012 lesson).
+    /**
+     * ⭐ Feature 032 — the status filter, resolved against the ACCOUNT's catalogue before anything else
+     * runs. Deliberately first: it is the cheapest refusal (nine indexed rows) and it means a bad filter
+     * never causes a portfolio lookup in another service, nor a page of somebody's conversations.
+     */
+    let statusIn: string[] | undefined;
+    try {
+      statusIn = await resolveStatusFilter(this.statuses, ctx.accountId, req);
+    } catch (e) {
+      if (e instanceof StatusFilterError) {
+        throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: e.message });
+      }
+      throw e;
+    }
+
     const orderWire = wireToConversationOrder(req.order);
     if (orderWire === null || (orderWire !== undefined && !isConversationOrderKey(orderWire))) {
       throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid order' });
@@ -140,7 +157,8 @@ export class ConversationReadController {
     // scope has no wire representation at all.
     const { rows, nextCursor } = await this.repo.list(ctx.accountId, {
       ...(portfolioIn ? { portfolioIn } : {}),
-      status: wireToStatus(req.status),
+      // Feature 032: `undefined` = no status filter; `[]` = nothing satisfies the ask ⇒ an empty page.
+      ...(statusIn === undefined ? {} : { statusIn }),
       priority: req.priority || undefined,
       assigneeOperatorId: req.assigneeOperatorId || undefined,
       playerId: req.playerId || undefined,

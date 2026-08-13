@@ -5,6 +5,7 @@ import type { AutomationsRepository } from './automations.repository';
 import type { AuthorAuthorityClient } from '../auth/auth.client';
 import type { LabelsRepository } from '../labels/labels.repository';
 import type { DomainEvent } from '../events/events.types';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * T018 (feature 014, US1) — **SC-004: no configuration of rules can produce an unbounded reaction
@@ -25,7 +26,7 @@ const TRIGGER = 'AUTOMATION_TRIGGER_STATUS_CHANGED' as const;
 const SELF_SATISFYING = {
   trigger: TRIGGER,
   conditions: [],
-  actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' }],
+  actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' }],
 };
 
 const selfRule = {
@@ -75,6 +76,7 @@ describe('no cascade (FR-006 / SC-004)', () => {
           permissionKeys: ['crm.conversation.reply'],
         }),
       } as unknown as AuthorAuthorityClient,
+      fakeStatusRepository(),
     );
 
     // A REAL dispatcher, with the engine subscribed exactly as app.module wires it.
@@ -96,6 +98,7 @@ describe('no cascade (FR-006 / SC-004)', () => {
       {} as unknown as AutomationsRepository,
       {} as unknown as LabelsRepository,
       {} as unknown as AuthorAuthorityClient,
+      fakeStatusRepository(),
     );
     // Nothing on the engine is, or holds, a dispatcher — so it cannot emit even by accident.
     for (const value of Object.values(engine as unknown as Record<string, unknown>)) {
@@ -119,6 +122,7 @@ describe('no cascade (FR-006 / SC-004)', () => {
           .fn()
           .mockResolvedValue({ roleKey: 'teamlead', permissionKeys: ['crm.conversation.reply'] }),
       } as unknown as AuthorAuthorityClient,
+      fakeStatusRepository(),
     );
     const dispatcher = new DomainEventDispatcher();
     dispatcher.subscribe((e) => engine.handle(e));

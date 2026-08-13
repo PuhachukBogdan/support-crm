@@ -606,3 +606,75 @@ work somebody deliberately marked `low`.
 two columns, and a hand-written predicate for it is three clauses no review can check — while a predicate
 that disagrees with the sort produces a plausible page two with rows repeated and rows missing. The token
 format is **unchanged** for a single-column order (the bare ISO string), so nothing minted before 031 broke.
+
+## Ticket statuses: six categories in code, the statuses themselves in the database (feature 032, roadmap 4.16 — [ADR 0040](../../cowork/decisions/0040-ticket-status-model.md))
+
+The flat `open | pending | resolved | snoozed` column is gone. Two levels now:
+
+| level | where it lives | who may branch on it |
+|---|---|---|
+| **category** — `new · open · pending · on_hold · solved · closed` | closed catalogue in code: [`libs/common/src/statuses/categories.ts`](../../libs/common/src/statuses/categories.ts) | machine logic |
+| **status** — `key`, `category`, `agent_name`, `end_user_name`, `active`, `order` | `ConversationStatus` rows, **per account** | nothing |
+
+⭐ **`Conversation.status` carries a COMPOSITE FOREIGN KEY** to `ConversationStatus(account_id, key)`. That
+is what makes *"every status resolves to exactly one category"* a property of the database rather than a
+promise: a key nobody configured cannot be stored, by any path, including a macro. `ON DELETE RESTRICT`
+(retirement is `active = false`, never a delete) and `ON UPDATE CASCADE` (a rename is one statement).
+
+⚠️ **NOTHING BRANCHES ON A STATUS KEY**, and it is enforced by a scan, not by habit:
+[`tests/statuses/no-status-key-branch.spec.ts`](../../tests/statuses/no-status-key-branch.spec.ts) fails the
+build when a key literal appears in this service's product code, or when any of the four retired mappers
+(`statusToWire` · `wireToStatus` · `isValidStatusWire` · `DbStatus`) comes back. They were **deleted**
+rather than deprecated in place: a mapper left behind is how the old four-value vocabulary regrows.
+
+### What asks the account instead
+
+| consumer | asks |
+|---|---|
+| `SetConversationStatus` | `StatusRepository.resolveActive` — unknown **and retired** are the same refusal |
+| list / export filter | `status/status-filter.ts` — **one** decoder for both edges (017's `pending`/`running` drift was two) |
+| macro / automation `SET_STATUS` + `STATUS` condition | `activeKeys`, passed into the pure validators as a **required** parameter |
+| agent load (`group-pool`, `round-robin-state`) | `nonTerminalKeys` |
+
+⭐ **The load counters were WRONG before this feature, not merely hard-coded.** They matched
+`['open','pending']`, so a conversation in `in_progress`, `vip_pending`, `follow_up` or
+`supervisor_review` counted as nothing — an agent holding four escalated tickets read as idle and would be
+handed a full load on top of them. That is the *«всё валится в on hold»* complaint arriving as a routing bug.
+
+### The wire (additive; `buf breaking = FILE`)
+
+`status_key` + `status_category` on `ConversationSummary`, `Conversation`, `ListConversationsRequest` and
+`ExportFilters` (**the same field numbers on both** — `tests/exports/filter-parity.spec.ts` reads as an
+equality), `status_key` on `SetConversationStatusRequest`, `status_key` on `StatusCount`, plus
+`ListConversationStatuses` (gated by `crm.inbox.view`; **includes retired statuses**, or a ticket still
+wearing one renders with no label).
+
+⚠️ **The retired `ConversationStatus` enum is REFUSED, not mapped.** It stays declared because the field
+cannot be deleted, is no longer populated, and a request carrying only it gets `INVALID_ARGUMENT`. Mapping
+would be lossy in the FILTER direction — `SNOOZED` would come to mean *every pending conversation*, a
+plausible page of the wrong rows. The one place that still knows the token by name is
+`LEGACY_STATUS_WIRE_UNSPECIFIED` in `@crm/common`, so the guard above can be absolute.
+
+### The Archive is this list with a parameter
+
+`status_category=solved` — not a second endpoint. A category resolves server-side to that account's keys in
+it, and a category with **no** configured status (`closed`, today) yields an **empty page**, never an
+unfiltered one.
+
+## The brand write rule (feature 032, roadmap 4.16 — R22, amends [ADR 0038](../../cowork/decisions/0038-brand-is-identity-not-a-wall.md))
+
+Brand is auto-assigned at ingestion, selectable when a ticket is raised by hand, **read-only for agents**,
+and corrigible by a supervisor. `SetConversationBrand`, gated by **`crm.conversation.set_brand`** — a key
+`teamlead`/`admin`/`super_admin` hold and **no agent role** does.
+
+- The audit entry (`conversation.brand_changed`, class `assignment`) is a **statement inside the update's
+  transaction**, so the change and its record land together or neither does.
+- A **no-op** (the brand it already has) is `INVALID_ARGUMENT`: an entry recording nothing is noise in the
+  store that exists to be read.
+- The detail carries `fromBrandRef` / `toBrandRef` — **ids, never a brand name**. The name lives in the
+  brands service, and copying it here would make the trail store state instead of referencing it.
+- **No transition type.** R22 asks for accountability, which is 0019's store; a second type with no reader
+  is the *written-with-nobody-to-read-it* shape this project already shipped once.
+
+⚠️ Brand is still **not** an authorization wall (ADR 0038 §1) — nobody is refused a conversation because of
+its brand. This key gates the WRITE only.

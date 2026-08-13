@@ -113,6 +113,27 @@ A link **copies no data**. That is what makes an automatic decision correctable:
 independent records remain, with nothing to restore. Both halves are audited (`player.link` /
 `player.unlink`), carrying the identifier **kind** and never its value.
 
+## An operator profile comes into being (MVP block W1, roadmap 5.10)
+
+The join nobody owned: registration wrote `User` + `Credential` + `UserRole` into `auth_db` and stopped,
+while being *assignable* needs an `Operator` row here — and **nothing in the product ever created one**,
+only the seed. `AssignPlayer` answered `no such manager` for a manager who plainly existed.
+
+- **gRPC surface** (additive, in the owned contract): `OperatorProfileService.EnsureOwnOperator` —
+  [`src/operator/operator-profile.grpc.controller.ts`](src/operator/operator-profile.grpc.controller.ts).
+  A separate service because a write on `UsersReadService` is a lie the read-shape guard enforces.
+- ⭐ **The subject is the caller and cannot be a parameter** — the request message is **empty**; account
+  and identity come from `x-actor-account-id` / `x-actor-user-id`. That is what makes it safe to call
+  from the gateway's `@Public` registration tail, and it is the shape roadmap **5.11** will inherit.
+- **No permission is checked, deliberately** (the reason is in the controller): the capability is
+  *exist*, and the profile is what a new person needs **before** an administrator can act on them.
+- **Called by the gateway on registration AND on every login** — the second is the repair path for
+  people who registered before this shipped. Idempotent; failure never costs anyone their session.
+- **Guarantees in the schema, not in code:** `@@unique([account_id, auth_user_id])` (an upsert without
+  it admits a twin profile for one human being), and a re-ensure **never overwrites** `display_name` —
+  a login that refreshed it would undo the person's own edit. The name stays NULL here:
+  `auth.User.display_name` owns that fact.
+
 ## The players + operators read surface (feature 018, roadmap 5.1)
 
 Three RPCs that had been **declared in this contract since Phase 2 and served by nothing** —

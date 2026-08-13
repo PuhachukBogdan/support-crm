@@ -3,6 +3,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import { RpcException } from '@nestjs/microservices';
 import { ExportController } from './export.grpc.controller';
 import type { ExportJobRow } from './export.repository';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * T043 / T052 (feature 017, US3) — **four different situations, one answer** (FR-011 / SC-006).
@@ -67,7 +68,12 @@ function controller(rows: ExportJobRow[] = [READY]) {
   const service = { create: jest.fn(), run: jest.fn() };
   const maintenance = { runDueExports: jest.fn(), expireDueExports: jest.fn() };
   return {
-    ctl: new ExportController(service as never, repo as never, maintenance as never),
+    ctl: new ExportController(
+      service as never,
+      repo as never,
+      maintenance as never,
+      fakeStatusRepository(),
+    ),
     repo,
     calls,
     maintenance,
@@ -236,6 +242,7 @@ describe('*** the maintenance RPCs refuse a user session ***', () => {
       { create: jest.fn() } as never,
       h.repo as never,
       h.maintenance as never,
+      fakeStatusRepository(),
     );
     const system = new Metadata();
     system.set('x-actor-kind', 'system');

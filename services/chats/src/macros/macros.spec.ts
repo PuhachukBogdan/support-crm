@@ -5,8 +5,21 @@ import { ConversationRepository } from '../conversation/conversation.repository'
 import { LabelsRepository } from '../labels/labels.repository';
 import { MacrosRepository } from './macros.repository';
 import { MacrosController } from './macros.grpc.controller';
-import { MACRO_ACTION_TYPES, parseActions, requiredPermissions } from './macro-definition';
+import {
+  MACRO_ACTION_TYPES,
+  parseActions as parseActionsWith,
+  requiredPermissions,
+} from './macro-definition';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { StatusRepository } from '../status/status.repository';
+
+/**
+ * ⭐ Feature 032 (roadmap 4.16): a `SET_STATUS` value is validated against the ACCOUNT's configured
+ * statuses. The pure cases below bind that catalogue once — see `rule-definition.spec.ts` for the same
+ * pattern and for why `closed` is deliberately not in it.
+ */
+const KEYS = ['new', 'open', 'pending', 'vip_pending', 'in_progress', 'solved'] as const;
+const parseActions = (input: unknown) => parseActionsWith(input, KEYS);
 
 /**
  * T021 (feature 013, US2) — macros. The load-bearing assertion is **all-or-nothing** (FR-008 /
@@ -33,13 +46,13 @@ const conversationRow = (over: Record<string, unknown> = {}) => ({
 
 const DEF_STATUS_LABEL = {
   actions: [
-    { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+    { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
     { type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: 'l1' },
   ],
 };
 const DEF_WITH_ASSIGN = {
   actions: [
-    { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+    { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' },
     { type: 'MACRO_ACTION_TYPE_ASSIGN', value: 'op-a' },
   ],
 };
@@ -75,6 +88,11 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
     deleteMany: jest.fn(),
     findMany: jest.fn(),
   };
+  // Feature 032: the account's status catalogue, read through the real `StatusRepository`.
+  const conversationStatus = {
+    findMany: over.statusFindMany ?? jest.fn().mockResolvedValue(KEYS.map((key) => ({ key }))),
+    findFirst: over.statusFindFirst ?? jest.fn().mockResolvedValue({ key: 'pending', active: true }),
+  };
   const $transaction = over.$transaction ?? jest.fn().mockResolvedValue([]);
   const forAccount = jest
     .fn()
@@ -84,6 +102,7 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
       label,
       conversationLabel,
       conversationTransition,
+      conversationStatus,
       $transaction,
     });
   return {
@@ -108,9 +127,10 @@ function md(perms: string[], accountId = 'acc-1'): Metadata {
 
 const build = (prisma: PrismaService) =>
   new MacrosController(
-    new MacrosRepository(prisma, new TransitionRecorder()),
+    new MacrosRepository(prisma, new TransitionRecorder(), new StatusRepository(prisma)),
     new LabelsRepository(prisma),
     new ConversationRepository(prisma, new TransitionRecorder()),
+    new StatusRepository(prisma),
   );
 
 const ALL_PERMS = [
@@ -125,7 +145,7 @@ describe('macro definition (pure validation, R4)', () => {
   /** A value each action type accepts — the two typed ones validate against their allow-list. */
   const okValue = (type: string) =>
     type === 'MACRO_ACTION_TYPE_SET_STATUS'
-      ? 'CONVERSATION_STATUS_OPEN'
+      ? 'open'
       : type === 'MACRO_ACTION_TYPE_SET_PRIORITY'
         ? 'high'
         : 'x';
@@ -170,7 +190,8 @@ describe('macro definition (pure validation, R4)', () => {
     expect(() => parseActions([])).toThrow();
     expect(() => parseActions([{ type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: '  ' }])).toThrow();
     expect(() =>
-      parseActions([{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_CLOSED' }]),
+      // Feature 032: `closed` is a real CATEGORY with no seeded status, so the key does not exist here.
+      parseActions([{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'closed' }]),
     ).toThrow();
   });
 

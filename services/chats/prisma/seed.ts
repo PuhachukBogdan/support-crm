@@ -12,6 +12,29 @@ async function run(): Promise<void> {
   const db = withAccountScope(base, SEED_ACCOUNT_ID, { scopedModels: SCOPED_MODELS });
   const seed = buildSeed();
   try {
+    /**
+     * ⭐ Feature 032 (roadmap 4.16) — FIRST, before any conversation.
+     *
+     * `Conversation.status` holds a composite foreign key into this table, so a ticket cannot be written
+     * until the vocabulary it names exists. Keyed on `(account_id, key)` rather than on `id`: the key IS
+     * the identity within an account, and re-running must leave nine statuses rather than eighteen.
+     *
+     * ⚠️ `update` deliberately carries the NAMES and the order but NOT `active`. Retiring a status is an
+     * operator's decision (the authoring screen, roadmap 3.14), and a re-seed that switched it back on
+     * would undo that silently — the same rule the contact stamps below follow, one table over: a fixture
+     * may declare a starting state and may not overwrite what a person has since decided.
+     */
+    for (const st of seed.statuses)
+      await db.conversationStatus.upsert({
+        where: { account_id_key: { account_id: st.account_id, key: st.key } },
+        create: st,
+        update: {
+          category: st.category,
+          agent_name: st.agent_name,
+          end_user_name: st.end_user_name,
+          order: st.order,
+        },
+      });
     for (const label of seed.labels)
       await db.label.upsert({ where: { id: label.id }, create: label, update: label });
     for (const conv of seed.conversations) {

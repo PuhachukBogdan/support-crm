@@ -3,6 +3,7 @@ import type { AutomationsRepository, AutomationRow } from './automations.reposit
 import type { LabelsRepository } from '../labels/labels.repository';
 import type { AuthorAuthorityClient } from '../auth/auth.client';
 import type { DomainEvent, ConversationFacts } from '../events/events.types';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * US4 (feature 024, roadmap 5.3 — ADR 0039 §5.2) — an automation rule bound to a GROUP.
@@ -69,7 +70,7 @@ function build(rules: AutomationRow[], perms: string[] = ['crm.conversation.repl
   const authority = {
     resolve: jest.fn(async () => ({ roleKey: 'teamlead', permissionKeys: perms })),
   } as unknown as AuthorAuthorityClient;
-  const engine = new AutomationEngine(automations, labels, authority);
+  const engine = new AutomationEngine(automations, labels, authority, fakeStatusRepository());
   return { engine, applyWithRun, recordRun };
 }
 

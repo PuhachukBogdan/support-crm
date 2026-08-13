@@ -57,6 +57,16 @@ model Credential {
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  /// ⭐ ONE CREDENTIAL PER TYPE PER PERSON — added by MVP block W1 after a live run found two.
+  ///
+  /// `LoginService` reads the password with `findFirst({ user_id, type: 'password' })` and **no
+  /// ordering**. With two password rows, which hash is verified is decided by Postgres row order: a
+  /// correct password can be refused, and an old one can keep working after a change. Nothing in the
+  /// product creates a second row — the duplicate found on the stand was hand-made during feature
+  /// 024's live round — but the seed writing credentials (roadmap 1.7) makes the collision ordinary
+  /// rather than exotic, so the ambiguity is removed at the schema instead of patched at the query:
+  /// with this constraint `findFirst` is deterministic BY CONSTRUCTION.
+  @@unique([user_id, type])
   @@index([account_id])
   @@index([user_id])
 }

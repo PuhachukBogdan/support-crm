@@ -22,6 +22,7 @@ import {
   setSessionCookies,
   type SessionTokens,
 } from './session-cookie';
+import { EnsureOperatorProfile } from './ensure-operator-profile';
 import type { RequestClaims } from './auth.guard';
 import type { EffectivePermissions } from '@crm/common';
 import { ResolvesPermissions } from '../security/requires-permission.decorator';
@@ -70,6 +71,9 @@ export class AuthController implements OnModuleInit {
   constructor(
     @Inject(AUTH_CLIENT) private readonly client: ClientGrpc,
     @Inject(GATEWAY_CONFIG) private readonly cfg: GatewayConfig,
+    // MVP block W1 (roadmap 5.10): this is also the REPAIR path — everyone who registered before the
+    // profile existed gets one on their next sign-in, instead of a hand-written INSERT.
+    @Inject(EnsureOperatorProfile) private readonly profile: EnsureOperatorProfile,
   ) {}
 
   onModuleInit(): void {
@@ -118,6 +122,10 @@ export class AuthController implements OnModuleInit {
         this.auth.verifyLoginCode({ challengeId: body.challengeId, code: body.code, rememberMe }),
       );
       setSessionCookies(res, this.cookiesFromPair(pair), { secure: this.cfg.COOKIE_SECURE });
+      // The repair path (roadmap 5.10). Idempotent, never throws: for everyone who already has a
+      // profile this is one cheap read, and for the people who registered before it existed it is the
+      // only thing that gives them one.
+      await this.profile.fromAccessToken(pair.accessToken);
       return { status: 'ok' };
     } catch {
       // Generic — wrong/expired/consumed/exhausted are indistinguishable to the caller.

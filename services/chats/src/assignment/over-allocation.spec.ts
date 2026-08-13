@@ -1,5 +1,6 @@
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { fakeStatusRepository } from '../status/status.fixture';
 import type { PrismaService } from '../prisma.service';
 
 /**
@@ -65,7 +66,11 @@ function fake(opts: Fake) {
     return cb(scoped);
   });
   const prisma = { forAccount: jest.fn(() => scoped) } as unknown as PrismaService;
-  const repo = new RoundRobinStateRepository(prisma, new TransitionRecorder());
+  const repo = new RoundRobinStateRepository(
+    prisma,
+    new TransitionRecorder(),
+    fakeStatusRepository(),
+  );
   return { repo, updateMany, executeRawUnsafe, findMany, calls };
 }
 

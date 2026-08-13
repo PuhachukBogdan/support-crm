@@ -10,6 +10,7 @@ import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { LabelsRepository } from '../labels/labels.repository';
+import { StatusRepository } from '../status/status.repository';
 import { MacrosRepository, type MacroRow } from './macros.repository';
 import {
   MacroDefinitionError,
@@ -46,6 +47,8 @@ export class MacrosController {
     @Inject(MacrosRepository) private readonly macros: MacrosRepository,
     @Inject(LabelsRepository) private readonly labels: LabelsRepository,
     @Inject(ConversationRepository) private readonly conversations: ConversationRepository,
+    // Feature 032: a macro's SET_STATUS value is validated against THIS account's configured statuses.
+    @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
   @GrpcMethod('ChatsReadService', 'ListMacros')
@@ -66,8 +69,9 @@ export class MacrosController {
     }
     let actions;
     try {
-      // Unknown action types are rejected HERE, at define time (research R4).
-      actions = parseActions(req.actions);
+      // Unknown action types are rejected HERE, at define time (research R4) — and, since feature 032,
+      // so is a status this account has not configured or has retired.
+      actions = parseActions(req.actions, await this.statuses.activeKeys(ctx.accountId));
     } catch (err) {
       throw new RpcException({
         code: GrpcStatus.INVALID_ARGUMENT,
@@ -105,7 +109,9 @@ export class MacrosController {
     // 2. Re-validate the stored definition (it may predate this code — research R4).
     let actions;
     try {
-      actions = parseDefinition(macro.definition);
+      // Feature 032: re-validated against the CURRENT catalogue, which is what makes retiring a status
+      // stop the macros that used it rather than leaving them to write a word nothing resolves.
+      actions = parseDefinition(macro.definition, await this.statuses.activeKeys(ctx.accountId));
     } catch {
       throw new RpcException({
         code: GrpcStatus.FAILED_PRECONDITION,

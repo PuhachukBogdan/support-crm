@@ -6,6 +6,7 @@ import { MembershipUnavailableError } from '../person/person-members.client';
 import type { PrismaService } from '../prisma.service';
 import type { AuthorAuthorityClient } from '../auth/auth.client';
 import type { AssignableOperator, PersonMembersClient } from '../person/person-members.client';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /**
  * US3 (feature 024, roadmap 5.3) — turning a GROUP into a routing candidate pool.
@@ -54,6 +55,8 @@ function make(opts: {
     prisma,
     { listGroupMembers } as unknown as AuthorAuthorityClient,
     { resolveOperators } as unknown as PersonMembersClient,
+    // Feature 032: the load count reads the account's NON-TERMINAL statuses instead of ['open','pending'].
+    fakeStatusRepository(),
   );
   return { pool, listGroupMembers, resolveOperators, findMany, forAccount };
 }

@@ -23,12 +23,54 @@ import "crm/audit/v1/audit.proto";
 
 // Package-scoped enums → PREFIXED values; *_UNSPECIFIED = 0; wire value = NAME (enums:String).
 
+// ⚠️ DEPRECATED by feature 032 (roadmap 4.16, ADR 0040). The flat vocabulary is not the model of
+// record any more: a ticket's status is a per-account CONFIGURATION key (`status_key`) belonging to one
+// closed CATEGORY (`ConversationStatusCategory` below).
+//
+// It stays declared because `buf breaking = FILE` forbids deleting it, and for no other reason. Every
+// field of this type is NO LONGER POPULATED on reads and NOT ACCEPTED as a write or a filter — a
+// request that carries only the old field is REFUSED. Mapping it instead would be lossy in the filter
+// direction (`SNOOZED` would return every pending conversation), which is the confidently-wrong-answer
+// shape feature 012 shipped once.
 enum ConversationStatus {
   CONVERSATION_STATUS_UNSPECIFIED = 0;
   CONVERSATION_STATUS_OPEN = 1;
   CONVERSATION_STATUS_PENDING = 2;
   CONVERSATION_STATUS_RESOLVED = 3;
   CONVERSATION_STATUS_SNOOZED = 4;
+}
+
+// ⭐ Feature 032 (roadmap 4.16, ADR 0040 §1) — the CLOSED, additive category catalogue. This is the
+// only status vocabulary machine logic may branch on: the SLA pause (4.17), the terminal condition of
+// the agent's rail (4.19), the "unsolved" scopes, the reporting buckets.
+//
+// Statuses themselves are configuration (`ConversationStatusDef`) and there are as many as the team's
+// workflow actually has. Categories keep the machine's vocabulary at six while the humans get theirs.
+// Canonical definition: `libs/common/src/statuses/categories.ts`.
+enum ConversationStatusCategory {
+  CONVERSATION_STATUS_CATEGORY_UNSPECIFIED = 0;
+  CONVERSATION_STATUS_CATEGORY_NEW = 1;
+  CONVERSATION_STATUS_CATEGORY_OPEN = 2;
+  CONVERSATION_STATUS_CATEGORY_PENDING = 3;   // waiting on the CUSTOMER — the one 4.17 pauses for
+  CONVERSATION_STATUS_CATEGORY_ON_HOLD = 4;   // waiting on US — deliberately NOT a pause (ADR 0041)
+  CONVERSATION_STATUS_CATEGORY_SOLVED = 5;    // terminal, may reopen
+  CONVERSATION_STATUS_CATEGORY_CLOSED = 6;    // terminal, archived; no seeded status yet (retention, SEC-25)
+}
+
+// One configured status of one account (feature 032). Read once by a screen and joined client-side —
+// deliberately NOT denormalized onto every conversation row, which is the widest-fanout message here.
+//
+// TWO NAMES, both required (ADR 0040 §2). `In progress` means *escalated, being worked on* internally
+// while the player is shown a neutral `Open`; with one name we either leak the internal workflow or
+// lose the internal precision. ⚠️ `end_user_name` has NO CONSUMER UNTIL PHASE 6 (U10) — populated
+// anyway, because dual naming cannot be retrofitted from data.
+message ConversationStatusDef {
+  string key = 1;                             // stable, per-account; what `status_key` carries
+  ConversationStatusCategory category = 2;
+  string agent_name = 3;
+  string end_user_name = 4;
+  bool active = 5;                            // inactive = not settable; existing rows keep it
+  int32 order = 6;                            // display order within the account
 }
 
 enum MessageKind {
@@ -77,7 +119,7 @@ message ConversationSummary {
   string id = 1;
   string brand_id = 2;
   string player_id = 3;               // "" when unlinked
-  ConversationStatus status = 4;
+  ConversationStatus status = 4;      // ⚠️ DEPRECATED (032) — no longer populated. See status_key below.
   string priority = 5;                // "" when unset
   string assignee_operator_id = 6;    // "" when unassigned
   string channel = 7;
@@ -88,6 +130,11 @@ message ConversationSummary {
   // literally. `subject_source` is deliberately NOT here — a list does not need to know how a title was
   // set, and the summary is the widest-fanout message in the product.
   string subject = 10;
+  // ⭐ Feature 032 — the status, in the model of record. Both travel: the KEY is what a filter and a
+  // write name, the CATEGORY is what the list may branch on (a badge colour, a group header) without
+  // fetching the catalogue. The names live in `ConversationStatusDef`, fetched once per screen.
+  string status_key = 11;
+  ConversationStatusCategory status_category = 12;
 }
 
 // Full conversation detail (metadata; thread via GetThread).
@@ -95,7 +142,7 @@ message Conversation {
   string id = 1;
   string brand_id = 2;
   string player_id = 3;
-  ConversationStatus status = 4;
+  ConversationStatus status = 4;      // ⚠️ DEPRECATED (032) — no longer populated. See status_key below.
   string priority = 5;
   string assignee_operator_id = 6;
   string channel = 7;
@@ -121,6 +168,9 @@ message Conversation {
   // `auth.Group.id`, empty when it was not routed through a desk. It is the fact an automation's
   // group scope matches on, and the reason a dangling scope fails closed rather than open.
   string routed_group_id = 17;
+  // ⭐ Feature 032 (roadmap 4.16) — the status in the model of record, same pair as on the summary.
+  string status_key = 18;
+  ConversationStatusCategory status_category = 19;
 }
 
 // Feature 016 (roadmap 4.9) — rendering metadata for a file attached to a message. The bytes are
@@ -187,11 +237,23 @@ service ChatsReadService {
   // system actor to avoid that would launder the key, so it is not done (spec FR-025).
   rpc GetPlayerContactSummary(GetPlayerContactSummaryRequest) returns (ContactSummary);
   rpc GetPersonContactSummary(GetPersonContactSummaryRequest) returns (ContactSummary);
+
+  // ── Feature 032 (roadmap 4.16) — the account's configured statuses, in display order.
+  //
+  // One call per screen, joined client-side: that is what keeps the two NAMES off every conversation
+  // row. Gated by `crm.inbox.view` at both tiers — reading the vocabulary the list is labelled with is
+  // the same fact class as reading the list. Inactive statuses are returned too (`active = false`), or
+  // a conversation still sitting in a retired status would render with no label at all.
+  rpc ListConversationStatuses(Empty) returns (ConversationStatusList);
+}
+
+message ConversationStatusList {
+  repeated ConversationStatusDef statuses = 1;
 }
 
 message ListConversationsRequest {
   // All filters optional; any combination (FR-002). *_UNSPECIFIED / "" = no filter on that dimension.
-  ConversationStatus status = 1;
+  ConversationStatus status = 1;      // ⚠️ DEPRECATED (032) — REFUSED, not mapped. Use status_key / status_category.
   string priority = 2;
   string assignee_operator_id = 3;
   string player_id = 4;
@@ -209,6 +271,18 @@ message ListConversationsRequest {
   string channel = 9;
   // UNSPECIFIED = the default order (updated_at DESC), never "unordered".
   ConversationOrder order = 10;
+  // ⭐ Feature 032 (roadmap 4.16) — the two status filters of the model of record.
+  //
+  // `status_key` is EXACT ("show me VIP Pending"). `status_category` is the broad one ("show me
+  // everything solved") and is resolved server-side into the account's keys in that category — so the
+  // Archive screen (W10) is this list with a parameter, not a second endpoint. Both may be combined;
+  // an inconsistent pair (a key that is not in that category) yields an empty page, which is the honest
+  // answer to a contradictory question.
+  //
+  // ⚠️ An UNKNOWN key is REFUSED, not ignored: dropping it would widen the query to every conversation,
+  // which is the opposite of what the caller asked for (the 012 lesson).
+  string status_key = 11;
+  ConversationStatusCategory status_category = 12;
 }
 
 message ConversationPage {
@@ -315,8 +389,11 @@ message ContactSummary {
 }
 
 message StatusCount {
-  ConversationStatus status = 1;
+  ConversationStatus status = 1;   // ⚠️ DEPRECATED (032) — no longer populated. See status_key.
   int32 conversation_count = 2;
+  // ⭐ Feature 032: the count is per STATUS KEY now, so a card can show nine buckets rather than four.
+  // The category is not repeated here — a client that wants to fold them reads the catalogue once.
+  string status_key = 3;
 }
 
 // Contact facts within one channel.
@@ -344,6 +421,9 @@ service ChatsWriteService {
   // conversation-write permission at both tiers: naming a ticket is not a new kind of authority, and
   // a key that gates one field would be a key nobody assigns.
   rpc SetConversationSubject(SetConversationSubjectRequest) returns (Conversation);
+  // ⭐ Feature 032 (roadmap 4.16 — R22) — additive. The one field an agent may NOT change. Gated by
+  // `crm.conversation.set_brand` at both tiers and audited inside the update's own transaction.
+  rpc SetConversationBrand(SetConversationBrandRequest) returns (Conversation);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   // Internal/seed + future channel ingress (Phase 6) path for inbound customer messages:
   rpc RecordIncomingMessage(RecordIncomingMessageRequest) returns (Message);
@@ -379,7 +459,25 @@ message PostMessageRequest {
 
 message SetConversationStatusRequest {
   string conversation_id = 1;
-  ConversationStatus status = 2;      // must be a valid non-UNSPECIFIED value
+  // ⚠️ DEPRECATED (032) and IGNORED. A caller that sends only this gets INVALID_ARGUMENT rather than a
+  // coerced write: `resolved` no longer exists (it is `solved`), and silently deciding which of nine
+  // statuses somebody meant is worse than refusing.
+  ConversationStatus status = 2;
+  // ⭐ Feature 032 — the status key, validated against the ACCOUNT's active statuses. Unknown, inactive
+  // or empty ⇒ INVALID_ARGUMENT. There is no server-side default: a status write always names one.
+  string status_key = 3;
+}
+
+// ⭐ Feature 032 (roadmap 4.16 — R22, amends ADR 0038). Brand is auto-assigned at ingestion, selectable
+// when a ticket is created by hand, and READ-ONLY for agents; a supervisor may correct it.
+//
+// Its own rpc and its own permission (`crm.conversation.set_brand`), not a field on some update: brand
+// drives reporting and record identity, so the change is AUDITED (0019) and an audited act needs a
+// handler that cannot be reached by accident. A no-op (the brand it already has) is refused — an entry
+// recording nothing is noise in the store that exists to be read.
+message SetConversationBrandRequest {
+  string conversation_id = 1;
+  string brand_id = 2;
 }
 
 // Feature 023. `subject` is bounded at the edge and REFUSED when over-long rather than truncated: a
@@ -413,7 +511,10 @@ message RecordIncomingMessageRequest {
 // belong to roadmap 4.6/4.7 — an unknown type is rejected at define AND at apply.
 enum MacroActionType {
   MACRO_ACTION_TYPE_UNSPECIFIED = 0;
-  MACRO_ACTION_TYPE_SET_STATUS = 1;   // value = ConversationStatus name
+  // ⚠️ Feature 032: `value` is now a STATUS KEY (`vip_pending`), validated against the account's active
+  // statuses at define AND at apply — it used to be the proto enum NAME. Stored definitions were
+  // rewritten by the 4.16 migration; a rule can no longer name a status nothing resolves.
+  MACRO_ACTION_TYPE_SET_STATUS = 1;   // value = status key
   MACRO_ACTION_TYPE_ADD_LABEL = 2;    // value = label_id
   MACRO_ACTION_TYPE_ASSIGN = 3;       // value = operator_id
   // Feature 014: the shared action vocabulary is used by macros AND automation rules.
@@ -812,7 +913,7 @@ service ChatsExportService {
 // test (`tests/exports/filter-parity.spec.ts`), not the intent — intent does not survive a future
 // field added to one side only.
 message ExportFilters {
-  ConversationStatus status = 1;
+  ConversationStatus status = 1;      // ⚠️ DEPRECATED (032) — REFUSED, not mapped. See status_key below.
   string priority = 2;
   string assignee_operator_id = 3;
   string player_id = 4;
@@ -827,6 +928,10 @@ message ExportFilters {
   string channel = 9;
   // 10 is `order` on the list request — INTENTIONALLY ABSENT, for the same reason as 6 and 7: an export
   // is a SET, not a sequence. Ordering it would be a presentation choice smuggled into a data request.
+  // Feature 032: both status filters are FILTERS, so both are mirrored — an admin who narrows the Inbox
+  // to one category and exports must not receive the whole set (SEC-AP2). Same numbers as the list.
+  string status_key = 11;
+  ConversationStatusCategory status_category = 12;
 }
 
 message CreateExportRequest {

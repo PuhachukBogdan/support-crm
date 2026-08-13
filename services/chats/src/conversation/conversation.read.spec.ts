@@ -7,6 +7,7 @@ import { ConversationReadController } from './conversation.grpc.controller';
 import { MAX_PAGE_SIZE } from '../shared/cursor';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 /** A fake account-scoped Prisma exposing only the conversation delegate used here (Track A). */
 function fakePrisma(rows: unknown[]) {
@@ -68,16 +69,22 @@ function noPortfolio() {
 describe('ConversationReadController.listConversations (US1)', () => {
   it('scopes to the caller account and builds the filter where-clause', async () => {
     const { prisma, findMany, forAccount } = fakePrisma([row()]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
 
     const res = await ctrl.listConversations(
-      { status: 'CONVERSATION_STATUS_OPEN', priority: 'high', playerId: 'p1' },
+      // Feature 032: the filter names a status KEY; the retired enum field is refused, not mapped.
+      { statusKey: 'open', priority: 'high', playerId: 'p1' },
       md('acc-1'),
     );
 
     expect(forAccount).toHaveBeenCalledWith('acc-1'); // account isolation (Principle I)
     const args = findMany.mock.calls[0][0];
-    expect(args.where).toMatchObject({ status: 'open', priority: 'high', player_id: 'p1' });
+    expect(args.where).toMatchObject({ status: { in: ['open'] }, priority: 'high', player_id: 'p1' });
     // No brand predicate: the caller asked for none. The intersection-with-permitted-brands that used
     // to be asserted here is gone with the concept (ADR 0038 §1) — account isolation still holds, and
     // it is now the only wall.
@@ -87,12 +94,17 @@ describe('ConversationReadController.listConversations (US1)', () => {
     // under one opened yesterday, so the Inbox's default is now the update time. The assertion is
     // rewritten rather than removed: it still pins the default, it just pins the new one.
     expect(args.orderBy).toEqual([{ updated_at: 'desc' }, { id: 'desc' }]);
-    expect(res.conversations[0]).toMatchObject({ id: 'c1', status: 'CONVERSATION_STATUS_OPEN' });
+    expect(res.conversations[0]).toMatchObject({ id: 'c1', statusKey: 'open' });
   });
 
   it('applies no brand filter when the caller asked for none', async () => {
     const { prisma, findMany } = fakePrisma([row()]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
     await ctrl.listConversations({}, md('acc-1')); // no brands metadata
     expect(findMany.mock.calls[0][0].where.brand_id).toBeUndefined();
   });
@@ -103,7 +115,12 @@ describe('ConversationReadController.listConversations (US1)', () => {
     // every brand. A filter narrows what you asked for; a scope narrows what you may ask for. Only
     // the first exists, so asking for any brand returns that brand.
     const { prisma, findMany } = fakePrisma([]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
     await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1'));
     expect(findMany.mock.calls[0][0].where.brand_id).toEqual({ in: ['brand-z'] });
   });
@@ -114,7 +131,12 @@ describe('ConversationReadController.listConversations (US1)', () => {
       row({ id: `c${i}`, created_at: new Date(Date.now() - i * 1000) }),
     );
     const { prisma, findMany } = fakePrisma(rows);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
     const res = await ctrl.listConversations({ pageSize: 10_000 }, md('acc-1'));
     expect(findMany.mock.calls[0][0].take).toBe(MAX_PAGE_SIZE + 1);
     expect(res.conversations).toHaveLength(MAX_PAGE_SIZE);
@@ -123,7 +145,12 @@ describe('ConversationReadController.listConversations (US1)', () => {
 
   it('rejects a malformed page token with INVALID_ARGUMENT (no unfiltered fallback)', async () => {
     const { prisma } = fakePrisma([]);
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
     await expect(ctrl.listConversations({ pageToken: 'garbage-$$$' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
     );
@@ -148,6 +175,7 @@ describe('*** the channel filter (feature 029, FR-011) ***', () => {
         new ConversationRepository(f.prisma, new TransitionRecorder()),
         noSla(),
         noPortfolio(),
+        fakeStatusRepository(),
       ),
     };
   }
@@ -183,6 +211,7 @@ describe('*** the two orders, and the cursor that belongs to them (feature 029, 
         new ConversationRepository(f.prisma, new TransitionRecorder()),
         noSla(),
         noPortfolio(),
+        fakeStatusRepository(),
       ),
     };
   }

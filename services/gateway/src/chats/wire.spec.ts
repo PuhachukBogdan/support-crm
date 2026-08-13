@@ -6,8 +6,8 @@ import {
   toMacroActionsWire,
   toMacroActionTypeWire,
   toProjectionWire,
-  toStatusWire,
-  toStatusWireRequired,
+  toStatusKey,
+  toStatusCategoryWire,
   toSubjectWire,
   MAX_SUBJECT_LENGTH,
 } from './wire';
@@ -57,23 +57,44 @@ describe('chats REST → wire mapping (fail-closed)', () => {
     });
   });
 
-  describe('status', () => {
-    it('maps documented statuses; absent → unspecified (no filter)', () => {
-      expect(toStatusWire('open')).toBe('CONVERSATION_STATUS_OPEN');
-      expect(toStatusWire('snoozed')).toBe('CONVERSATION_STATUS_SNOOZED');
-      expect(toStatusWire()).toBe('CONVERSATION_STATUS_UNSPECIFIED');
+  /**
+   * ⭐ Feature 032 (roadmap 4.16) — the status VOCABULARY left this tier; the CATEGORY vocabulary did not.
+   *
+   * The four-value map that used to be asserted here was the right shape for an enum and the wrong shape
+   * for configuration: a copy at the gateway would go stale the moment a supervisor added a status, which
+   * is feature 017's `pending`/`running` drift one layer up.
+   */
+  describe('status key (feature 032)', () => {
+    it('passes a key through, trimmed — a supervisor may invent one and the gateway must not know', () => {
+      expect(toStatusKey('vip_pending')).toBe('vip_pending');
+      expect(toStatusKey('  supervisor_review  ')).toBe('supervisor_review');
+      // ⚠️ Including a key this deployment has not configured: refusing it is `chats`'s job, against the
+      // CALLER's catalogue. The gateway has no source for that fact and must not pretend to.
+      expect(toStatusKey('waiting_on_finance')).toBe('waiting_on_finance');
     });
 
-    // Previously an unknown filter value silently widened the query to "all statuses".
-    it.each(['OPEN', 'closed', 'done', 'pendng'])('rejects unknown status filter %p', (s) => {
-      expect(() => toStatusWire(s)).toThrow(BadRequestException);
+    it('still refuses an EMPTY status — "set it to nothing" is a malformed request', () => {
+      expect(() => toStatusKey()).toThrow(BadRequestException);
+      expect(() => toStatusKey('')).toThrow(BadRequestException);
+      expect(() => toStatusKey('   ')).toThrow(BadRequestException);
+    });
+  });
+
+  describe('status category (feature 032) — closed, so fail-closed', () => {
+    it('maps the six; absent → unspecified (no filter)', () => {
+      expect(toStatusCategoryWire('new')).toBe('CONVERSATION_STATUS_CATEGORY_NEW');
+      expect(toStatusCategoryWire('on_hold')).toBe('CONVERSATION_STATUS_CATEGORY_ON_HOLD');
+      expect(toStatusCategoryWire('closed')).toBe('CONVERSATION_STATUS_CATEGORY_CLOSED');
+      expect(toStatusCategoryWire()).toBe('CONVERSATION_STATUS_CATEGORY_UNSPECIFIED');
     });
 
-    it('requires a concrete status for a mutation', () => {
-      expect(toStatusWireRequired('resolved')).toBe('CONVERSATION_STATUS_RESOLVED');
-      expect(() => toStatusWireRequired()).toThrow(BadRequestException);
-      expect(() => toStatusWireRequired('')).toThrow(BadRequestException);
-    });
+    // An unknown category dropped rather than refused would widen the query to every conversation.
+    it.each(['OPEN', 'onhold', 'on-hold', 'resolved', 'snoozed'])(
+      'rejects the unknown category %p',
+      (c) => {
+        expect(() => toStatusCategoryWire(c)).toThrow(BadRequestException);
+      },
+    );
   });
 
   describe('macro actions (feature 013)', () => {
@@ -92,25 +113,28 @@ describe('chats REST → wire mapping (fail-closed)', () => {
       },
     );
 
-    it('validates a whole action list and normalises a SET_STATUS value to its wire name', () => {
+    // Feature 032: a SET_STATUS value is a KEY and travels unchanged. It used to be normalised to a
+    // proto enum name here; the account's catalogue is the only authority now, and `chats` checks it at
+    // define AND at apply.
+    it('validates a whole action list and passes a SET_STATUS key through', () => {
       expect(
         toMacroActionsWire([
-          { type: 'set_status', value: 'pending' },
+          { type: 'set_status', value: 'vip_pending' },
           { type: 'add_label', value: 'label-1' },
         ]),
       ).toEqual([
-        { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' },
+        { type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'vip_pending' },
         { type: 'MACRO_ACTION_TYPE_ADD_LABEL', value: 'label-1' },
       ]);
     });
 
-    it('rejects an empty list, a missing value, and an unknown status inside SET_STATUS', () => {
+    it('rejects an empty list and a blank value (the shape checks that remain at this tier)', () => {
       expect(() => toMacroActionsWire([])).toThrow(BadRequestException);
       expect(() => toMacroActionsWire(undefined)).toThrow(BadRequestException);
       expect(() => toMacroActionsWire([{ type: 'add_label', value: '   ' }])).toThrow(
         BadRequestException,
       );
-      expect(() => toMacroActionsWire([{ type: 'set_status', value: 'closed' }])).toThrow(
+      expect(() => toMacroActionsWire([{ type: 'set_status', value: '  ' }])).toThrow(
         BadRequestException,
       );
     });

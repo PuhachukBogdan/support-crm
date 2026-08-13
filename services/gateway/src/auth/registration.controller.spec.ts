@@ -6,6 +6,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import { RegistrationController } from './registration.controller';
 import { AUTH_CLIENT } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, type GatewayConfig } from '../config';
+import { EnsureOperatorProfile } from './ensure-operator-profile';
 
 /**
  * T025 (US3) — the registration edge: `register/start` returns code_sent/401, `register/complete`
@@ -22,6 +23,10 @@ describe('RegistrationController (feature 010)', () => {
       providers: [
         { provide: AUTH_CLIENT, useValue: { getService: () => auth } },
         { provide: GATEWAY_CONFIG, useValue: cfg },
+        // Roadmap 5.10: the profile call is a side effect of a successful registration and is
+        // asserted on its own in `ensure-operator-profile.spec.ts`. Stubbed here so these tests keep
+        // testing the REST edge and nothing else.
+        { provide: EnsureOperatorProfile, useValue: { fromAccessToken: async () => undefined } },
       ],
     }).compile();
     app = moduleRef.createNestApplication();

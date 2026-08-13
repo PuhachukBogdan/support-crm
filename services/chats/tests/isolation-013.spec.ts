@@ -15,6 +15,7 @@ import { MacrosController } from '../src/macros/macros.grpc.controller';
 import { CannedRepository } from '../src/canned/canned.repository';
 import { CannedController } from '../src/canned/canned.grpc.controller';
 import { TransitionRecorder } from '../src/transition/transition.recorder';
+import { fakeStatusRepository } from '../src/status/status.fixture';
 
 /**
  * T036 (feature 013) — consolidated cross-account isolation sweep for the workflow layer
@@ -49,7 +50,7 @@ const macros: Row[] = [
     id: 'm-shared',
     account_id: 'acc-1',
     name: 'ours',
-    definition: { actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'CONVERSATION_STATUS_PENDING' }] },
+    definition: { actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' }] },
   },
   {
     id: 'm-only-2',
@@ -191,7 +192,7 @@ const assignment = () =>
   );
 const autoAssign = () =>
   new AutoAssignController(
-    new RoundRobinStateRepository(prisma, new TransitionRecorder()),
+    new RoundRobinStateRepository(prisma, new TransitionRecorder(), fakeStatusRepository()),
     conversationRepo(),
     // Feature 024: this sweep never names a group, so the pool must never be consulted. A throwing
     // stub proves that rather than assuming it.
@@ -214,9 +215,10 @@ const autoAssign = () =>
 const labelsCtrl = () => new LabelsController(new LabelsRepository(prisma), conversationRepo());
 const macrosCtrl = () =>
   new MacrosController(
-    new MacrosRepository(prisma, new TransitionRecorder()),
+    new MacrosRepository(prisma, new TransitionRecorder(), fakeStatusRepository()),
     new LabelsRepository(prisma),
     conversationRepo(),
+    fakeStatusRepository(),
   );
 const cannedCtrl = () => new CannedController(new CannedRepository(prisma));
 

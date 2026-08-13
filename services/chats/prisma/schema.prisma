@@ -25,7 +25,10 @@ model Conversation {
   brand_id             String // soft ref to brands.Brand.id
   player_id            String? // soft ref / feed key; nullable until linked
   reference            String? // human-facing ticket id (format id–date–channel TBD) — reserved
-  status               String   @default("open") // open | pending | resolved | snoozed
+  /// The status KEY — a row in `ConversationStatus`, not a value in an enum (feature 032, ADR 0040).
+  /// The composite foreign key below is what makes "every status resolves to a category" structural:
+  /// there is no way to store a word the account has not configured, so no read has to cope with one.
+  status               String   @default("open")
   priority             String?
   /// Feature 031 (roadmap 4.19): the URGENCY rank of `priority`, stored so the queue can be ordered by
   /// meaning rather than by the alphabet (`high < low < normal` is correct as strings and nonsense as
@@ -111,6 +114,10 @@ model Conversation {
 
   messages Message[]
   labels   ConversationLabel[]
+  /// Feature 032: `(account_id, status)` → `ConversationStatus(account_id, key)`. Composite on purpose —
+  /// statuses are per-account configuration, so a bare `status` reference would let one tenant's ticket
+  /// stand on another tenant's vocabulary.
+  status_def ConversationStatus @relation(fields: [account_id, status], references: [account_id, key])
 
   @@index([account_id, status])
   @@index([account_id, player_id])
@@ -144,6 +151,45 @@ model Conversation {
   // index this third order is a sort over a scan of the largest table in the system — the same budget
   // argument as the `updated_at` index above, and the reason the rank is stored at all.
   @@index([account_id, priority_rank, updated_at])
+}
+
+/// ⭐ One configured ticket status of one account (feature 032, roadmap 4.16 — ADR 0040).
+///
+/// ── Configuration, not a vocabulary in code ──────────────────────────────────────────────────────
+/// The `category` is a member of the CLOSED catalogue in `libs/common/src/statuses/categories.ts` and
+/// is the only part machine logic may branch on. Everything else here is a supervisor's editorial
+/// choice, which is what lets the authoring screen (roadmap 3.14 / block W15a) ship with no migration:
+/// adding *Waiting for finance* is an INSERT.
+///
+/// ── Two names, both required (ADR 0040 §2) ───────────────────────────────────────────────────────
+/// `agent_name` is what the team sees; `end_user_name` is what the player sees. ⚠️ The second has NO
+/// CONSUMER UNTIL PHASE 6 (U10) and is populated anyway — dual naming cannot be retrofitted from data,
+/// because a single historical name is ambiguous about which audience it was for.
+///
+/// ── Why nothing is ever deleted ──────────────────────────────────────────────────────────────────
+/// `active = false` retires a status. There is no delete path: conversations reference the key, so
+/// removing the row would either orphan history or force a bulk rewrite of tickets nobody touched.
+model ConversationStatus {
+  id            String   @id @default(uuid())
+  account_id    String
+  key           String
+  /// new | open | pending | on_hold | solved | closed — the closed catalogue (never free text).
+  category      String
+  agent_name    String
+  end_user_name String
+  /// Retired statuses stay readable so an old ticket still renders a label; they are not settable.
+  active        Boolean  @default(true)
+  /// Display order within the account. Seeded by tens so a later insert needs no renumbering.
+  order         Int      @default(0)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  conversations Conversation[]
+
+  /// The key IS the identity within an account — and it is what the conversation FK stands on.
+  @@unique([account_id, key])
+  /// The catalogue read: one account's statuses, in display order, active-first filterable.
+  @@index([account_id, active, order])
 }
 
 /// An entry within a conversation. `private` flags an internal note; realtime-scoping so it

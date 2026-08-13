@@ -8,6 +8,7 @@ import type { DomainEventPublisher } from '../events/events.publisher';
 import { ConversationWriteController } from './conversation.write.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
+import { fakeStatusRepository } from '../status/status.fixture';
 
 function detailRow(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -95,15 +96,25 @@ function noSla() {
 describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
   it('returns detail for a conversation in a permitted brand', async () => {
     const { prisma, forAccount } = fakePrisma({ findFirst: jest.fn().mockResolvedValue(detailRow()) });
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
     const res = await ctrl.getConversation({ id: 'c1' }, md('acc-1'));
     expect(forAccount).toHaveBeenCalledWith('acc-1');
-    expect(res).toMatchObject({ id: 'c1', brandId: 'brand-a', status: 'CONVERSATION_STATUS_OPEN' });
+    expect(res).toMatchObject({ id: 'c1', brandId: 'brand-a', statusKey: 'open' });
   });
 
   it('is NOT_FOUND when the id is absent in this account (no cross-account read)', async () => {
     const { prisma } = fakePrisma({ findFirst: jest.fn().mockResolvedValue(null) });
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
+    const ctrl = new ConversationReadController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noSla(),
+      noPortfolio(),
+      fakeStatusRepository(),
+    );
     await expect(ctrl.getConversation({ id: 'other-acct' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
     );
@@ -135,13 +146,31 @@ function noEvents() {
   } as unknown as DomainEventPublisher;
 }
 
+/**
+ * Feature 032: only the brand write reaches the audit trail, and it has its own spec
+ * (`brand-write-rule.spec.ts`). A stub that THROWS is the assertion for every case here: a status or
+ * subject write that ever grew an audit entry would fail loudly instead of silently gaining one.
+ */
+function noAudit() {
+  return {
+    statement: () => {
+      throw new Error('only the brand write is audited (feature 032)');
+    },
+  } as never;
+}
+
 describe('Conversation writes (US1)', () => {
   it('CreateConversation still requires a brand — but never judges WHICH one', async () => {
     // ⚠️ Was: "refuses a brand outside the caller scope". No brand is outside anyone's scope
     // (ADR 0038 §1) — one support department serves them all. What survives is the requirement that
     // a conversation HAS a brand, because a record with no origin cannot be rendered or filtered.
     const { prisma, conversation } = fakePrisma();
-    const ctrl = new ConversationWriteController(new ConversationRepository(prisma, new TransitionRecorder()), noEvents());
+    const ctrl = new ConversationWriteController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noEvents(),
+      fakeStatusRepository(),
+      noAudit(),
+    );
 
     await expect(ctrl.createConversation({ brandId: '' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
@@ -153,11 +182,24 @@ describe('Conversation writes (US1)', () => {
     // would mean building a second one to prove something already proven.
   });
 
-  it('SetConversationStatus rejects an invalid status', async () => {
+  it('SetConversationStatus rejects a status this account has not configured', async () => {
     const { prisma } = fakePrisma();
-    const ctrl = new ConversationWriteController(new ConversationRepository(prisma, new TransitionRecorder()), noEvents());
+    const ctrl = new ConversationWriteController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noEvents(),
+      fakeStatusRepository(),
+      noAudit(),
+    );
     await expect(
-      ctrl.setConversationStatus({ conversationId: 'c1', status: 'CONVERSATION_STATUS_UNSPECIFIED' }, md()),
+      ctrl.setConversationStatus({ conversationId: 'c1', statusKey: 'closed' }, md()),
+    ).rejects.toBeInstanceOf(RpcException);
+    // ⚠️ And a caller that sends ONLY the retired enum field is refused too, rather than coerced: which
+    // of nine configured statuses `CONVERSATION_STATUS_PENDING` meant is not ours to guess.
+    await expect(
+      ctrl.setConversationStatus(
+        { conversationId: 'c1', status: 'CONVERSATION_STATUS_PENDING' },
+        md(),
+      ),
     ).rejects.toBeInstanceOf(RpcException);
   });
 
@@ -168,23 +210,29 @@ describe('Conversation writes (US1)', () => {
       // Feature 023 added a THIRD read: the `before` row, fetched inside the transaction so that
       // `from` is the value this update actually replaced rather than one read moments earlier.
       .mockResolvedValueOnce(detailRow({ status: 'open' })) // before-row, inside the transaction
-      .mockResolvedValueOnce(detailRow({ status: 'resolved' })); // re-read after update
+      .mockResolvedValueOnce(detailRow({ status: 'solved' })); // re-read after update
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
     const { prisma, conversationTransition } = fakePrisma({ findFirst, updateMany });
-    const ctrl = new ConversationWriteController(new ConversationRepository(prisma, new TransitionRecorder()), noEvents());
+    const ctrl = new ConversationWriteController(
+      new ConversationRepository(prisma, new TransitionRecorder()),
+      noEvents(),
+      fakeStatusRepository(),
+      noAudit(),
+    );
     const res = await ctrl.setConversationStatus(
-      { conversationId: 'c1', status: 'CONVERSATION_STATUS_RESOLVED' },
+      { conversationId: 'c1', statusKey: 'solved' },
       md('acc-1'),
     );
-    expect(updateMany).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { status: 'resolved' } });
-    expect(res.status).toBe('CONVERSATION_STATUS_RESOLVED');
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { status: 'solved' } });
+    // Feature 032: `resolved` became `solved` (ADR 0040 §5), and the wire carries the KEY plus its category.
+    expect(res.statusKey).toBe('solved');
 
     // Feature 023: the transition rides the same transaction, names the human, and records BOTH
     // ends of the change — `from` is what makes the stream answer "what happened", not just "what is".
     expect(conversationTransition.create).toHaveBeenCalledTimes(1);
     const row = conversationTransition.create.mock.calls[0]![0].data;
     expect(row.type).toBe('conversation.status_changed');
-    expect(row.payload_json).toEqual({ from: 'open', to: 'resolved' });
+    expect(row.payload_json).toEqual({ from: 'open', to: 'solved' });
     expect(row.actor_kind).toBe('user');
     expect(row.actor_ref).toBe('u1');
     expect(row.subject_id).toBe('c1');
@@ -211,6 +259,7 @@ describe('*** account isolation holds for the new channel filter and both orders
         new ConversationRepository(f.prisma, new TransitionRecorder()),
         noSla(),
         noPortfolio(),
+        fakeStatusRepository(),
       ),
     };
   }
@@ -245,6 +294,7 @@ describe('*** account isolation holds for the new channel filter and both orders
       new ConversationRepository(a.prisma, new TransitionRecorder()),
       noSla(),
       noPortfolio(),
+      fakeStatusRepository(),
     );
     const page = await ctrlA.listConversations({ pageSize: 50 }, md('acc-1'));
     expect(page.nextPageToken).not.toBe('');
@@ -254,6 +304,7 @@ describe('*** account isolation holds for the new channel filter and both orders
       new ConversationRepository(b.prisma, new TransitionRecorder()),
       noSla(),
       noPortfolio(),
+      fakeStatusRepository(),
     );
     await ctrlB.listConversations({ pageToken: page.nextPageToken }, md('acc-2'));
     expect(b.forAccount).toHaveBeenCalledWith('acc-2');

@@ -37,6 +37,20 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // broad-by-default choice 0032 §4A made — and which does not relax SEC-AP2, since no v1 export
   // scope carries contact data at all.
   { category: 'crm', key: 'crm.exports.conversations', label: 'Export conversations' },
+  // ⭐ Feature 032 (roadmap 4.16, R22). Changing WHICH BRAND a conversation belongs to.
+  //
+  // ⚠️ NOT a reuse of `crm.conversation.reply`. That key covers everyday work on a ticket by whoever
+  // handles it; brand decides which reports the conversation appears in and whose history it becomes part
+  // of, and the operator's rule is explicit: assigned at ingestion, chosen when a ticket is raised by
+  // hand, **read-only for agents**, corrigible by a supervisor. Folding it into the reply key would hand
+  // every agent the one field they are supposed not to touch.
+  //
+  // ⚠️ It is a WRITE key only. Brand is not an authorization wall (ADR 0038 §1) — nobody is refused a
+  // conversation because of its brand, and this changes nothing about that.
+  //
+  // Listed in `teamlead`'s defaults below (the supervisor role) and in NO agent role's, so it is off for
+  // support/VIP/AM by construction; `admin`/`super_admin` receive it through the computed ALL_KEYS.
+  { category: 'crm', key: 'crm.conversation.set_brand', label: "Change a conversation's brand" },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -165,6 +179,8 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     // key stays OFF for every existing agent until granted (the 011 R-2 corollary).
     'crm.automations.manage',
     'crm.sla.manage',
+    // Feature 032 (R22): the supervisor who may correct a mis-branded ticket. Audited every time.
+    'crm.conversation.set_brand',
   ],
   // admin gets everything EXCEPT the two super-admin exclusives: role management (FR-018) and
   // the view-as preview (US5 — God/super-admin only).

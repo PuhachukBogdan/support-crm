@@ -8,6 +8,9 @@ import { RegistrationController } from './registration.controller';
 import { AuthGuard } from './auth.guard';
 import { GrpcClientsModule } from '../grpc/clients.module';
 import { GATEWAY_CONFIG, loadGatewayConfig } from '../config';
+// MVP block W1 (roadmap 5.10): a person who obtained a session must HAVE an operator profile, or they
+// are unassignable. Composed here because `auth` and `users` have no clients for each other.
+import { EnsureOperatorProfile } from './ensure-operator-profile';
 
 /**
  * Gateway session-edge module (feature 009). Provides the validated gateway config, the REST
@@ -21,6 +24,7 @@ import { GATEWAY_CONFIG, loadGatewayConfig } from '../config';
   providers: [
     { provide: GATEWAY_CONFIG, useFactory: () => loadGatewayConfig() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    EnsureOperatorProfile,
   ],
 })
 export class AuthEdgeModule {}

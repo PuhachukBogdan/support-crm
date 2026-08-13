@@ -66,6 +66,19 @@ const detailRow = {
  */
 const COMPOSED_ELSEWHERE = ['first_reply_sla'];
 /**
+ * ⭐ Feature 032 (roadmap 4.16) — declared and DELIBERATELY NOT PROJECTED.
+ *
+ * `status` is the retired `ConversationStatus` enum. It stays declared because `buf breaking = FILE`
+ * forbids deleting a field, and it is deliberately left unpopulated: a status is now a per-account KEY
+ * with a CATEGORY (`status_key` / `status_category`), and there is no honest four-value projection of
+ * nine configured statuses.
+ *
+ * ⚠️ This list is NOT a place to park a field somebody forgot. Every entry is a wire field the product
+ * has stopped answering, and adding one is a claim that no client reads it — true here only because the
+ * Inbox screen does not exist yet (block W6 is written against `status_key` from the start).
+ */
+const DEPRECATED_UNPOPULATED = ['status'];
+/**
  * ⚠️⚠️ **This one rename cost feature 029 a near-miss, so it is worth naming plainly.**
  *
  * `last_activity_at` on the wire IS `Conversation.updated_at`. There is no `last_activity_at` column
@@ -108,7 +121,10 @@ describe('T033 — the conversation mappers project every field the contract dec
   it('ConversationSummary: every declared field is projected', () => {
     const projected = new Set([...summaryKeys, ...Object.keys(RENAMED_ON_THE_WIRE)]);
     const missing = summaryDeclared.filter(
-      (f) => !projected.has(f) && !COMPOSED_ELSEWHERE.includes(f),
+      (f) =>
+        !projected.has(f) &&
+        !COMPOSED_ELSEWHERE.includes(f) &&
+        !DEPRECATED_UNPOPULATED.includes(f),
     );
     expect(missing).toEqual([]);
   });
@@ -116,7 +132,10 @@ describe('T033 — the conversation mappers project every field the contract dec
   it('Conversation (detail): every declared field is projected', () => {
     const projected = new Set([...detailKeys, ...Object.keys(RENAMED_ON_THE_WIRE)]);
     const missing = detailDeclared.filter(
-      (f) => !projected.has(f) && !COMPOSED_ELSEWHERE.includes(f),
+      (f) =>
+        !projected.has(f) &&
+        !COMPOSED_ELSEWHERE.includes(f) &&
+        !DEPRECATED_UNPOPULATED.includes(f),
     );
     expect(missing).toEqual([]);
   });
@@ -136,6 +155,19 @@ describe('T033 — the conversation mappers project every field the contract dec
     expect(summaryKeys).toContain('subject');
     expect(detailKeys).toContain('subject');
     expect(toSummaryWire(summaryRow).subject).toBe('не пришёл депозит');
+  });
+
+  // ⭐ Feature 032: the guard's other half — the deprecated field must be UNPOPULATED, and the pair that
+  // replaced it must be on BOTH messages. Without this, `DEPRECATED_UNPOPULATED` would be a way to let a
+  // field quietly go missing.
+  it('the retired status enum is absent while the key AND the category are projected', () => {
+    expect(summaryKeys).not.toContain('status');
+    expect(detailKeys).not.toContain('status');
+    for (const keys of [summaryKeys, detailKeys]) {
+      expect(keys).toContain('status_key');
+      expect(keys).toContain('status_category');
+    }
+    expect(toSummaryWire(summaryRow).statusKey).toBe('open');
   });
 
   it('the SOURCE is on the detail and deliberately NOT on the summary', () => {

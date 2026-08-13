@@ -26,6 +26,10 @@ import {
   // feature 022 (roadmap 4.13).
   SEED_PLAYER_LINKED_A,
   SEED_PLAYER_LINKED_B,
+  // Feature 032 (roadmap 4.16): the nine configured statuses.
+  SEEDED_STATUSES,
+  isStatusCategory,
+  NON_TERMINAL_CATEGORIES,
 } from '@crm/common';
 
 /**
@@ -410,5 +414,86 @@ describe('chats seed builder — contact stamps (feature 022)', () => {
     );
     expect(out[0]!.last_inbound_at).toEqual(new Date('2026-07-21T09:00:00Z'));
     expect(out[0]!.last_outbound_at).toBeNull(); // a system entry stamps nothing
+  });
+});
+
+
+/**
+ * T017 / T023 (feature 032, roadmap 4.16 — ADR 0040) — the seeded status catalogue, and the fixtures that
+ * now use it.
+ *
+ * ⚠️ The load-bearing assertion is the LAST one: every conversation names a status the seed configures. It
+ * is the same claim the composite foreign key makes in the database, asserted where a developer meets it
+ * first — a fixture that named an unconfigured status would otherwise fail at `prisma migrate`/seed time
+ * on a constraint, which reads as a broken migration rather than as a broken fixture.
+ */
+describe('chats seed — feature 032 (status categories)', () => {
+  const seed = buildSeed();
+
+  it('seeds the nine statuses, all in the seed account, each in a real category', () => {
+    expect(seed.statuses).toHaveLength(9);
+    for (const st of seed.statuses) {
+      expect(st.account_id).toBe(SEED_ACCOUNT_ID);
+      expect(isStatusCategory(st.category)).toBe(true);
+      expect(st.agent_name.length).toBeGreaterThan(0);
+      expect(st.end_user_name.length).toBeGreaterThan(0);
+      expect(st.active).toBe(true);
+    }
+  });
+
+  it('is built FROM the shared set — so the seed and the SQL migration cannot disagree', () => {
+    expect(seed.statuses.map((s) => s.key)).toEqual(SEEDED_STATUSES.map((s) => s.key));
+  });
+
+  it('⭐ idempotent by KEY: the ids are derived from the key, so re-seeding leaves nine, not eighteen', () => {
+    // `seed.ts` upserts on `(account_id, key)`. A random or sequential id would make a second run insert a
+    // parallel set — the shape the W1 live round found in `Credential`, one table over.
+    const ids = seed.statuses.map((s) => s.id);
+    expect(new Set(ids).size).toBe(9);
+    for (const st of seed.statuses) {
+      expect(st.id).toBe(`seed-status-${st.key}`);
+    }
+    expect(buildSeed().statuses).toEqual(seed.statuses);
+  });
+
+  it('⭐ EVERY conversation names a status the seed configures (the FK, asserted here first)', () => {
+    const configured = new Set(seed.statuses.map((s) => s.key));
+    for (const conv of seed.conversations) {
+      expect({ id: conv.id, status: conv.status, configured: configured.has(conv.status) }).toEqual({
+        id: conv.id,
+        status: conv.status,
+        configured: true,
+      });
+    }
+  });
+
+  it('⚠️ the retired words are GONE from the fixtures (`resolved` → `solved`, `snoozed` → `pending`)', () => {
+    const statuses = seed.conversations.map((c) => c.status);
+    expect(statuses).not.toContain('resolved');
+    expect(statuses).not.toContain('snoozed');
+    expect(statuses).toContain('solved');
+  });
+
+  it('⭐ two fixtures use statuses the flat enum could not express — so the screen has them to show', () => {
+    const statuses = seed.conversations.map((c) => c.status);
+    expect(statuses).toContain('vip_pending');
+    expect(statuses).toContain('in_progress');
+  });
+
+  it('the in_progress fixture is NON-terminal and assigned — the load counter must see it', () => {
+    const conv = seed.conversations.find((c) => c.status === 'in_progress')!;
+    const def = seed.statuses.find((s) => s.key === 'in_progress')!;
+    expect(NON_TERMINAL_CATEGORIES).toContain(def.category);
+    expect(conv.assignee_operator_id).toBeTruthy();
+  });
+
+  it('⚠️ no stored macro or automation still names a proto enum member', () => {
+    const stored = JSON.stringify([seed.macros, seed.automations]);
+    expect(stored).not.toContain('CONVERSATION_STATUS_');
+    // …and the SET_STATUS values that remain are configured keys.
+    const configured = new Set(seed.statuses.map((s) => s.key));
+    for (const match of stored.matchAll(/"MACRO_ACTION_TYPE_SET_STATUS","value":"([^"]+)"/g)) {
+      expect(configured.has(match[1]!)).toBe(true);
+    }
   });
 });

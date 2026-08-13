@@ -766,3 +766,50 @@ service PlayerAssignmentService {
   rpc AssignPlayer(AssignPlayerRequest) returns (AssignmentResponse);
   rpc UnassignPlayer(UnassignPlayerRequest) returns (AssignmentResponse);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// OperatorProfileService — THE JOIN NOBODY OWNED (roadmap 5.10, MVP block W1).
+//
+// Registration writes `User` + `Credential` + `UserRole` into `auth_db` and stops. An `Operator` row
+// in `users_db` is what makes a person assignable — and **nothing in the product ever created one**,
+// only the seed. So `AssignPlayer` answered `no such manager` for a manager who plainly existed, and
+// every real person who joined by invite was unassignable while every seeded one worked.
+//
+// ⭐ **THE SUBJECT IS THE CALLER AND CANNOT BE A PARAMETER.** There is deliberately no
+// `auth_user_id` field: the account and the identity come from the validated caller context
+// (`x-actor-account-id` / `x-actor-user-id`), so this rpc can mint a profile for **exactly one
+// person — whoever is calling**. That is what makes it safe to reach from the registration path,
+// which is `@Public` by necessity: a leaked call can create at most the caller's own profile, and a
+// profile grants nothing on its own (every access decision is still auth's roles + permissions).
+// It is also the shape roadmap 5.11 requires, so that point inherits this surface rather than
+// inventing a second one.
+//
+// ⚠️ **Idempotent by contract, not by luck.** Called after registration AND after every login, so a
+// person who registered before this shipped is repaired on their next sign-in — the "named path"
+// 5.10 asked for, instead of a hand-written INSERT. The upsert keys on
+// `(account_id, auth_user_id)`, which is a UNIQUE constraint added with this rpc; without it two
+// concurrent calls would produce two profiles for one human being, which is the duplicate-staff
+// hazard 3.16 spends a paragraph on.
+//
+// ⚠️ **`EveryUserGetsOne` is the decided answer to 5.10's open question.** The alternative — create
+// the profile when a role that can hold work is granted — is narrower and matches the name better,
+// but it makes a ROLE CHANGE have a side effect in another service's database. A profile is inert;
+// a cross-service side effect on a permission edit is not.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+service OperatorProfileService {
+  rpc EnsureOwnOperator(EnsureOwnOperatorRequest) returns (Operator);
+}
+
+// Deliberately EMPTY, and the emptiness is the design.
+//
+// ① The subject is the caller (see the service comment), so there is no identity to carry.
+// ② A `display_name` field was drafted here and REMOVED before shipping: the only caller — the
+//    gateway, on the registration and login tails — has no name to put in it. The authoritative
+//    display name is `auth.User.display_name`, collected at registration; copying it into `users`
+//    would create a second copy of the same fact for the two to drift apart, and passing the field
+//    empty forever would make it an inert parameter — the exact shape of `x-actor-role`, an input
+//    read by nothing that survived four phases because it looked purposeful.
+//
+// A name arrives here only when something actually knows one: HR-driven provisioning (roadmap 3.15)
+// supplies one, and it can add a field then, additively, with a populated caller on day one.
+message EnsureOwnOperatorRequest {}

@@ -271,6 +271,30 @@ export const AUDIT_ACTIONS = {
     label: 'A player record separated from a person',
   },
 
+  /**
+   * ⭐ Feature 032 (roadmap 4.16, R22 — amends ADR 0038) — a conversation was moved to another brand.
+   *
+   * Brand is auto-assigned at ingestion and READ-ONLY for agents; a supervisor may correct it. Audited
+   * because brand drives reporting and record identity: a silent correction rewrites past numbers with
+   * nothing to point at, which is exactly the class ADR 0019's store exists for.
+   *
+   * ⚠️ Class `assignment`, and the closest precedent is `player.link` two rows above: both are statements
+   * about WHICH RECORD a thing belongs to. It is a reuse worth being honest about — no permission changes
+   * and no customer data is exposed. A dedicated *record-identity* class would be a better fit and earns
+   * its existence when a second act needs it (the same reasoning `presence.override` records for its own
+   * reuse); inventing it for one action would split one reviewable question across two filters.
+   *
+   * ⚠️ NOT a transition. R22 asks for accountability, not history: a `conversation.brand_changed`
+   * transition type would have no reader today, which is the *written-with-nobody-to-read-it* shape this
+   * project shipped once already.
+   */
+  'conversation.brand_changed': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation moved to another brand',
+  },
+
   // ── retention (roadmap 7.3 + ADR 0015) ──
   'audit.trim': {
     class: 'retention',

@@ -26,6 +26,12 @@ export interface Query {
   filters?: Record<string, unknown>;
   /** Tenant/brand scope — carried now so the real impl enforces isolation server-side. */
   scope?: { accountId?: string; brandId?: string };
+  /**
+   * W7: the parent INSTANCE a child resource lives under — the conversation id for
+   * `conversation-thread`. Required exactly when the route declares `{within}` in its path,
+   * refused otherwise; it is a path segment, never a filter, which is why it is not in `filters`.
+   */
+  within?: string;
 }
 
 /** A page of results. NOTE: no `total` — exact COUNT on large tables is disallowed. */

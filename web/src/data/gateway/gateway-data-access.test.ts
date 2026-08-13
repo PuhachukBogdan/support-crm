@@ -193,3 +193,108 @@ describe('*** the order is declared, or it never leaves the browser (feature 029
     expect(calls[0]!.query!.order).toBeUndefined();
   });
 });
+
+/**
+ * W7 (roadmap 9.3) — the writes, and the child rows they ride on. The ticket window is the first
+ * screen that writes, so these are the first tests of `create`/`update`/`remove` doing anything but
+ * refusing. The REQUEST side is what is asserted — path, verb, body, and that a refusal sends
+ * nothing; response bodies here are synthetic 200s because the claim under test is ours, not the
+ * server's (the block's live browser check speaks to the real gateway).
+ */
+describe('W7 — writes over child rows', () => {
+  const OK: RecordedResponse = { status: 200, path: '', body: { id: 'm1' } };
+
+  it('create posts to the child collection under its parent instance', async () => {
+    const { da, calls } = daFor([OK]);
+    const out = await da.create('conversation-messages', { kind: 'note', body: 'x' }, 'c1');
+    expect(calls[0]).toMatchObject({
+      path: '/conversations/c1/messages',
+      method: 'POST',
+      body: { kind: 'note', body: 'x' },
+    });
+    expect(out).toEqual(OK.body); // the server's word, passed through — never merged client-side
+  });
+
+  it('a child without its parent id is refused, and nothing is sent', async () => {
+    const { da, calls } = daFor([OK]);
+    await expect(da.create('conversation-messages', { body: 'x' })).rejects.toMatchObject({
+      retryable: false,
+    });
+    await expect(da.list('conversation-thread', { limit: 50 })).rejects.toMatchObject({
+      retryable: false,
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a `within` against a non-child row is refused, never silently dropped', async () => {
+    const { da, calls } = daFor([OK]);
+    await expect(da.list('conversations', { limit: 2, within: 'c1' })).rejects.toMatchObject({
+      retryable: false,
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('the thread lists under the conversation, with paging intact', async () => {
+    const { da, calls } = daFor([{ status: 200, path: '', body: { messages: [{ id: 'm1' }], nextPageToken: '' } }]);
+    const page = await da.list('conversation-thread', { limit: 50, within: 'c1' });
+    expect(calls[0]!.path).toBe('/conversations/c1/thread');
+    expect(calls[0]!.query).toMatchObject({ pageSize: '50' });
+    expect(calls[0]!.query).not.toHaveProperty('within');
+    expect(page.items).toEqual([{ id: 'm1' }]);
+  });
+
+  it('a child SINGLETON takes the empty id and appends nothing: status is PATCH, by default', async () => {
+    const { da, calls } = daFor([OK]);
+    await da.update('conversation-status', '', { status: 'open' }, 'c1');
+    expect(calls[0]).toMatchObject({
+      path: '/conversations/c1/status',
+      method: 'PATCH',
+      body: { status: 'open' },
+    });
+    // An id against a singleton is a programming error — there is nothing else the path could name.
+    await expect(da.update('conversation-status', 's1', {}, 'c1')).rejects.toMatchObject({
+      retryable: false,
+    });
+  });
+
+  it("the assignee row's declared verb wins: PUT places, DELETE unassigns", async () => {
+    const { da, calls } = daFor([OK, OK]);
+    await da.update('conversation-assignee', '', { operatorId: 'op1' }, 'c1');
+    expect(calls[0]).toMatchObject({ path: '/conversations/c1/assignee', method: 'PUT' });
+
+    await da.remove('conversation-assignee', '', 'c1');
+    expect(calls[1]).toMatchObject({ path: '/conversations/c1/assignee', method: 'DELETE' });
+  });
+
+  it('a label attaches with PUT to its own id and detaches with DELETE — no body either way', async () => {
+    const { da, calls } = daFor([OK, OK]);
+    await da.update('conversation-labels', 'l1', undefined, 'c1');
+    expect(calls[0]).toMatchObject({ path: '/conversations/c1/labels/l1', method: 'PUT' });
+    expect(calls[0]!.body).toBeUndefined();
+
+    await da.remove('conversation-labels', 'l1', 'c1');
+    expect(calls[1]).toMatchObject({ path: '/conversations/c1/labels/l1', method: 'DELETE' });
+  });
+
+  it('an instance id is URL-encoded on its way into the path', async () => {
+    const { da, calls } = daFor([OK]);
+    await da.create('conversation-messages', { body: 'x' }, 'a/b?c');
+    expect(calls[0]!.path).toBe('/conversations/a%2Fb%3Fc/messages');
+  });
+
+  it('a write op a row does not declare still refuses loudly and by name', async () => {
+    const { da, calls } = daFor([OK]);
+    await expect(da.create('conversations', {})).rejects.toMatchObject({ retryable: false });
+    await expect(da.remove('labels', 'l1')).rejects.toMatchObject({ retryable: false });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a failed write surfaces as a DataError class, with no body-derived message', async () => {
+    const { da } = daFor([{ status: 403, path: '', body: { error: 'secret detail' } }]);
+    const err = (await da
+      .update('conversation-status', '', { status: 'open' }, 'c1')
+      .catch((e: unknown) => e)) as DataError;
+    expect(err.retryable).toBe(false);
+    expect(JSON.stringify(err)).not.toContain('secret detail');
+  });
+});

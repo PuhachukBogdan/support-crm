@@ -70,7 +70,10 @@ describe('*** the transport branches on no resource ***', () => {
 
   it('reads every route fact from the row rather than from a constant', () => {
     const code = codeOf(TRANSPORT);
-    for (const field of ['path', 'collection', 'params', 'required', 'pageSizeParam', 'pageTokenParam', 'ops', 'orderParam', 'orders']) {
+    // W7 added `verbs` (write verbs) and `singleton`/`{within}` handling — still row facts, read
+    // the same way. If a verb or a path shape ever appears as a constant here, this list is where
+    // the omission shows.
+    for (const field of ['path', 'collection', 'params', 'required', 'pageSizeParam', 'pageTokenParam', 'ops', 'orderParam', 'orders', 'verbs', 'singleton']) {
       expect(code).toContain(`row.${field}`);
     }
   });
@@ -93,6 +96,23 @@ describe('the registry is well formed', () => {
     for (const row of ROUTE_REGISTRY) {
       expect(row.path.startsWith('/')).toBe(true);
       expect(row.path).not.toMatch(/^https?:|[?&]/);
+    }
+  });
+
+  it('W7: a child row carries `{within}` as one whole path segment, never a fragment', () => {
+    // The transport substitutes it with `.replace` once; a second occurrence would survive into the
+    // URL, and a fragment (`/x{within}y/`) would splice an id into a word. Both are unbuildable
+    // while this holds.
+    for (const row of ROUTE_REGISTRY) {
+      const hits = row.path.match(/\{within\}/g) ?? [];
+      expect(hits.length).toBeLessThanOrEqual(1);
+      if (hits.length === 1) expect(row.path).toMatch(/\/\{within\}(\/|$)/);
+    }
+  });
+
+  it('W7: write verbs, where declared, come from the closed set the gateway uses', () => {
+    for (const row of ROUTE_REGISTRY) {
+      if (row.verbs?.update) expect(['PATCH', 'PUT']).toContain(row.verbs.update);
     }
   });
 

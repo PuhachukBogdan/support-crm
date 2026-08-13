@@ -29,7 +29,14 @@ export type Operation = 'list' | 'get' | 'create' | 'update' | 'remove';
 export interface RouteRow {
   /** The name screens use. Unique across the registry. */
   readonly resource: ResourceName;
-  /** Collection path under the same-origin API prefix. No host, no query. */
+  /**
+   * Collection path under the same-origin API prefix. No host, no query.
+   *
+   * W7: may carry the `{within}` placeholder — the resource lives under an INSTANCE of another one
+   * (`/conversations/{within}/thread`). The instance id arrives per call (`Query.within` for reads,
+   * the `within` argument for writes), is REQUIRED, and is URL-encoded on substitution. A row
+   * without the placeholder refuses a `within` — passing one is a programming error, not a request.
+   */
   readonly path: string;
   /** Key of the array in a list response. Differs per resource — there is no uniform `items`. */
   readonly collection: string;
@@ -61,8 +68,19 @@ export interface RouteRow {
    * W6: a SINGLETON has one instance per caller and its path names it whole — `get` takes no id and
    * appends nothing. `/me/operator` is the first: the subject is the session, so an id would be a
    * place to name somebody else, which is exactly what the server's route refuses to have.
+   *
+   * W7 extends the same rule to writes: a singleton's `update`/`remove` also take id `''` and
+   * append nothing. Combined with `{within}` this models a child singleton — the ONE status of a
+   * conversation lives at `/conversations/{within}/status`, and there is no status id to name.
    */
   readonly singleton?: true;
+  /**
+   * W7: non-default write verbs. Defaults — `create` POST · `update` PATCH · `remove` DELETE —
+   * cover every row that does not say otherwise; the only declared exception so far is PUT, which
+   * the gateway uses where the write is an idempotent *placement* (assignee, label attach) rather
+   * than a partial edit. A field, not a branch: the transport reads it like everything else.
+   */
+  readonly verbs?: { readonly update?: 'PATCH' | 'PUT' };
 }
 
 /**
@@ -157,6 +175,100 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
     ops: ['list', 'get'],
+  },
+  /**
+   * ⭐ W7 — the ticket window's rows (roadmap 9.3). The window is the first WRITING screen, so these
+   * are the first rows with write ops and the first children (`{within}` = the conversation id).
+   *
+   * `conversation-thread` — the staff projection by default; `projection` is declared so a future
+   * customer-facing surface can ask for the narrower read EXPLICITLY, never by accident.
+   */
+  {
+    resource: 'conversation-thread',
+    path: '/conversations/{within}/thread',
+    collection: 'messages',
+    params: { projection: 'projection' },
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
+    // POST body: { kind?: 'reply'|'note', body?, mentions?, uploadIds? }. ⚠️ An unknown kind is the
+    // server's 400, never a default — the coercion that once published an internal note (SEC-13).
+    resource: 'conversation-messages',
+    path: '/conversations/{within}/messages',
+    collection: 'messages',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create'],
+  },
+  {
+    // The account's label set. Creating labels is also `crm.labels.manage` — same key as reading,
+    // so a control that can see the list can offer "new tag" without a second permission story.
+    resource: 'labels',
+    path: '/labels',
+    collection: 'labels',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list', 'create'],
+  },
+  {
+    // Attach = PUT /conversations/{id}/labels/{labelId} (idempotent placement), detach = DELETE
+    // same path. `update` with an empty patch IS the attach — the link has no body to carry.
+    resource: 'conversation-labels',
+    path: '/conversations/{within}/labels',
+    collection: 'labels',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    ops: ['list', 'update', 'remove'],
+  },
+  {
+    // A child SINGLETON: the one status of a conversation. `update('conversation-status', '',
+    // {status}, conversationId)` — the body carries a status KEY from the account's own catalogue;
+    // the server validates it there, the client never invents one.
+    resource: 'conversation-status',
+    path: '/conversations/{within}/status',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['update'],
+  },
+  {
+    // Assignee: PUT places (idempotent), DELETE unassigns — `remove` on the singleton, no id.
+    // «take it» is exactly `update` with the caller's own operator id from `/me/operator`.
+    resource: 'conversation-assignee',
+    path: '/conversations/{within}/assignee',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['update', 'remove'],
+  },
+  {
+    // The one byte-accepting route in the product, purpose-scoped (`message_attachment`: 10 MB,
+    // png/jpeg/webp/gif/pdf by CONTENT). The caller sends a FormData; the port passes it through.
+    resource: 'message-attachment-uploads',
+    path: '/uploads/message_attachment',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create'],
   },
 ] as const;
 

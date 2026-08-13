@@ -44,7 +44,8 @@ export class GatewayDataAccess implements DataAccess {
 
   async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
     const row = this.rowWith(resource, 'list');
-    const res = await this.http({ path: row.path, query: this.queryFor(row, query) });
+    const path = this.instancePath(row, query.within);
+    const res = await this.http({ path, query: this.queryFor(row, query) });
     const body = this.okBody(res) as Record<string, unknown>;
 
     const items = (body[row.collection] as T[] | undefined) ?? [];
@@ -60,30 +61,33 @@ export class GatewayDataAccess implements DataAccess {
 
   async get<T = unknown>(resource: ResourceName, id: string): Promise<T> {
     const row = this.rowWith(resource, 'get');
-    // W6: a singleton's path names the whole resource — no id segment exists to append, and passing
-    // one is a programming error, not a request (there is nobody else the path could name).
-    if (row.singleton) {
-      if (id !== '') throw clientRefusal(`"${resource}" is a singleton and takes no id`);
-      const res = await this.http({ path: row.path });
-      return this.okBody(res) as T;
-    }
-    const res = await this.http({ path: `${row.path}/${encodeURIComponent(id)}` });
+    const res = await this.http({ path: this.itemPath(row, id) });
     return this.okBody(res) as T;
   }
 
-  // The unused parameters are omitted rather than underscored: TypeScript accepts an implementation
-  // with fewer parameters, and this repository suppresses no-unused-vars nowhere. When a page needs
-  // one of these, the parameter arrives with the implementation that uses it.
-  async create<T = unknown>(resource: ResourceName): Promise<T> {
-    return this.notImplemented(resource, 'create');
+  /**
+   * W7 — the three writes, over the same rows (roadmap 9.3: the ticket window is the first screen
+   * that writes). Everything verb- and path-shaped comes off the row: `row.verbs` for the
+   * non-default verbs, `{within}` in `row.path` for child resources, `row.singleton` for writes
+   * that take no item id. A response body is returned as-is — the server's word, not a merge.
+   */
+  async create<T = unknown>(resource: ResourceName, input: unknown, within?: string): Promise<T> {
+    const row = this.rowWith(resource, 'create');
+    const res = await this.http({ path: this.instancePath(row, within), method: 'POST', body: input });
+    return this.okBody(res) as T;
   }
 
-  async update<T = unknown>(resource: ResourceName): Promise<T> {
-    return this.notImplemented(resource, 'update');
+  async update<T = unknown>(resource: ResourceName, id: string, patch: unknown, within?: string): Promise<T> {
+    const row = this.rowWith(resource, 'update');
+    const method = row.verbs?.update ?? 'PATCH';
+    const res = await this.http({ path: this.itemPath(row, id, within), method, body: patch });
+    return this.okBody(res) as T;
   }
 
-  async remove(resource: ResourceName): Promise<void> {
-    return this.notImplemented(resource, 'remove');
+  async remove(resource: ResourceName, id: string, within?: string): Promise<void> {
+    const row = this.rowWith(resource, 'remove');
+    const res = await this.http({ path: this.itemPath(row, id, within), method: 'DELETE' });
+    this.okBody(res);
   }
 
   /** Resolve the row and confirm the operation exists for it — a missing op fails by name. */
@@ -91,6 +95,37 @@ export class GatewayDataAccess implements DataAccess {
     const row = rowFor(resource);
     if (!row.ops.includes(op)) this.notImplemented(resource, op);
     return row;
+  }
+
+  /**
+   * W7 — the collection path, with the parent instance spliced in when the row is a CHILD
+   * (`{within}` in `row.path`). Both directions refuse rather than guess: a child path without its
+   * parent id is not a request, and a `within` against a non-child row is a caller error that would
+   * otherwise be silently discarded — the confident-wrong-answer shape again.
+   */
+  private instancePath(row: RouteRow, within: string | undefined): string {
+    const isChild = row.path.includes('{within}');
+    if (!isChild) {
+      if (within !== undefined) throw clientRefusal(`"${row.resource}" is not scoped to a parent instance`);
+      return row.path;
+    }
+    if (!within) throw clientRefusal(`"${row.resource}" requires the parent instance id (within)`);
+    return row.path.replace('{within}', encodeURIComponent(within));
+  }
+
+  /**
+   * The path of ONE item. W6's singleton rule, restated once for every op: a singleton's path names
+   * the whole resource — no id segment exists to append, and passing one is a programming error,
+   * not a request (there is nobody else the path could name). Everything else requires the id.
+   */
+  private itemPath(row: RouteRow, id: string, within?: string): string {
+    const base = this.instancePath(row, within);
+    if (row.singleton) {
+      if (id !== '') throw clientRefusal(`"${row.resource}" is a singleton and takes no id`);
+      return base;
+    }
+    if (id === '') throw clientRefusal(`"${row.resource}" requires an id`);
+    return `${base}/${encodeURIComponent(id)}`;
   }
 
   /**

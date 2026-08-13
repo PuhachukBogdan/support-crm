@@ -9,9 +9,15 @@ import type { Query, PaginatedResult, ResourceName } from './types';
 export interface DataAccess {
   list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>>;
   get<T = unknown>(resource: ResourceName, id: string): Promise<T>;
-  create<T = unknown>(resource: ResourceName, input: unknown): Promise<T>;
-  update<T = unknown>(resource: ResourceName, id: string, patch: unknown): Promise<T>;
-  remove(resource: ResourceName, id: string): Promise<void>;
+  /**
+   * W7 widened the three writes with `within` — the parent instance id for CHILD resources
+   * (`conversation-messages` lives under one conversation). Reads carry it on `Query.within`
+   * instead, so `list` is unchanged. Optional and additive: every pre-W7 implementation and call
+   * site is untouched, and a `within` against a non-child row is refused, never ignored.
+   */
+  create<T = unknown>(resource: ResourceName, input: unknown, within?: string): Promise<T>;
+  update<T = unknown>(resource: ResourceName, id: string, patch: unknown, within?: string): Promise<T>;
+  remove(resource: ResourceName, id: string, within?: string): Promise<void>;
   /**
    * Watch for *something changed*, and re-read through the methods above (feature 034, MVP block W4).
    *

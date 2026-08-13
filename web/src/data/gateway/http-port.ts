@@ -29,10 +29,15 @@ export interface HttpRequest {
   /**
    * Defaults to `'GET'` — every call site written before feature 027 is unchanged by its absence.
    * The default is what keeps widening this port from being a refactor of the data layer.
+   *
+   * W7 adds `PATCH`/`PUT`/`DELETE`: the ticket window is the first screen that writes (status,
+   * assignee, labels), and the gateway's routes use all three. Widened here once — the port stays
+   * the only file that knows an HTTP verb exists.
    */
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   /**
-   * JSON-serialised by the adapter.
+   * JSON-serialised by the adapter — unless it is a `FormData`, which is passed through untouched
+   * (W7: `POST /uploads/:purpose` is multipart, the only byte-accepting route in the product).
    *
    * ⚠️ **Never encoded into `query`.** A password or a one-time code in a URL is written to every
    * proxy log between the browser and the service, and to the browser's own history (FR-015,
@@ -67,15 +72,20 @@ export function createFetchPort(prefix: string = API_PREFIX): HttpPort {
     // construction above by intent, not by accident: these are the two lines a future edit could
     // merge, and merging them is the one mistake this port must never make.
     const hasBody = body !== undefined;
+    // A FormData travels as multipart and MUST NOT get a content-type here: the browser writes
+    // `multipart/form-data; boundary=…` itself, and a hand-set header ships without the boundary —
+    // the server then reads an unparseable body and the upload fails only against the real gateway.
+    const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
     let res: Response;
     try {
       res = await fetch(`${prefix}${path}${qs}`, {
         method,
         credentials: 'same-origin',
-        headers: hasBody
-          ? { Accept: 'application/json', 'content-type': 'application/json' }
-          : { Accept: 'application/json' },
-        ...(hasBody ? { body: JSON.stringify(body) } : {}),
+        headers:
+          hasBody && !multipart
+            ? { Accept: 'application/json', 'content-type': 'application/json' }
+            : { Accept: 'application/json' },
+        ...(hasBody ? { body: multipart ? (body as FormData) : JSON.stringify(body) } : {}),
       });
     } catch {
       // The reason is deliberately dropped: it can carry the full URL, and the caller only needs

@@ -84,6 +84,40 @@ describe('HttpPort — a request carrying a method and a body', () => {
     expect(init.body).toBeUndefined();
   });
 
+  it('W7: sends PATCH and PUT with a JSON body, and DELETE with none', async () => {
+    // The ticket window is the first writing screen; the gateway's routes use all three verbs
+    // (PATCH status, PUT assignee/label, DELETE label/assignee). Before W7 the union refused them
+    // at compile time and the adapter never saw one.
+    const port = createFetchPort();
+
+    await port({ path: '/conversations/c1/status', method: 'PATCH', body: { status: 'open' } });
+    expect(lastCall()[1].method).toBe('PATCH');
+    expect(lastCall()[1].body).toBe(JSON.stringify({ status: 'open' }));
+
+    await port({ path: '/conversations/c1/assignee', method: 'PUT', body: { operatorId: 'op1' } });
+    expect(lastCall()[1].method).toBe('PUT');
+
+    await port({ path: '/conversations/c1/labels/l1', method: 'DELETE' });
+    expect(lastCall()[1].method).toBe('DELETE');
+    expect(lastCall()[1].body).toBeUndefined();
+  });
+
+  it('W7: passes a FormData through untouched, with no hand-set content type', async () => {
+    // Multipart is the browser's job: it writes `multipart/form-data; boundary=…` only when the
+    // header is ABSENT. JSON-serialising a FormData (or setting the header) produces a body the
+    // gateway cannot parse — a failure visible only against the real server, which is exactly the
+    // class of defect this port exists to keep out of every other file.
+    const port = createFetchPort();
+    const form = new FormData();
+    form.append('file', new Blob(['x']), 'a.png');
+    await port({ path: '/uploads/message_attachment', method: 'POST', body: form });
+
+    const [, init] = lastCall();
+    expect(init.body).toBe(form);
+    expect(new Headers(init.headers).get('content-type')).toBeNull();
+    expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+  });
+
   it('reports a refused connection as status 0 rather than throwing', async () => {
     // Unchanged behaviour, asserted because the POST path is a second way into the same catch.
     fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED http://gateway/auth/login'));

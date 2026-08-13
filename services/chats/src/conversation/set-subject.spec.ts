@@ -7,6 +7,7 @@ import { ConversationWriteController } from './conversation.write.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { MAX_SUBJECT_LENGTH } from '../subject/subject.derive';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T037 / T038 / T039 (feature 023, roadmap 4.18 — FR-022 / FR-025).
@@ -89,6 +90,7 @@ const controller = (prisma: PrismaService) =>
     fakeStatusRepository(),
     // The subject write touches no audit trail (see the handler's own note on why not).
     {} as never,
+    fakeRealtime().publisher,
   );
 
 const TITLE = 'выплата задерживается уже вторые сутки';

@@ -4,6 +4,7 @@ import { AuditRepository } from '../audit/audit.repository';
 import { CHANNEL_CONFIG, type ChannelConfig } from '../config';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { MessageRepository } from '../message/message.repository';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { StatusRepository } from '../status/status.repository';
 import { newCorrelationId } from '../transition/conversation-transitions';
 import { ApiChannelAdapter } from './adapters/api.adapter';
@@ -72,6 +73,8 @@ export class ChannelIntakeService {
     @Inject(ThreadResolver) private readonly threads: ThreadResolver,
     @Inject(ChannelParticipantClient) private readonly participants: ChannelParticipantClient,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
+    // Feature 034 (W4): the reason a ticket that arrived by itself also APPEARS by itself.
+    @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
   ) {}
 
   /**
@@ -202,7 +205,7 @@ export class ChannelIntakeService {
         resolved.playerId || null,
       );
       await this.recordIdentity(channel, conversation.id, message);
-      return { conversationId: conversation.id, messageId: created };
+      return { conversationId: conversation.id, messageId: created, created: true };
     });
   }
 
@@ -450,7 +453,9 @@ export class ChannelIntakeService {
       participant: ResolvedParticipant;
       uploadIds: string[];
     },
-  ): Promise<{ conversationId: string; messageId: string }> {
+    // `created` says whether a NEW ticket was made or an existing one was appended to — the one bit the
+    // realtime hook in `writeClaimed` needs, and the only place that still knows it (feature 034).
+  ): Promise<{ conversationId: string; messageId: string; created: boolean }> {
     const { message, participant, uploadIds } = ctx;
     // ⚠️ `ambiguous` is exactly as good as "nobody" here. More than one candidate matched the address and
     // the system must not choose between them (FR-022) — a wrong attachment puts one customer's words on
@@ -496,7 +501,8 @@ export class ChannelIntakeService {
         playerId,
         uploadIds,
       );
-      return { conversationId, messageId };
+      // `created: false` — this landed in a conversation that already existed (a reply, or a reopen).
+      return { conversationId, messageId, created: false };
     }
 
     // `new` and `continue` both create a ticket; only the link differs (FR-029b).
@@ -524,7 +530,7 @@ export class ChannelIntakeService {
       playerId,
       uploadIds,
     );
-    return { conversationId: conversation.id, messageId };
+    return { conversationId: conversation.id, messageId, created: true };
   }
 
   /**
@@ -572,9 +578,9 @@ export class ChannelIntakeService {
   private async writeClaimed(
     channel: ChannelRow,
     intakeId: string,
-    write: () => Promise<{ conversationId: string; messageId: string }>,
+    write: () => Promise<{ conversationId: string; messageId: string; created: boolean }>,
   ): Promise<IntakeOutcome> {
-    let produced: { conversationId: string; messageId: string };
+    let produced: { conversationId: string; messageId: string; created: boolean };
     try {
       produced = await write();
     } catch (err) {
@@ -588,7 +594,32 @@ export class ChannelIntakeService {
     this.logger.log(
       `intake accepted kind=${channel.kind} account=${channel.account_id} conversation=${produced.conversationId}`,
     );
-    return { ...produced, duplicate: false };
+
+    /**
+     * ── Feature 034 (MVP block W4) — the ONE realtime hook for the whole of intake ────────────────
+     *
+     * ⭐ Placed here rather than at the four write sites above, and that is the point: **every** intake
+     * write path must pass through this method, because the ledger claim is mandatory and this is the only
+     * thing that runs after it succeeds. A fifth channel added later inherits the event without anybody
+     * remembering to add it — which is the remedy `gotchas/one-fact-many-writers` records, applied before
+     * the miss rather than after it.
+     *
+     * ⚠️ **After `stampProduced`, deliberately.** Everything the client will re-read is committed by this
+     * line; published earlier, a re-read could arrive before the row is visible and the interface would
+     * show *nothing changed* — indistinguishable from a broken socket (FR-004).
+     *
+     * Both events fire because both facts are true: a ticket now exists (or changed), and it has a new
+     * message on it. The client acts on each differently — the list re-reads its page, the open thread
+     * re-reads its messages — and neither carries a word of what the customer wrote (FR-001).
+     */
+    await this.realtime.conversation(
+      produced.created ? 'conversation.created' : 'conversation.updated',
+      channel.account_id,
+      produced.conversationId,
+    );
+    await this.realtime.message(channel.account_id, produced.conversationId, produced.messageId);
+
+    return { conversationId: produced.conversationId, messageId: produced.messageId, duplicate: false };
   }
 
   /** Record a refusal against a resolved channel. One line, so no call site can forget a field. */

@@ -9,6 +9,7 @@ import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { MAX_SUBJECT_LENGTH } from '../subject/subject.derive';
 import { DomainEventPublisher } from '../events/events.publisher';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { StatusRepository } from '../status/status.repository';
 import { AuditRepository } from '../audit/audit.repository';
 import { ConversationRepository } from './conversation.repository';
@@ -56,6 +57,10 @@ export class ConversationWriteController {
     @Inject(DomainEventPublisher) private readonly events: DomainEventPublisher,
     @Inject(StatusRepository) private readonly statuses: StatusRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
+    // Feature 034 (W4). ⚠️ A DIFFERENT thing from `events` above: that one is the in-process automation
+    // trigger, this one tells browsers a read is worth doing. They are published from the same places and
+    // must not be conflated — one can cascade into rules, the other has no server-side subscriber at all.
+    @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'CreateConversation')
@@ -73,6 +78,12 @@ export class ConversationWriteController {
       assigneeOperatorId: req.assigneeOperatorId || undefined,
     });
     await this.events.conversationCreated(ctx.accountId, row.id);
+    /**
+     * Feature 034 (W4): tell the account's sockets a ticket exists. **After the automation trigger
+     * above**, on purpose — a rule may have just changed the status, and one event that lands on the
+     * final state is better than two events racing to describe an intermediate one.
+     */
+    await this.realtime.conversation('conversation.created', ctx.accountId, row.id);
     // Re-read: a rule may have changed status/priority/assignee, and the caller should see the
     // conversation as it actually is now rather than as it was a moment before the rules ran.
     const fresh = await this.repo.getById(ctx.accountId, row.id);
@@ -119,6 +130,9 @@ export class ConversationWriteController {
       newStatus,
       updated.updated_at,
     );
+    // Feature 034 (W4): a status change is what moves a row BETWEEN the Inbox's filtered views. Without
+    // this, a ticket appears live and then wrongly stays where it no longer belongs.
+    await this.realtime.conversation('conversation.updated', ctx.accountId, req.conversationId);
     const fresh = await this.repo.getById(ctx.accountId, req.conversationId);
     return toDetailWire(fresh ?? updated);
   }

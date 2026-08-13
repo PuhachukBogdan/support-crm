@@ -38,6 +38,11 @@ export * from './statuses';
 // logic may branch on; a CHANNEL is a per-account row with a key, an address and a brand.
 // `canSend` is an enforcement point called by the server, not a hint for the interface.
 export * from './channels';
+// Feature 034 (roadmap 7.1, subpoint 2.2a — MVP block W4): the realtime event vocabulary and the ONE
+// account-channel builder. ⚠️ The payload is four identifiers and carries no content, deliberately: a
+// socket is a second read path, and the only way it cannot bypass the REST read rules is by not being
+// a read path. There is no tenant-less channel name to build.
+export * from './realtime/events';
 // Feature 028's mail transport, MOVED here by feature 033 (research R7): the port, the SMTP sender and
 // the two egress guards, so the boundary Principle III depends on is one place rather than one per
 // sender. ⚠️ Carries the `nodemailer` dependency — safe because nothing in `web/` imports this package;

@@ -3,6 +3,7 @@ import { AUDIT_ACTIONS, parseDetail } from '@crm/common';
 import { ChannelIntakeService } from './intake.service';
 import { ApiChannelAdapter } from './adapters/api.adapter';
 import type { ChannelRow } from './channel.repository';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T050/T053/T054/T055 (feature 033, US3) — **what the record of an automatic identity decision says.**
@@ -33,6 +34,7 @@ function harness(opts: { playerId?: string; ambiguous?: boolean; identityDown?: 
   const messages: Array<Record<string, unknown>> = [];
   const asked: Array<Record<string, unknown>> = [];
 
+  const realtime = fakeRealtime();
   const service = new ChannelIntakeService(
     { secrets: new Map(), replayWindowSeconds: 300 } as never,
     { resolveByKey: async () => CHANNEL } as never,
@@ -73,9 +75,10 @@ function harness(opts: { playerId?: string; ambiguous?: boolean; identityDown?: 
         audits.push(entry);
       },
     } as never,
+    realtime.publisher,
   );
 
-  return { service, audits, conversations, messages, asked };
+  return { service, audits, conversations, messages, asked, published: realtime.published };
 }
 
 /** A widget delivery. Unsigned: the harness's channel has no secret, so verification is skipped. */
@@ -189,5 +192,57 @@ describe('on the API channel, an unreachable identity source does NOT refuse the
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
+  });
+});
+
+/**
+ * ── Feature 034 (MVP block W4) — a ticket that arrives by itself also ANNOUNCES itself ────────────
+ *
+ * The operator's criterion for the block is *«новый тикет и новое сообщение появляются без обновления
+ * страницы»*, and this is the half of it a unit test can hold: intake publishes. The other half — that a
+ * browser actually re-renders — is `live-w4.sh` and a pair of eyes, because jsdom has no layout.
+ *
+ * ⓘ Asserted here rather than at the four write sites, because the publish is attached to `writeClaimed`,
+ * which every intake path must pass through (the ledger claim is mandatory). That is deliberate: a fifth
+ * channel added later inherits the event instead of needing somebody to remember it.
+ */
+describe('intake announces what it created (feature 034, FR-004/FR-015)', () => {
+  it('publishes conversation.created AND message.created, in that order', async () => {
+    const { service, published } = harness({ playerId: 'pl-7' });
+    await deliver(service, { event_id: 'evt-1', text: 'hi', author: { player_id: 'pl-7' } });
+
+    expect(published.map((e) => e.kind)).toEqual(['conversation.created', 'message.created']);
+    expect(published[0]).toEqual({
+      kind: 'conversation.created',
+      accountId: CHANNEL.account_id,
+      conversationId: 'conv-1',
+    });
+    expect(published[1]).toEqual({
+      kind: 'message.created',
+      accountId: CHANNEL.account_id,
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+    });
+  });
+
+  /**
+   * ⭐ The load-bearing negative. The customer's words went through this path — `body: 'не могу вывести'`
+   * in the delivery above — and none of them may ride the socket, on any connection (FR-001). Asserted
+   * against the SERIALIZED frames, which is what a browser would actually receive.
+   */
+  it('carries none of the customer\'s words, and no identifier of theirs', async () => {
+    const { service, published } = harness({ playerId: 'pl-7' });
+    await deliver(service, {
+      event_id: 'evt-1',
+      text: 'hi',
+      author: { player_id: 'pl-7', email: 'player@mail.test' },
+    });
+
+    // Positive control first: an absence assertion over an empty array passes for the wrong reason.
+    expect(published.length).toBeGreaterThan(0);
+    const wire = JSON.stringify(published);
+    expect(wire).not.toContain('не могу вывести');
+    expect(wire).not.toContain('player@mail.test');
+    expect(wire).not.toContain('pl-7');
   });
 });

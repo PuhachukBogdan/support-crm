@@ -7,6 +7,7 @@ import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.clien
 import type { DomainEventPublisher } from '../events/events.publisher';
 import type { FirstReplyClock } from '../sla/first-reply.clock';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * Feature 033: the delivery-intent writer, stubbed to do NOTHING.
@@ -190,6 +191,7 @@ function controller(prisma: PrismaService, uploads: UploadsClient) {
     noEvents(),
     noClock(),
     uploads,
+    fakeRealtime().publisher,
   );
 }
 

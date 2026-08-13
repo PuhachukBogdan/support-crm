@@ -9,6 +9,7 @@ import { ConversationWriteController } from './conversation.write.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 function detailRow(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -170,6 +171,7 @@ describe('Conversation writes (US1)', () => {
       noEvents(),
       fakeStatusRepository(),
       noAudit(),
+      fakeRealtime().publisher,
     );
 
     await expect(ctrl.createConversation({ brandId: '' }, md('acc-1'))).rejects.toBeInstanceOf(
@@ -189,6 +191,7 @@ describe('Conversation writes (US1)', () => {
       noEvents(),
       fakeStatusRepository(),
       noAudit(),
+      fakeRealtime().publisher,
     );
     await expect(
       ctrl.setConversationStatus({ conversationId: 'c1', statusKey: 'closed' }, md()),
@@ -218,6 +221,7 @@ describe('Conversation writes (US1)', () => {
       noEvents(),
       fakeStatusRepository(),
       noAudit(),
+      fakeRealtime().publisher,
     );
     const res = await ctrl.setConversationStatus(
       { conversationId: 'c1', statusKey: 'solved' },

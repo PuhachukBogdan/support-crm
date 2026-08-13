@@ -12,6 +12,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import type { SlaRepository } from '../sla/sla.repository';
 import type { PersonMembersClient } from '../person/person-members.client';
 import type { DomainEventPublisher } from '../events/events.publisher';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T019 / T020 / T023 (feature 032, roadmap 4.16 — ADR 0040) — the status catalogue end to end.
@@ -425,6 +426,7 @@ describe('SetConversationStatus — nine settable words instead of four', () => 
       noEvents(),
       repoOf(prisma),
       noAudit(),
+      fakeRealtime().publisher,
     );
 
   it('⭐ accepts a status the flat enum could not express', async () => {

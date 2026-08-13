@@ -5,6 +5,7 @@ import { IntakeLedger } from './intake.ledger';
 import { ApiChannelAdapter } from './adapters/api.adapter';
 import { computeDigest, parseSignatureHeader, verifySignature } from './signature';
 import type { ChannelConfig } from '../config';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T021–T025 (feature 033, US1 — subpoint 2.1a) — **the API channel takes work in, exactly once.**
@@ -148,6 +149,7 @@ function harness(opts: { statusKeys?: Record<string, string | null> } = {}) {
     threads,
     participants,
     audit,
+    fakeRealtime().publisher,
   );
   return { service, written };
 }

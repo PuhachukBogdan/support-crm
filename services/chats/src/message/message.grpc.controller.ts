@@ -8,6 +8,7 @@ import { readActorContext, type ActorContext } from '../security/actor-context';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '../shared/cursor';
 import { toMessageWire, projectionFromWire } from '../shared/wire';
 import { DomainEventPublisher } from '../events/events.publisher';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { FirstReplyClock } from '../sla/first-reply.clock';
 import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.client';
 import type { AttachmentWire } from '../shared/wire';
@@ -187,6 +188,9 @@ export class MessageWriteController {
     @Inject(DomainEventPublisher) private readonly events: DomainEventPublisher,
     @Inject(FirstReplyClock) private readonly clock: FirstReplyClock,
     @Inject(UploadsClient) private readonly uploads: UploadsClient,
+    // Feature 034 (W4): browsers, not rules. See the note at the `PostMessage` publish for why a private
+    // note publishes too, and what that requires of a future customer-facing socket.
+    @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'PostMessage')
@@ -235,6 +239,19 @@ export class MessageWriteController {
     // and resolves to no change — the rule lives in one place (decideStop) rather than at each call
     // site, so it cannot be forgotten on a future write path (FR-012 / SC-007).
     await this.clock.onStaffMessage(ctx.accountId, req.conversationId, isReply);
+    /**
+     * Feature 034 (W4): the thread re-reads. **A private note publishes too, deliberately** — a
+     * colleague's note is exactly the kind of thing a second agent should see without refreshing.
+     *
+     * ⚠️ **And that is safe only while the account channel is STAFF-ONLY.** The event carries no content
+     * (FR-001), but its mere existence is *activity at a moment in time*, which for a private note is the
+     * weaker form of the leak SEC-13 names. There is no customer token in this product and the socket is
+     * authorized by a staff access token (FR-006), so no customer connection can be in this room today.
+     * ⇒ **A future customer-facing socket may NOT join the account channel.** It needs a channel of its
+     * own, and a private note must not publish to it. Recorded as FR-018 rather than left to be
+     * rediscovered by whoever builds the widget.
+     */
+    await this.realtime.message(ctx.accountId, req.conversationId, row.id);
     return toMessageWire(row, indexByUploadId(described));
   }
 
@@ -288,6 +305,8 @@ export class MessageWriteController {
     // player's wait, not of the post-automation state.
     await this.clock.onInboundPlayerMessage(ctx.accountId, req.conversationId);
     await this.events.messageReceived(ctx.accountId, req.conversationId, row.id, row.body);
+    // Feature 034 (W4): after the automation trigger, so the client's re-read sees the post-rule state.
+    await this.realtime.message(ctx.accountId, req.conversationId, row.id);
     return toMessageWire(row);
   }
 }

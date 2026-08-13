@@ -215,6 +215,18 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       GRPC_URL: 0.0.0.0:50053
       DATABASE_URL: postgresql://chats_user:${CHATS_DB_PASSWORD:?}@postgres:5432/chats_db
+      # ── Feature 034 (roadmap 7.1, block W4) — the FIRST Redis in this service, and it PUBLISHES only ──
+      #
+      # ⚠️ Deliberately not refuse-to-start: absent means the realtime edge is not configured, which is a
+      # legitimate deployment (and the whole unit-test suite). The service runs, the socket stays quiet, and
+      # every client still sees the truth on its next ordinary read.
+      #
+      # ⭐ This does NOT overturn "chats has no Redis" (`export.maintenance.ts`). That decision protected
+      # two properties — Postgres stays the source of truth, and there is no second store of work — and a
+      # fire-and-forget PUBLISH keeps both: it writes nothing, claims nothing and is never read back.
+      # `tests/realtime/publish-only.spec.ts` fails the build if `subscribe`/`Queue`/`set(`/`get(` ever
+      # appear in this service, so the door stays exactly one verb wide.
+      REDIS_URL: redis://redis:6379
       # Feature 014: an automation rule acts with its AUTHOR's current permissions, resolved from
       # auth on every evaluation (FR-023). Acyclic — auth never calls chats.
       AUTH_GRPC_TARGET: auth:50051

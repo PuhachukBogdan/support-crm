@@ -41,6 +41,9 @@ import { AutoAssignController } from './assignment/auto-assign.grpc.controller';
 import { ChatsAuthModule } from './auth/auth.client';
 import { DomainEventDispatcher } from './events/events.dispatcher';
 import { DomainEventPublisher } from './events/events.publisher';
+// Feature 034 (roadmap 7.1, block W4): the FIRST Redis in this service, publish-only. See the file
+// header for why that does not overturn the "chats has no Redis" decision — a PUBLISH stores nothing.
+import { RealtimePublisher } from './realtime/realtime.publisher';
 import { AutomationsRepository } from './automation/automations.repository';
 import { AutomationEngine } from './automation/engine';
 import { AutomationsController } from './automation/automations.grpc.controller';
@@ -181,6 +184,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // Feature 014.
     DomainEventDispatcher,
     DomainEventPublisher,
+    // Feature 034: publishes "something changed" to the account's channel, after the commit, best-effort.
+    RealtimePublisher,
     AutomationsRepository,
     AutomationEngine,
     SlaRepository,

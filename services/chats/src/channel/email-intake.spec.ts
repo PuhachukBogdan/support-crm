@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ChannelIntakeService } from './intake.service';
 import type { ChannelRow } from './channel.repository';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T034/T036/T037/T039 (feature 033, US2) — **an email becomes a ticket, and its replies stay in it.**
@@ -146,6 +147,7 @@ function harness(
     threads,
     participants,
     audit,
+    fakeRealtime().publisher,
   );
   return { service, written };
 }

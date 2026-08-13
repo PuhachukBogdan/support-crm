@@ -10,6 +10,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { REQUIRED_CHATS_PERMISSION_KEY } from '../security/requires-chats-permission.decorator';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * ⭐ T021 (feature 032, roadmap 4.16 — R22, amends ADR 0038). **THE BLOCK'S NAMED INVARIANT TEST**
@@ -98,6 +99,7 @@ const build = (prisma: PrismaService) =>
     noEvents(),
     fakeStatusRepository(),
     new AuditRepository(prisma),
+    fakeRealtime().publisher,
   );
 
 function md(permissions: string[], accountId = 'acc-1'): Metadata {

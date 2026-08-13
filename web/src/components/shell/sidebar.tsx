@@ -14,6 +14,7 @@ import {
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MODULE_CATALOGUE, parseModuleOverrides, resolveModules } from './nav-items';
 import { UserMenu } from './user-menu';
+import { InboxUnreadBadge } from './inbox-unread-badge';
 import { useSession } from '@/session';
 
 /**
@@ -105,6 +106,8 @@ export function Sidebar() {
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {/* ⭐ W25 (R23): the unread counter, on the Inbox button and nowhere else. */}
+                    {item.key === 'inbox' && <InboxUnreadBadge />}
                   </SidebarMenuItem>
                 );
               })}

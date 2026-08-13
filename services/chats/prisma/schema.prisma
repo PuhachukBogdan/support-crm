@@ -380,6 +380,20 @@ model OutboundMessage {
 /// ── Why nothing is ever deleted ──────────────────────────────────────────────────────────────────
 /// `active = false` retires a status. There is no delete path: conversations reference the key, so
 /// removing the row would either orphan history or force a bulk rewrite of tickets nobody touched.
+/// ⭐ W25 (R23 / 9.12) — "this operator last OPENED the Inbox at". One row per (account, operator),
+/// upserted by the reset act; the unread count is DERIVED (rows in my Inbox slice with
+/// `created_at > opened_at`), never accumulated — which is what lets a reload answer from here.
+/// ⓘ Deliberately NOT a column on ConversationReadMark: that fact is per-conversation ("he opened
+/// THIS one"); this one is per-surface ("he looked at the LIST"), and the operator's counter rule
+/// («Inbox открыт — не растёт, потому что он сразу просмотрен») is about the list, not any row.
+model InboxOpenMark {
+  account_id  String
+  operator_id String
+  opened_at   DateTime @default(now())
+
+  @@id([account_id, operator_id])
+}
+
 /// ⭐ W24 (R43) — the per-account ticket-number counter. `last` is the last ASSIGNED number, so a
 /// fresh account's first ticket is 1. Incremented atomically (INSERT … ON CONFLICT DO UPDATE via
 /// Prisma upsert on the PK) inside the same transaction that creates the conversation — a number is

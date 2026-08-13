@@ -87,6 +87,7 @@ describe('*** reading: always complete, never a not-found, never a side effect *
     await expect(h.repo.read(ACC, ME)).resolves.toEqual({
       theme_mode: 'dark',
       font_size_step: 'default',
+      unread_sound: 'on',
     });
   });
 
@@ -122,6 +123,7 @@ describe('*** writing: partial, creating, and not clobbering ***', () => {
     await expect(h.repo.read(ACC, ME)).resolves.toEqual({
       theme_mode: 'dark',
       font_size_step: 'compact',
+      unread_sound: 'on',
     });
   });
 
@@ -136,6 +138,7 @@ describe('*** writing: partial, creating, and not clobbering ***', () => {
     await expect(h.repo.read(ACC, ME)).resolves.toEqual({
       theme_mode: 'dark',
       font_size_step: 'large',
+      unread_sound: 'on',
     });
   });
 

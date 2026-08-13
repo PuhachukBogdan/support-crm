@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/composites/page-header/page-header';
+import { useDataAccess } from '@/data/provider';
+import { setUnreadSoundEnabled } from '@/lib/unread-chime';
 import { useSession } from '@/session';
 import { useThemeMode } from './use-theme-mode';
 import { ProfileSection } from './profile-section';
@@ -61,6 +64,7 @@ export function Settings() {
             The theme changed here but could not be saved: {error.message}
           </p>
         )}
+        <UnreadSoundToggle />
       </section>
 
       {/* Reserved, each with its owner — a slot with no point is how a screen stays reserved forever. */}
@@ -76,6 +80,74 @@ export function Settings() {
 
       {/* ⭐ W22: the Account slot, and the only reason it exists yet is where sign-out went (R40). */}
       <AccountSection />
+    </div>
+  );
+}
+
+/**
+ * ⭐ W25 (R23) — the arrival sound's PERSONAL switch («настраиваемый актив с личным выключателем»).
+ *
+ * Writes through to `unread_sound` in the ui-preferences catalogue (the theme's own path, W18) AND
+ * updates the chime module's cache, so flipping it silences THIS tab now — not after a reload. The
+ * optimistic order is the theme's too: the switch obeys the click immediately, a failed save is
+ * reported in words, and the server remains the cross-machine truth.
+ */
+function UnreadSoundToggle() {
+  const dataAccess = useDataAccess();
+  // ⚠️ `null` until the server answers — NOT an assumed default: the catalogue owns the default
+  // (FR-006, and its guard scans for exactly this), and the read always returns every key.
+  const [on, setOn] = useState<boolean | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void dataAccess
+      .get<{ values?: Record<string, string> }>('ui-preferences', '')
+      .then((res) => {
+        if (!alive) return;
+        const v = res?.values?.unread_sound;
+        const isOn = v === 'on';
+        setOn(isOn);
+        setUnreadSoundEnabled(isOn);
+      })
+      .catch(() => {
+        // The switch simply does not render — better absent than showing a state that may be a lie.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [dataAccess]);
+
+  const toggle = (next: boolean) => {
+    setOn(next);
+    setUnreadSoundEnabled(next);
+    setSaveError(null);
+    const value = next ? 'on' : 'off';
+    void dataAccess
+      .update('ui-preferences', '', { values: { unread_sound: value } })
+      .catch((e: unknown) => {
+        setSaveError(e instanceof Error ? e.message : 'could not be saved');
+      });
+  };
+
+  if (on === null) return null;
+  return (
+    <div className="flex items-center gap-3 pt-1">
+      <span className="text-sm">New-ticket sound</span>
+      <Switch
+        data-testid="unread-sound-toggle"
+        checked={on}
+        onCheckedChange={toggle}
+        aria-label="Play a quiet sound when a new ticket arrives"
+      />
+      <span className="text-xs text-muted-foreground">
+        Quiet chime on arrivals while you are elsewhere — yours only, nobody else’s.
+      </span>
+      {saveError && (
+        <span className="text-sm text-destructive" data-testid="sound-save-error">
+          Changed here, but could not be saved: {saveError}
+        </span>
+      )}
     </div>
   );
 }

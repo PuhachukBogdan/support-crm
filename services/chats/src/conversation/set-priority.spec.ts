@@ -7,6 +7,7 @@ import { ConversationWriteController } from './conversation.write.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { fakeStatusRepository } from '../status/status.fixture';
 import { fakeRealtime } from '../realtime/realtime.fake';
+import { noInboxUnseen, noOperatorIdentity } from '../shared/operator-identity.fake';
 import { priorityRank } from './urgency';
 
 /**
@@ -90,6 +91,8 @@ const controller = (prisma: PrismaService) =>
     fakeStatusRepository(),
     {} as never,
     fakeRealtime().publisher,
+    noInboxUnseen(),
+    noOperatorIdentity(),
   );
 
 describe('SetConversationPriority — the word and its rank', () => {
@@ -157,6 +160,8 @@ describe('SetConversationPriority — the word and its rank', () => {
       fakeStatusRepository(),
       {} as never,
       realtime.publisher,
+      noInboxUnseen(),
+      noOperatorIdentity(),
     );
     await ctrl.setConversationPriority({ conversationId: 'c-1', priority: 'high' }, md());
     expect(realtime.published).toContainEqual(

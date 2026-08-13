@@ -19,6 +19,7 @@ import { ChatsPersonModule } from './person/person-members.client';
 import { ChatsChannelParticipantModule } from './channel/participant.client';
 import { ChatsOperatorIdentityModule } from './shared/operator-identity.client';
 import { ReadMarkRepository } from './conversation/read-mark.repository';
+import { InboxUnseenRepository } from './conversation/inbox-unseen.repository';
 import { ThreadResolver } from './channel/threading';
 // Feature 033 US4 (roadmap 6.5): the outbox, its sender, and the shared SMTP transport.
 import { OutboundRepository } from './channel/outbound.repository';
@@ -163,6 +164,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     ConversationRepository,
     // W5 (roadmap 4.19): "this operator OPENED this conversation" — the fact under the agent rail.
     ReadMarkRepository,
+    // ⭐ W25 (R23/9.12): the unread badge's one fact and its derived count.
+    InboxUnseenRepository,
     // Feature 032: read by the two write paths, both list filters, the macro/automation validators and
     // the two load counters. Everything that used to know four status words now asks this.
     StatusRepository,

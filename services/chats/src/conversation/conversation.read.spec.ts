@@ -8,7 +8,7 @@ import { MAX_PAGE_SIZE } from '../shared/cursor';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
 import { fakeStatusRepository } from '../status/status.fixture';
-import { noLookupDeps, noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
+import { noInboxUnseen, noLookupDeps, noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 /** A fake account-scoped Prisma exposing only the conversation delegate used here (Track A). */
 function fakePrisma(rows: unknown[]) {
@@ -77,6 +77,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
 
@@ -110,6 +111,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     await ctrl.listConversations({}, md('acc-1')); // no brands metadata
@@ -129,6 +131,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1'));
@@ -148,6 +151,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     const res = await ctrl.listConversations({ pageSize: 10_000 }, md('acc-1'));
@@ -165,6 +169,7 @@ describe('ConversationReadController.listConversations (US1)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     await expect(ctrl.listConversations({ pageToken: 'garbage-$$$' }, md('acc-1'))).rejects.toBeInstanceOf(
@@ -194,6 +199,7 @@ describe('*** the channel filter (feature 029, FR-011) ***', () => {
         fakeStatusRepository(),
         noOperatorIdentity(),
         noReadMarks(),
+        noInboxUnseen(),
         ...noLookupDeps(),
       ),
     };
@@ -233,6 +239,7 @@ describe('*** the two orders, and the cursor that belongs to them (feature 029, 
         fakeStatusRepository(),
         noOperatorIdentity(),
         noReadMarks(),
+        noInboxUnseen(),
         ...noLookupDeps(),
       ),
     };

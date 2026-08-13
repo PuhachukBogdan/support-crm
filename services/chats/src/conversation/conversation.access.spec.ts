@@ -10,7 +10,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
 import { fakeStatusRepository } from '../status/status.fixture';
 import { fakeRealtime } from '../realtime/realtime.fake';
-import { noLookupDeps, noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
+import { noInboxUnseen, noLookupDeps, noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 function detailRow(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -105,6 +105,7 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     const res = await ctrl.getConversation({ id: 'c1' }, md('acc-1'));
@@ -121,6 +122,7 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     await expect(ctrl.getConversation({ id: 'other-acct' }, md('acc-1'))).rejects.toBeInstanceOf(
@@ -179,6 +181,8 @@ describe('Conversation writes (US1)', () => {
       fakeStatusRepository(),
       noAudit(),
       fakeRealtime().publisher,
+      noInboxUnseen(),
+      noOperatorIdentity(),
     );
 
     await expect(ctrl.createConversation({ brandId: '' }, md('acc-1'))).rejects.toBeInstanceOf(
@@ -199,6 +203,8 @@ describe('Conversation writes (US1)', () => {
       fakeStatusRepository(),
       noAudit(),
       fakeRealtime().publisher,
+      noInboxUnseen(),
+      noOperatorIdentity(),
     );
     await expect(
       ctrl.setConversationStatus({ conversationId: 'c1', statusKey: 'closed' }, md()),
@@ -229,6 +235,8 @@ describe('Conversation writes (US1)', () => {
       fakeStatusRepository(),
       noAudit(),
       fakeRealtime().publisher,
+      noInboxUnseen(),
+      noOperatorIdentity(),
     );
     const res = await ctrl.setConversationStatus(
       { conversationId: 'c1', statusKey: 'solved' },
@@ -273,6 +281,7 @@ describe('*** account isolation holds for the new channel filter and both orders
         fakeStatusRepository(),
         noOperatorIdentity(),
         noReadMarks(),
+        noInboxUnseen(),
         ...noLookupDeps(),
       ),
     };
@@ -311,6 +320,7 @@ describe('*** account isolation holds for the new channel filter and both orders
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     const page = await ctrlA.listConversations({ pageSize: 50 }, md('acc-1'));
@@ -324,6 +334,7 @@ describe('*** account isolation holds for the new channel filter and both orders
       fakeStatusRepository(),
       noOperatorIdentity(),
       noReadMarks(),
+      noInboxUnseen(),
       ...noLookupDeps(),
     );
     await ctrlB.listConversations({ pageToken: page.nextPageToken }, md('acc-2'));

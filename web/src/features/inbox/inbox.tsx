@@ -12,6 +12,7 @@ import { InboxSearch } from './inbox-search';
 import { useInboxQuery } from './use-inbox-query';
 import { useConversations } from './use-conversations';
 import { useLiveRefresh } from './use-live-refresh';
+import { useInboxPresence } from './use-inbox-presence';
 import { useMyOperator } from './use-my-operator';
 import { useStatuses } from './use-statuses';
 import type { FilterOption } from './column-filter';
@@ -58,6 +59,12 @@ export function Inbox() {
    * nothing is merged from it — see the hook for why, and for why it holds off below page one.
    */
   useLiveRefresh(query, list.refetch);
+  /**
+   * ⭐ W25 (R23): "I am looking at the list" — resets the unread mark on mount and on every arrival
+   * while mounted (rule 2), and hands back the PRE-visit mark so rows that came while the person
+   * was away wear the red dot.
+   */
+  const { unseenSince } = useInboxPresence();
   const [selected, setSelected] = useState<string[]>([]);
   // W7: a row opens its ticket. The id goes into the URL, so the window is linkable and the back
   // button returns to the queue — the same navigation the operator has in Zendesk's tabs, minus
@@ -146,6 +153,7 @@ export function Inbox() {
           filters={filters}
           onFilterChange={setFilter}
           onRowOpen={openTicket}
+          unseenSince={unseenSince}
         />
       </div>
     </div>

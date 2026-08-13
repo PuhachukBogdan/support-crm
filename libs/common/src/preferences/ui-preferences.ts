@@ -62,6 +62,14 @@ export const UI_PREFERENCES = {
    * tokens — never by per-component overrides.
    */
   font_size_step: { values: ['compact', 'default', 'large'], default: 'default' },
+
+  /**
+   * ⭐ W25 (R23 / roadmap 9.12): the quiet arrival sound's PERSONAL switch — «настраиваемый актив с
+   * личным выключателем». Genuine disagreement about the default exists (0035's hygiene rule): the
+   * badge exists because email arrivals were silent, so the sound defaults ON — and the person who
+   * shares an office mutes THEIR OWN client without touching anyone else's.
+   */
+  unread_sound: { values: ['on', 'off'], default: 'on' },
 } as const satisfies Record<string, UiPreferenceEntry>;
 
 export type UiPreferenceKey = keyof typeof UI_PREFERENCES;

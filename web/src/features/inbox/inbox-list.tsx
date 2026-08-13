@@ -11,7 +11,9 @@ import {
   HeaderControlsProvider,
   InboxHeaderCell,
   StatusLabelsProvider,
+  UnseenSinceProvider,
   useStatusLabels,
+  useUnseenSince,
   type HeaderControls,
   type InboxColumnMeta,
 } from './header-cell';
@@ -77,7 +79,12 @@ function cellFor(col: InboxColumn): ColumnDef<ConversationRow, unknown> {
         // ⭐ W24 (R43): `[1043] Тема` is ONE field — his words: «его нужно объединить с темой тикета…
         // Получается одно объединённое поле». A ticket with no subject reads `[1043] —`, never bare
         // brackets; a pre-backfill row with no number degrades to the subject alone.
-        cell: ({ row }) => {
+        cell: function SubjectCell({ row }) {
+          // ⭐ W25: the ROW half of the unread mark — arrived since the mark as it stood before this
+          // visit. The same red as the badge, and the ONLY other red on the screen (R38 freed the
+          // colour for exactly this).
+          const unseenSince = useUnseenSince();
+          const unseen = !!unseenSince && row.original.createdAt > unseenSince;
           const ref = row.original.reference;
           const subject = row.original.subject;
           if (!ref && !subject) return <EmptyValue label="no subject" />;
@@ -85,6 +92,13 @@ function cellFor(col: InboxColumn): ColumnDef<ConversationRow, unknown> {
           return (
             // Truncates rather than widening the table — the operator's «страница слишком растянута».
             <span className="block max-w-[42ch] truncate" title={text}>
+              {unseen && (
+                <span
+                  data-testid="row-unseen"
+                  aria-label="New since your last visit"
+                  className="mr-1.5 inline-block h-2 w-2 shrink-0 rounded-full bg-destructive align-middle"
+                />
+              )}
               {ref && <span className="font-mono text-xs text-muted-foreground">[{ref}]</span>}
               {ref ? ' ' : ''}
               {subject || '—'}
@@ -188,6 +202,7 @@ export function InboxList({
   filters,
   onFilterChange,
   onRowOpen,
+  unseenSince = null,
 }: {
   state: AsyncState<PaginatedResult<ConversationRow>>;
   onLoadMore?: () => void;
@@ -207,6 +222,8 @@ export function InboxList({
   /** The filters in force — a funnel renders the APPLIED value, never one it remembers itself. */
   filters: InboxFilters;
   onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
+  /** ⭐ W25: the Inbox-open mark BEFORE this visit — rows created after it wear the red dot. */
+  unseenSince?: string | null;
 }) {
   /**
    * ⭐ Built ONCE, with no dependencies: the definitions carry no per-render data, so their identity
@@ -221,6 +238,7 @@ export function InboxList({
   return (
     <HeaderControlsProvider value={controls}>
       <StatusLabelsProvider value={statusLabels}>
+      <UnseenSinceProvider value={unseenSince}>
     <DataTable<ConversationRow>
       columns={columns}
       state={state}
@@ -231,6 +249,7 @@ export function InboxList({
       rowSelection={rowSelection}
       onRowOpen={onRowOpen}
     />
+      </UnseenSinceProvider>
       </StatusLabelsProvider>
     </HeaderControlsProvider>
   );

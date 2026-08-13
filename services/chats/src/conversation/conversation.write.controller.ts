@@ -12,6 +12,9 @@ import { DomainEventPublisher } from '../events/events.publisher';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { StatusRepository } from '../status/status.repository';
 import { AuditRepository } from '../audit/audit.repository';
+// ⭐ W25 (R23/9.12): the unread badge's reset act lives on the WRITE service — it mutates the mark.
+import { InboxUnseenRepository } from './inbox-unseen.repository';
+import { OperatorIdentityClient } from '../shared/operator-identity.client';
 import { ConversationRepository } from './conversation.repository';
 
 interface CreateConversationRequestWire {
@@ -65,7 +68,25 @@ export class ConversationWriteController {
     // trigger, this one tells browsers a read is worth doing. They are published from the same places and
     // must not be conflated — one can cascade into rules, the other has no server-side subscriber at all.
     @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
+    // ── ⭐ W25 (R23/9.12): the unread badge's reset act ────────────────────────────────────────────
+    @Inject(InboxUnseenRepository) private readonly inboxUnseen: InboxUnseenRepository,
+    @Inject(OperatorIdentityClient) private readonly operatorIdentity: OperatorIdentityClient,
   ) {}
+
+  /**
+   * ⭐ W25 — "I am looking at the Inbox NOW": the counter's reset. EMPTY request — the subject is the
+   * caller and cannot be a parameter (the read-mark rule), so nobody can reset a colleague's badge.
+   * A machine caller (no operator profile) is an honest no-op zero, never an error.
+   */
+  @GrpcMethod('ChatsWriteService', 'MarkInboxOpened')
+  @RequiresChatsPermission('crm.inbox.view')
+  async markInboxOpened(_req: unknown, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const operatorId = await this.operatorIdentity.resolveCallerOperatorId(metadata);
+    if (!operatorId) return { count: 0, openedAt: '' };
+    const openedAt = await this.inboxUnseen.markOpened(ctx.accountId, operatorId);
+    return { count: 0, openedAt: openedAt.toISOString() };
+  }
 
   @GrpcMethod('ChatsWriteService', 'CreateConversation')
   @RequiresChatsPermission('crm.conversation.reply')

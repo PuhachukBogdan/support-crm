@@ -50,3 +50,14 @@ export function noLookupDeps(): [never, never] {
     { record: () => { throw new Error('lookup not used in this spec'); } } as never,
   ];
 }
+
+/**
+ * ⭐ W25: the unread-badge repository, for specs that never read the badge. Zeros, honestly —
+ * the same contract shape the rpc reports for a caller with no operator identity.
+ */
+export function noInboxUnseen(): import('../conversation/inbox-unseen.repository').InboxUnseenRepository {
+  return {
+    markOpened: async () => new Date(0),
+    unseen: async () => ({ count: 0, openedAt: null }),
+  } as unknown as import('../conversation/inbox-unseen.repository').InboxUnseenRepository;
+}

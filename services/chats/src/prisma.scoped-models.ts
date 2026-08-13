@@ -65,6 +65,10 @@ export const SCOPED_MODELS = [
   // caller in that caller's account. A cross-account mark would put one tenant's reading habits into
   // another tenant's unread arithmetic.
   'ConversationReadMark',
+  // ⭐ MVP block W25 (R23/9.12): "this operator last opened the Inbox". Scoped with no method-level
+  // exception — read and written only for a caller in that caller's account. A cross-account read
+  // would put one tenant's attention rhythm into another tenant's badge arithmetic.
+  'InboxOpenMark',
   // ⭐ MVP block W24 (R43): the per-account ticket-number counter. Scoped with no method-level
   // exception — it is touched ONLY inside the create transaction, for a caller, in that caller's
   // account. A cross-account increment would leak one tenant's ticket volume into another's numbers,

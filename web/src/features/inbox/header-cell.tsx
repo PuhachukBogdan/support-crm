@@ -101,3 +101,17 @@ export const StatusLabelsProvider = StatusLabelsContext.Provider;
 export function useStatusLabels(): Readonly<Record<string, string>> {
   return useContext(StatusLabelsContext);
 }
+
+/**
+ * ⭐ W25 (R23/9.12) — the mark the ROW-level unread dot compares against: the Inbox-open mark as it
+ * stood BEFORE this visit reset it. Context for the same stable-reference reason as the labels
+ * above. `null` = unknown or first-ever visit — no dots, honestly (the BADGE would have said 99+
+ * for a first visitor; a page of a hundred dots says nothing).
+ */
+const UnseenSinceContext = createContext<string | null>(null);
+
+export const UnseenSinceProvider = UnseenSinceContext.Provider;
+
+export function useUnseenSince(): string | null {
+  return useContext(UnseenSinceContext);
+}

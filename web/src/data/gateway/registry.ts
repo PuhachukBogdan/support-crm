@@ -588,6 +588,37 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['get', 'update'],
   },
   /**
+   * ⭐ W25 (R23 / 9.12) — the unread badge, two singletons over one fact.
+   *
+   * `inbox-unseen` READS the derived state ({count, openedAt}); `inbox-opened` is the RESET act
+   * (PUT, empty body — the subject is the caller, and a body would be an invitation to name someone
+   * else). Split on purpose: a read that also reset would make "look at the number" and "dismiss the
+   * number" one gesture, and the list needs `openedAt` to dot rows WITHOUT dismissing anything.
+   */
+  {
+    resource: 'inbox-unseen',
+    path: '/conversations/inbox-unseen',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  {
+    resource: 'inbox-opened',
+    path: '/conversations/inbox-opened',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['update'],
+  },
+  /**
    * ⭐ W20 (roadmap 11.1 minimum) — the dashboard's one read: aggregates straight from the journal
    * (`analytics.dashboard.view`). A SINGLETON with a declared filter: `days` bounds the volume
    * series (server-capped at 90).

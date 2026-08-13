@@ -43,6 +43,8 @@ interface ChatsReadGrpc {
   getConversation(d: { id: string }, md?: unknown): Observable<ConversationWire>;
   // Feature 032 (roadmap 4.16): the account's configured statuses, read once per screen.
   listConversationStatuses(d: Record<string, never>, md?: unknown): Observable<unknown>;
+  // ⭐ W25 (R23/9.12): the unread badge, derived server-side. Empty request — the subject is the caller.
+  getInboxUnseen(d: Record<string, never>, md?: unknown): Observable<unknown>;
   // Feature 033 (roadmap 6.6): the capability matrix. Product facts, no account in the request.
   getChannelCapabilities(d: Record<string, never>, md?: unknown): Observable<unknown>;
   // W9 / spec 035: the context-gated lookup — chats verifies the conversation is unidentified and
@@ -85,6 +87,8 @@ interface ChatsWriteGrpc {
     d: { brandId: string; playerId: string; subject: string; body: string },
     md?: unknown,
   ): Observable<ConversationWire>;
+  // ⭐ W25 (R23/9.12): "I am looking at the Inbox NOW" — the badge's reset. Empty request.
+  markInboxOpened(d: Record<string, never>, md?: unknown): Observable<unknown>;
 }
 
 type ChatsReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -201,6 +205,27 @@ export class ConversationsController implements OnModuleInit {
   @RequiresPermission('crm.inbox.view')
   async statuses(@Req() req: ChatsReq) {
     return callChats(this.read.listConversationStatuses({}, this.meta(req)));
+  }
+
+  /**
+   * ⭐ W25 (R23 / 9.12) — the unread badge, from server state. A fixed segment like `statuses`, for
+   * the same route-ordering reason. Gated `crm.inbox.view`: the badge is a fact about the caller's
+   * own list. Empty request downstream — nobody can name a colleague.
+   */
+  @Get('inbox-unseen')
+  @RequiresPermission('crm.inbox.view')
+  async inboxUnseen(@Req() req: ChatsReq) {
+    return callChats(this.read.getInboxUnseen({}, this.meta(req)));
+  }
+
+  /**
+   * ⭐ W25 — the reset act: the caller opened the Inbox. Idempotent (an upsert downstream), takes no
+   * body at all — the subject is the caller, and a body would be an invitation to name someone else.
+   */
+  @Put('inbox-opened')
+  @RequiresPermission('crm.inbox.view')
+  async markInboxOpened(@Req() req: ChatsReq) {
+    return callChats(this.write.markInboxOpened({}, this.meta(req)));
   }
 
   /**

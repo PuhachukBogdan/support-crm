@@ -248,6 +248,7 @@ describe('*** resolving stored rows over the defaults ***', () => {
     expect(resolveUiPreferences([{ key: 'theme_mode', value: 'dark' }])).toEqual({
       theme_mode: 'dark',
       font_size_step: 'default',
+      unread_sound: 'on',
     });
   });
 

@@ -31,6 +31,8 @@ export interface StubOptions {
   myOperatorId?: string | null;
   /** W6: the status catalogue. Defaults to a seeded-nine-shaped set; `[]` = the read fails. */
   statuses?: readonly StatusWireRow[];
+  /** ⭐ W25: what `GET inbox-unseen` answers — the mark BEFORE this visit, and the derived count. */
+  unseen?: { count?: number; openedAt?: string };
 }
 
 /** The catalogue row as the WIRE spells it (`GET /conversations/statuses`, feature 032). */
@@ -98,6 +100,10 @@ export interface ConversationsStub extends DataAccess {
    * near it.
    */
   emit(event: RealtimeEvent): void;
+  /** ⭐ W25: how many times the screen PUT the reset (`inbox-opened`) — rule 2's countable half. */
+  openedCalls: number;
+  /** ⭐ W25: what `inbox-unseen` answers NEXT — mutable, so a test moves the server between events. */
+  unseen?: { count?: number; openedAt?: string };
 }
 
 export function stubConversations(opts: StubOptions = {}): ConversationsStub {
@@ -109,6 +115,8 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
 
   const stub: ConversationsStub = {
     calls,
+    openedCalls: 0,
+    unseen: opts.unseen,
     async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
       // W6: the status catalogue rides the same port. Not recorded in `calls` — those are the
       // CONVERSATION requests the assertions count, and a catalogue read among them would make
@@ -138,12 +146,22 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
         if (opts.myOperatorId === null) throw { kind: 'unavailable' };
         return { operatorId: opts.myOperatorId ?? 'op-me', active: true } as unknown as T;
       }
+      // ⭐ W25: the page reads the unread mark on mount (for the row dots), then resets it.
+      // Reads the MUTABLE property, so a test can move the server's number between events.
+      if (resource === 'inbox-unseen') {
+        return { count: stub.unseen?.count ?? 0, openedAt: stub.unseen?.openedAt ?? '' } as unknown as T;
+      }
       throw new Error('not used by the inbox');
     },
     async create<T = unknown>(): Promise<T> {
       throw new Error('not used by the inbox');
     },
-    async update<T = unknown>(): Promise<T> {
+    async update<T = unknown>(resource?: unknown): Promise<T> {
+      // ⭐ W25: the reset act — recorded so a spec can assert rule 2 (re-mark on arrival while open).
+      if (resource === 'inbox-opened') {
+        stub.openedCalls += 1;
+        return { count: 0, openedAt: new Date().toISOString() } as unknown as T;
+      }
       throw new Error('not used by the inbox');
     },
     async remove<T = void>(): Promise<T> {

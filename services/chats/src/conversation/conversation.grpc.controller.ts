@@ -21,6 +21,7 @@ import { resolveStatusFilter, StatusFilterError } from '../status/status-filter'
 import { SlaRepository } from '../sla/sla.repository';
 import { OperatorIdentityClient } from '../shared/operator-identity.client';
 import { ReadMarkRepository } from './read-mark.repository';
+import { InboxUnseenRepository } from './inbox-unseen.repository';
 import { PrismaService } from '../prisma.service';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { lookupPerformed, userActor } from '../transition/conversation-transitions';
@@ -89,6 +90,8 @@ export class ConversationReadController {
     // ── W5 (roadmap 4.19): the two halves of "he OPENED it" ────────────────────────────────────────
     @Inject(OperatorIdentityClient) private readonly operatorIdentity: OperatorIdentityClient,
     @Inject(ReadMarkRepository) private readonly readMarks: ReadMarkRepository,
+    // ⭐ W25 (R23/9.12): the unread badge — derived, never accumulated.
+    @Inject(InboxUnseenRepository) private readonly inboxUnseen: InboxUnseenRepository,
     // W9 / spec 035: the lookup proxy writes the restricted transition itself.
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
@@ -214,6 +217,30 @@ export class ConversationReadController {
         ? encodeOrderedCursor({ ...nextCursor, ...(scopeFingerprint ? { scope: scopeFingerprint } : {}) })
         : '',
     };
+  }
+
+  /**
+   * ⭐ W25 (R23 / 9.12) — the unread badge, derived from server state so a reload cannot lose it.
+   *
+   * EMPTY request: the subject is the caller (the read-mark rule) — nobody can read a colleague's
+   * badge. The Inbox bucket's categories (`new` + `open`, R39) are resolved against the ACCOUNT's
+   * own catalogue here, so the repository never holds a vocabulary; an account with nothing
+   * configured in either category counts zero, honestly. A machine caller has no badge: zeros.
+   */
+  @GrpcMethod('ChatsReadService', 'GetInboxUnseen')
+  @RequiresChatsPermission('crm.inbox.view')
+  async getInboxUnseen(_req: unknown, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const operatorId = await this.operatorIdentity.resolveCallerOperatorId(metadata);
+    if (!operatorId) return { count: 0, openedAt: '' };
+    const keys = (
+      await Promise.all([
+        this.statuses.keysOfCategory(ctx.accountId, 'new'),
+        this.statuses.keysOfCategory(ctx.accountId, 'open'),
+      ])
+    ).flat();
+    const { count, openedAt } = await this.inboxUnseen.unseen(ctx.accountId, operatorId, keys);
+    return { count, openedAt: openedAt ? openedAt.toISOString() : '' };
   }
 
   @GrpcMethod('ChatsReadService', 'GetConversation')

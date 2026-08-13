@@ -279,6 +279,14 @@ service ChatsReadService {
   // a conversation still sitting in a retired status would render with no label at all.
   rpc ListConversationStatuses(Empty) returns (ConversationStatusList);
 
+  // ── ⭐ MVP block W25 (R23 / roadmap 9.12) — the unread counter, from SERVER state ────────────────
+  //
+  // The count of conversations that ARRIVED in the caller's own Inbox slice (assignee = me, the
+  // Inbox bucket's categories) since the caller last OPENED the Inbox. Identity from validated
+  // metadata like the read marks — an EMPTY request, so nobody can ask about somebody else's badge.
+  // Survives reload because it is derived, never accumulated client-side.
+  rpc GetInboxUnseen(Empty) returns (InboxUnseen);
+
   // ⭐ Feature 033 (roadmap 6.6) — the capability matrix, as an answer. Static product facts rather than
   // account configuration; W6's filters, W7's reply box and the analytics split all stand on it, and every
   // future channel arrives as a ROW rather than a branch. Gated by `crm.inbox.view`, like the catalogue
@@ -441,6 +449,16 @@ enum ChannelKind {
 
 message ConversationStatusList {
   repeated ConversationStatusDef statuses = 1;
+}
+
+// ⭐ W25 (R23 / 9.12) — the unread state, derived server-side so a reload cannot lose it.
+message InboxUnseen {
+  // Conversations that arrived in the caller's Inbox slice since `opened_at`. The DISPLAY caps at
+  // 99+ — the cap is presentation, so the number itself travels uncapped.
+  int32 count = 1;
+  // When the caller last opened the Inbox (ISO-8601; "" when they never have). The list uses it to
+  // mark the ROWS that arrived while they were away — one fact, two surfaces.
+  string opened_at = 2;
 }
 
 message ListConversationsRequest {
@@ -648,6 +666,9 @@ service ChatsWriteService {
   // attached stays where it was written, so the caller shows these counts BEFORE confirming.
   rpc DetachConversationPlayer(ConversationPlayerDetachRequest) returns (ConversationPlayerDetachResult);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+  // ⭐ W25 (R23): "I am looking at the Inbox NOW" — the reset act of the unread counter. Empty
+  // request (identity from metadata, like GetInboxUnseen); upsert, so repeats are idempotent.
+  rpc MarkInboxOpened(Empty) returns (InboxUnseen);
   // Internal/seed + future channel ingress (Phase 6) path for inbound customer messages:
   rpc RecordIncomingMessage(RecordIncomingMessageRequest) returns (Message);
   // ── Feature 013 (workflow, roadmap 4.4–4.5) — additive ──

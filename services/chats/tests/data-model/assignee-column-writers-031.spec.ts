@@ -85,6 +85,9 @@ describe('writers of assignee_operator_id (T016)', () => {
       'macros/macros.repository.ts',
       // The list/read layer filters on it.
       'conversation/conversation.repository.ts',
+      // ⭐ W25: the unread badge COUNTS the caller's own slice — a scoped READ (assignee = me),
+      // never a write; enrolled so the exact-set guard stays exact.
+      'conversation/inbox-unseen.repository.ts',
       // The subject sweep reads it; the wire maps it; the transition stream records what changed.
       'shared/wire.ts',
       'subject/subject.sweep.ts',

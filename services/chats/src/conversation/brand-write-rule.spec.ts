@@ -10,6 +10,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { REQUIRED_CHATS_PERMISSION_KEY } from '../security/requires-chats-permission.decorator';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { noInboxUnseen, noOperatorIdentity } from '../shared/operator-identity.fake';
 import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
@@ -100,6 +101,8 @@ const build = (prisma: PrismaService) =>
     fakeStatusRepository(),
     new AuditRepository(prisma),
     fakeRealtime().publisher,
+    noInboxUnseen(),
+    noOperatorIdentity(),
   );
 
 function md(permissions: string[], accountId = 'acc-1'): Metadata {

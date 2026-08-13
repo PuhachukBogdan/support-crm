@@ -2,11 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   OnModuleInit,
   Param,
   Patch,
+  Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -42,6 +45,12 @@ interface ChatsReadGrpc {
   listConversationStatuses(d: Record<string, never>, md?: unknown): Observable<unknown>;
   // Feature 033 (roadmap 6.6): the capability matrix. Product facts, no account in the request.
   getChannelCapabilities(d: Record<string, never>, md?: unknown): Observable<unknown>;
+  // W9 / spec 035: the context-gated lookup — chats verifies the conversation is unidentified and
+  // dials users with the CALLER's credentials; this edge only forwards.
+  lookupContactForConversation(
+    d: { conversationId: string; kind: string; value: string },
+    md?: unknown,
+  ): Observable<unknown>;
 }
 interface ChatsWriteGrpc {
   setConversationStatus(
@@ -58,6 +67,12 @@ interface ChatsWriteGrpc {
     d: { conversationId: string; subject: string },
     md?: unknown,
   ): Observable<ConversationWire>;
+  // W9 / spec 035 (ADR 0044 §5): the reversible identity pair, both under crm.contact.lookup.
+  setConversationPlayer(
+    d: { conversationId: string; playerId: string },
+    md?: unknown,
+  ): Observable<ConversationWire>;
+  detachConversationPlayer(d: { conversationId: string }, md?: unknown): Observable<unknown>;
 }
 
 type ChatsReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -245,5 +260,43 @@ export class ConversationsController implements OnModuleInit {
     const brandId = (body?.brandId ?? '').trim();
     if (!brandId) throw new BadRequestException('invalid brandId: must not be empty');
     return callChats(this.write.setConversationBrand({ conversationId: id, brandId }, this.meta(req)));
+  }
+
+  /**
+   * ⭐ W9 / spec 035 (ADR 0044 §4) — the lookup, reachable ONLY under a conversation. A POST,
+   * deliberately: the searched value must ride the BODY (a query string is written to every proxy
+   * log between the browser and this service — the same rule the auth routes state). Validation
+   * errors name the KEY, never the value: the value is a customer contact by definition (SEC-26).
+   * Everything else — the unidentified check, the audit, the cap — is the services' business.
+   */
+  @Post(':id/contact-lookup')
+  @RequiresPermission('crm.contact.lookup')
+  async contactLookup(
+    @Param('id') id: string,
+    @Body() body: { kind?: string; value?: string },
+    @Req() req: ChatsReq,
+  ) {
+    const kind = body?.kind === 'email' || body?.kind === 'phone' ? body.kind : null;
+    const value = (body?.value ?? '').trim();
+    if (!kind || !value) throw new BadRequestException('kind (email|phone) and value are required');
+    return callChats(
+      this.read.lookupContactForConversation({ conversationId: id, kind, value }, this.meta(req)),
+    );
+  }
+
+  /** W9 (0044 §5): attach = an idempotent-shaped PLACEMENT of the pair the lookup confirmed. */
+  @Put(':id/player')
+  @RequiresPermission('crm.contact.lookup')
+  async setPlayer(@Param('id') id: string, @Body() body: { playerId?: string }, @Req() req: ChatsReq) {
+    const playerId = (body?.playerId ?? '').trim();
+    if (!playerId) throw new BadRequestException('invalid playerId: must not be empty');
+    return callChats(this.write.setConversationPlayer({ conversationId: id, playerId }, this.meta(req)));
+  }
+
+  /** W9 (0044 §5): the response is the WARNING — what staff wrote while the player was attached. */
+  @Delete(':id/player')
+  @RequiresPermission('crm.contact.lookup')
+  async detachPlayer(@Param('id') id: string, @Req() req: ChatsReq) {
+    return callChats(this.write.detachConversationPlayer({ conversationId: id }, this.meta(req)));
   }
 }

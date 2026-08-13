@@ -147,6 +147,38 @@ export function narrowsToOwnPortfolio(roleKey: string): boolean {
   return tiers.includes('am_only') && !tiers.includes('masked_pii');
 }
 
+/**
+ * ⭐ Feature 031 (roadmap 4.20/4.21, ADR 0042) — may **automatic distribution** hand work to this role?
+ *
+ *     is a queue role  ⟺  the role is KNOWN  ∧  it does not see `am_only`
+ *
+ * Derived, and derived **positively**: the router asks *"who staffs a queue?"* rather than *"who is not an
+ * account manager?"*. The difference matters, because a pool built by exclusion is one config change from
+ * including somebody, while a pool built from queue roles cannot reach an AM at all.
+ *
+ * ⚠️ **It lives here, not in the router, and a shipped guard enforces that.**
+ * `services/chats/tests/data-model/am-not-a-queue-agent-030.spec.ts` fails if any distribution, automation,
+ * routing, capacity or SLA module **names** a role or a tier — and feature 030 was caught by it once for
+ * importing a rule while still doing the tier arithmetic itself. Reusing a rule and recomputing it are
+ * different things, and the second looks like the first.
+ *
+ * Two exclusions fall out of the one condition, and both are intended:
+ *
+ * - **`am` / `shift_am`** work a **portfolio**, not a queue (scope brief §4/§9.1). A person may still hand
+ *   one of them a conversation deliberately; what is forbidden is the machine choosing them.
+ * - **`admin` / `super_admin`** see every tier, `am_only` included, so they are excluded too — and that is
+ *   right: an administrator is not a destination for customer conversations. A router that could pick them
+ *   would put work where nobody is watching for it.
+ *
+ * ⚠️ **An unknown role is NOT a queue role.** Fail-closed is unambiguous in this direction: the cost of
+ * refusing to route to somebody unrecognised is that a person waits, and it is visible. The cost of routing
+ * to them is a customer conversation sitting with somebody the system cannot describe.
+ */
+export function isQueueRole(roleKey: string): boolean {
+  if (!roleKey || !Object.prototype.hasOwnProperty.call(ROLE_VISIBLE_TIERS, roleKey)) return false;
+  return !visibleTiersFor(roleKey).includes('am_only');
+}
+
 export function visibleTiersForSubject(
   roleKey: string,
   opts: { attachedToSubject: boolean },

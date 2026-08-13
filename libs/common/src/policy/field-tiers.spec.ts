@@ -1,5 +1,7 @@
 import {
   allowedFields,
+  isQueueRole,
+  narrowsToOwnPortfolio,
   canMassExportContacts,
   FIELD_TIERS,
   ROLE_VISIBLE_TIERS,
@@ -91,5 +93,59 @@ describe('field-tiers policy', () => {
     expect(canMassExportContacts('support_agent')).toBe(false);
     expect(canMassExportContacts('vip_support')).toBe(true);
     expect(canMassExportContacts('am')).toBe(true);
+  });
+});
+
+/**
+ * T003 (feature 031, ADR 0042) — may automatic distribution hand work to this role?
+ *
+ * ⚠️ Asserted by DERIVATION, not by listing names. A hardcoded expectation here would drift the first time
+ * a role is added, and drift silently — which is the whole reason the predicate lives in this file.
+ */
+describe('isQueueRole — who automatic distribution may pick', () => {
+  it('includes the roles that staff a queue', () => {
+    expect(isQueueRole('support_agent')).toBe(true);
+    expect(isQueueRole('vip_support')).toBe(true);
+    expect(isQueueRole('teamlead')).toBe(true);
+  });
+
+  it('⚠️ excludes account managers — they work a portfolio, not a queue', () => {
+    // A person may still hand them a conversation deliberately; what is forbidden is the MACHINE choosing.
+    expect(isQueueRole('am')).toBe(false);
+    expect(isQueueRole('shift_am')).toBe(false);
+  });
+
+  it('⚠️ excludes administrators too, and that is intended', () => {
+    // They see every tier, `am_only` included. A router that could pick them would put a customer
+    // conversation where nobody is watching for it.
+    expect(isQueueRole('admin')).toBe(false);
+    expect(isQueueRole('super_admin')).toBe(false);
+  });
+
+  it('⭐ is derived: exactly the known roles that do NOT see am_only', () => {
+    const derived = Object.entries(ROLE_VISIBLE_TIERS)
+      .filter(([, tiers]) => !tiers.includes('am_only'))
+      .map(([role]) => role);
+    // Positive control on the fixture: an empty map would satisfy every loop below.
+    expect(derived.length).toBeGreaterThan(0);
+    for (const role of derived) expect(isQueueRole(role)).toBe(true);
+    for (const role of Object.keys(ROLE_VISIBLE_TIERS)) {
+      if (!derived.includes(role)) expect(isQueueRole(role)).toBe(false);
+    }
+  });
+
+  it('⚠️ an unknown or empty role is NOT a queue role — fail closed', () => {
+    // Refusing to route to somebody unrecognised makes a person wait, and it is visible. Routing to them
+    // leaves a customer conversation with somebody the system cannot describe.
+    expect(isQueueRole('')).toBe(false);
+    expect(isQueueRole('role_invented_next_year')).toBe(false);
+  });
+
+  it('⛔ never overlaps with the portfolio narrowing — a role is one or the other', () => {
+    // The two predicates answer different questions off the same map; a role that was both would mean the
+    // derivation had drifted.
+    for (const role of Object.keys(ROLE_VISIBLE_TIERS)) {
+      expect(isQueueRole(role) && narrowsToOwnPortfolio(role)).toBe(false);
+    }
   });
 });

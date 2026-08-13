@@ -68,12 +68,42 @@ try {
   if (/\d/.test(created)) pass(`…and «создано сегодня» is a NUMBER (${created.replace(/\D+/g, ' ').trim()})`);
   else fail('created-today numeric', created.slice(0, 40));
 
-  const bars = await page.$$eval('[data-testid^="bar-20"]', (els) => els.length);
-  if (bars >= 14) pass(`⭐ the chart draws one bar per day (${bars})`);
-  else fail('chart bars', `${bars}`);
-  const title = await page.$eval('[data-testid^="bar-20"]:last-child', (el) => el.getAttribute('title') ?? '');
-  if (/^20[0-9-]+: \d+$/.test(title)) pass(`…hover carries the exact value (“${title}”)`);
-  else fail('bar title', title.slice(0, 40));
+  // Шаг 1: the chart is the LIBRARY's (Recharts under shadcn's ChartContainer) — the bars are SVG
+  // rectangles now, and the hover is a real tooltip. These are exactly the claims the jsdom test
+  // surrendered (it has no layout to draw them), so they live here or nowhere.
+  if (await page.$('[data-testid="volume-chart"] [data-chart]')) pass('⭐ the chart is the library’s (ChartContainer mounted)');
+  else fail('library chart mounted', 'no [data-chart] under volume-chart');
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="volume-chart"] .recharts-bar-rectangle').length >= 14,
+    { timeout: 15000 },
+  );
+  const bars = await page.$$eval('[data-testid="volume-chart"] .recharts-bar-rectangle', (els) => els.length);
+  pass(`⭐ the chart draws one bar per day (${bars} SVG bars — a zero day is a stub, not a hole)`);
+  // Hover the LAST bar's center; the tooltip must carry the date and the exact count.
+  const barBox = await page
+    .locator('[data-testid="volume-chart"] .recharts-bar-rectangle')
+    .last()
+    .boundingBox();
+  if (barBox) {
+    await page.mouse.move(barBox.x + barBox.width / 2, barBox.y + Math.max(1, barBox.height / 2));
+    await page.waitForTimeout(400);
+    const tip = (await page.textContent('[data-testid="volume-chart"] .recharts-tooltip-wrapper')) ?? '';
+    if (/20\d\d-\d\d-\d\d/.test(tip) && /\d/.test(tip.replace(/20\d\d-\d\d-\d\d/, '')))
+      pass(`…hover raises the library tooltip with the date and the value (“${tip.trim().slice(0, 40)}”)`);
+    else fail('chart tooltip', tip.slice(0, 60) || 'empty');
+  } else fail('chart tooltip', 'no bar box to hover');
+  // Rule 11: both themes, seen. The shots land beside the run for the human pass.
+  const SHOTS = process.env.SHOT_DIR ?? '/tmp/pw-work/shots';
+  await page.screenshot({ path: `${SHOTS}/w20-analytics-light.png`, fullPage: true });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.evaluate(() => {
+    document.documentElement.classList.add('dark');
+  });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${SHOTS}/w20-analytics-dark.png`, fullPage: true });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.evaluate(() => document.documentElement.classList.remove('dark'));
+  pass('analytics screenshots taken, light and dark');
 
   if (await page.$('[data-testid="pending-by-agent"]')) pass('the parking-lot list (6.4) is on the page');
   else fail('pending list', 'missing');

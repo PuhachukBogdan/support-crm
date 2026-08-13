@@ -158,10 +158,13 @@ try {
   else note('take-it is visible — this ticket is not assigned to the probe agent');
 
   // ── 3. a NOTE round-trips and renders as one ────────────────────────────────────────────────────
+  // ⭐ 2026-08-10: the send button is GONE — ENTER sends (the operator's own mechanic), so pressing
+  // it here is not a shortcut for the check, it IS the claim.
   const noteText = `internal ${Date.now().toString(36)}`;
   await p.$eval('[data-testid="composer-mode-note"]', (el) => el.click());
   await p.fill('[data-testid="composer-body"]', noteText);
-  await p.$eval('[data-testid="composer-send"]', (el) => el.click());
+  await p.focus('[data-testid="composer-body"]');
+  await p.keyboard.press('Enter');
   await p.waitForSelector(`text=${noteText}`, { timeout: 15000 });
   const noteKind = await p.$eval(
     `[data-testid="ticket-thread"] :text("${noteText}")`,
@@ -184,27 +187,30 @@ try {
   pass('the file crossed the multipart edge and holds a chip (uploadId in hand)');
 
   await p.fill('[data-testid="composer-body"]', replyText);
-  await p.click('[data-testid="composer-send"]', { timeout: 12000 });
+  await p.focus('[data-testid="composer-body"]');
+  await p.keyboard.press('Enter'); // Enter sends — the 2026-08-10 mechanic, again
   await p.waitForSelector(`text=${replyText}`, { timeout: 15000 });
   const replyBlock = await p.$(`[data-testid="ticket-thread"] :text("${replyText}")`);
   const replyKind = replyBlock ? await replyBlock.evaluate((el) => el.closest('[data-kind]')?.getAttribute('data-kind')) : null;
   const hasAttachment = replyBlock
     ? await replyBlock.evaluate((el) => !!el.closest('[data-kind]')?.querySelector('a[href*="/api/uploads/"]'))
     : false;
-  if (replyKind === 'reply') pass('the reply renders as a PUBLIC reply (real click on send)');
+  if (replyKind === 'reply') pass('the reply renders as a PUBLIC reply (Enter sends)');
   else fail('reply kind', String(replyKind));
   if (hasAttachment) pass('the attachment rides the message and links to the uploads route');
   else fail('attachment in thread');
 
-  // ── 5. «Submit as <status>» — one gesture, message then status ─────────────────────────────────
+  // ── 5. «Submit ▾ → <status>» — one gesture, message then status ────────────────────────────────
+  // ⭐ 2026-08-10: the split button became ONE button named Submit, whose menu is the status list —
+  // *«снизу была кнопка вместо Send Reply, собственно, Submit с разными… статусами»*.
   // The target is picked to DIFFER from the current status — this check moves the same ticket on
   // every run, and submitting as the status it already holds would change nothing to assert.
   const target = statusBefore === 'In progress' ? 'Open' : 'In progress';
   const submitText = `closing ${Date.now().toString(36)}`;
   await p.fill('[data-testid="composer-body"]', submitText);
-  await p.focus('[data-testid="composer-submit-as"]');
+  await p.focus('[data-testid="composer-submit"]');
   await p.keyboard.press('Enter'); // the keyboard path — Radix guarantees it, and it is an a11y claim
-  const targetItem = await p.waitForSelector(`[role="menuitem"]:has-text("Submit as ${target}")`, { timeout: 8000 });
+  const targetItem = await p.waitForSelector(`[data-testid^="composer-submit-"][role="menuitem"]:has-text("${target}")`, { timeout: 8000 });
   await targetItem.click();
   await p.waitForSelector(`text=${submitText}`, { timeout: 15000 });
   await p.waitForFunction(
@@ -293,21 +299,32 @@ try {
   if (panel) pass('the shell renders its context-panel slot — the rail is a REGION, not a page widget');
   else fail('context panel present');
 
+  // ⭐ 2026-08-10 (the ticket-window rework): the rail is THREE buttons now — Active tickets was
+  // promoted from a tab to a rail entry, first, «it is the agent's own work» (R17). The absence of
+  // Zendesk's OTHER three (R27) is still the claim; the count moved 2 → 3 with the tab strip's
+  // removal, and the code carries that as a decision, not an accretion.
   const railButtons = await p.$$eval('[aria-label="Context panels"] button', (bs) => bs.length);
-  if (railButtons === 2) pass('⛔ exactly TWO rail buttons — Zendesk 3/4/5 are not built (R27)');
-  else fail('two rail buttons', `found ${railButtons}`);
+  if (railButtons === 3) pass('⛔ exactly THREE rail buttons — Zendesk’s other three are not built (R27)');
+  else fail('three rail buttons', `found ${railButtons}`);
 
   // ⭐⭐ The standing anti-storm rule on W10's own key interaction: switching the panel. The slot
   // stores a NODE and the window pushes into it from an effect — the exact shape that looped in
   // jsdom before `setPanel`/`clear` were stabilised, so this is the assertion that would catch it
   // coming back in a browser, where a loop is a freeze rather than a hanging test.
-  await assertNoRenderStorm({ page: p, selector: '[data-testid="panel-tab-active"]', pass, fail });
+  // ⚠️ The selector is the RAIL button (the tab strip is gone) — the old `panel-tab-active` selector
+  // matched nothing, which made this assertion pass about an interaction that never happened.
+  await assertNoRenderStorm({ page: p, selector: '[data-testid="rail-active"]', pass, fail });
 
-  const active = await p.$('[data-testid="active-tickets"]');
-  const activeEmpty = await p.$('[data-testid="active-tickets-empty"]');
-  if (active || activeEmpty)
-    pass(`the Active tickets tab answers (${active ? 'has rows' : 'says it is empty, in words'})`);
-  else fail('active tickets tab', 'neither a list nor its empty state');
+  await p.$eval('[data-testid="rail-active"]', (el) => el.click());
+  const active = await p.waitForSelector(
+    '[data-testid="active-tickets"], [data-testid="active-tickets-empty"]',
+    { timeout: 8000 },
+  ).catch(() => null);
+  if (active)
+    pass(
+      `the Active tickets panel answers (${await active.evaluate((el) => el.dataset.testid)} — rows or a worded empty)`,
+    );
+  else fail('active tickets panel', 'neither a list nor its empty state');
 
   await p.$eval('[data-testid="rail-player"]', (el) => el.click());
   const card = (await p.$('[data-testid="player-card"]')) ?? (await p.$('[data-testid="player-card-unidentified"]'));

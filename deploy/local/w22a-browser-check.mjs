@@ -330,6 +330,18 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForSelector('[data-testid="ticket-fields"]', { timeout: 20000 });
   await page.waitForTimeout(1500);
+  // ⭐ The 2026-08-11 lesson: a screenshot of a mid-hydration frame showed a LIGHT topbar over a dark
+  // page and read as a theming defect; the computed styles said the product was right. So the claim
+  // is ASSERTED now, not eyeballed: in dark, the topbar's background must equal the body's.
+  await page.waitForFunction(
+    () => {
+      const h = document.querySelector('header');
+      return h && getComputedStyle(h).backgroundColor === getComputedStyle(document.body).backgroundColor;
+    },
+    undefined,
+    { timeout: 10000 },
+  );
+  pass('dark reached the CHROME too — the topbar background equals the page background (computed)');
   await page.screenshot({ path: `${SHOTS}/05-ticket-fields-dark.png` });
   await page.goto(`${WEB}/`, { waitUntil: 'networkidle', timeout: 30000 });
   await page.waitForSelector('[data-testid="dt-scroll"]', { timeout: 20000 });

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Providers } from '../../../app/providers';
 import { Inbox } from './inbox';
 import { getDataAccess, setDataAccess } from '@/data/provider';
@@ -39,16 +39,22 @@ function renderInbox() {
 }
 
 describe('*** the two placeholders are visible ***', () => {
-  it('the search bar is shown, and says it is coming', async () => {
+  /**
+   * ⭐ W24 (R43): the search placeholder is GONE — the box is a real control now, and its promise
+   * SHRANK to what actually works: the ticket number and the subject (`[номер] тема`, the one field
+   * the list shows). Player/assignee/message text stay W39's global screen, so the placeholder's
+   * old wording, kept, would have been a lie in the other direction.
+   */
+  it('the search bar is a REAL control, promising only what works — number and subject', async () => {
     setDataAccess(stubConversations({ count: 3 }));
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    const search = screen.getByTestId('search-coming-soon');
-    expect(search).toBeInTheDocument();
-    expect(search.textContent ?? '').toMatch(/soon/i);
-    // Names the fields it will cover, so the shape communicates the plan.
-    expect(search.textContent ?? '').toMatch(/player|subject|assignee/i);
+    expect(screen.queryByTestId('search-coming-soon')).not.toBeInTheDocument();
+    const search = screen.getByTestId('inbox-search');
+    expect(search.tagName.toLowerCase()).toBe('input');
+    expect(search.getAttribute('placeholder') ?? '').toMatch(/number|subject/i);
+    expect(search.getAttribute('placeholder') ?? '').not.toMatch(/player|assignee/i);
   });
 
   it('⭐ Archive is a REAL bucket now — a button, no "soon" badge (W6/R38)', async () => {
@@ -63,16 +69,28 @@ describe('*** the two placeholders are visible ***', () => {
 });
 
 describe('*** …and neither pretends to work (FR-015b, narrowed) ***', () => {
-  it('⭐ the search placeholder is not a control and cannot take focus', async () => {
-    setDataAccess(stubConversations({ count: 3 }));
-    renderInbox();
-    await screen.findByText('Conversation 1');
+  it('⭐ the search NARROWS the request — a real control, debounced, over number-or-subject', async () => {
+    jest.useFakeTimers();
+    try {
+      const stub = stubConversations({ count: 3 });
+      setDataAccess(stub);
+      renderInbox();
+      await screen.findByText('Conversation 1', undefined, {
+        // findBy polls with real timers; under fake ones, advance manually.
+        interval: 0,
+      });
 
-    const search = screen.getByTestId('search-coming-soon');
-    expect(search.tagName.toLowerCase()).not.toBe('input');
-    expect(search.tagName.toLowerCase()).not.toBe('button');
-    expect(search).toHaveAttribute('aria-hidden');
-    expect(search.querySelector('input, button, [tabindex]')).toBeNull();
+      fireEvent.change(screen.getByTestId('inbox-search'), { target: { value: '[1043]' } });
+      // Nothing fires per keystroke — the debounce is the point.
+      const callsBefore = stub.calls.length;
+      jest.advanceTimersByTime(400);
+      await waitFor(() =>
+        expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ search: '[1043]' }),
+      );
+      expect(stub.calls.length).toBe(callsBefore + 1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('the real buckets ARE buttons and are announced — nothing in the rail is inert now', async () => {

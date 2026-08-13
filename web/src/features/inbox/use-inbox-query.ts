@@ -49,6 +49,11 @@ export interface InboxFilters {
   priority?: string;
   /** The bucket's categories. Owned by the bucket; a funnel never writes it. */
   statusCategories?: string;
+  /**
+   * ⭐ W24 (R43): free text over the ONE combined field the list shows — the number exactly OR the
+   * subject as a substring. An axis like channel: it survives a bucket switch and clear-all drops it.
+   */
+  search?: string;
 }
 
 export interface InboxQueryState {
@@ -155,7 +160,8 @@ export function useInboxQuery(myOperatorId: string | undefined): UseInboxQuery {
     hasActiveFilters:
       state.filters.status !== undefined ||
       state.filters.channel !== undefined ||
-      state.filters.priority !== undefined,
+      state.filters.priority !== undefined ||
+      state.filters.search !== undefined,
     setFilter,
     clearFilters,
     setOrder,

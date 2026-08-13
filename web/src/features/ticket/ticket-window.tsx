@@ -122,6 +122,13 @@ export function TicketWindow({ id }: { id: string }) {
                 the write and not of this control — the server owns it either way.
                 ⓘ An open derivation window means the ticket genuinely has no subject YET; that is
                 said as a state, never faked with the first message's text client-side. */}
+            {/* ⭐ W24 (R43): the NUMBER comes FIRST — before the subject and the status. It used to
+                trail the header after the channel; the operator: «в окне тикета номер стоит первым». */}
+            {t.detail.data.reference && (
+              <span className="shrink-0 font-mono text-lg text-muted-foreground" data-testid="ticket-reference">
+                [{t.detail.data.reference}]
+              </span>
+            )}
             <h1 className="min-w-0 flex-1" data-testid="ticket-subject">
               <EditableText
                 value={t.detail.data.subject}
@@ -138,11 +145,6 @@ export function TicketWindow({ id }: { id: string }) {
             </Badge>
             {t.detail.data.channel && (
               <span className="shrink-0 text-xs text-muted-foreground">via {t.detail.data.channel}</span>
-            )}
-            {t.detail.data.reference && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                #{t.detail.data.reference}
-              </span>
             )}
           </>
         ) : t.detail.status === 'error' ? (

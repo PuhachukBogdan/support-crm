@@ -65,4 +65,9 @@ export const SCOPED_MODELS = [
   // caller in that caller's account. A cross-account mark would put one tenant's reading habits into
   // another tenant's unread arithmetic.
   'ConversationReadMark',
+  // ⭐ MVP block W24 (R43): the per-account ticket-number counter. Scoped with no method-level
+  // exception — it is touched ONLY inside the create transaction, for a caller, in that caller's
+  // account. A cross-account increment would leak one tenant's ticket volume into another's numbers,
+  // which is the exact reason this is a per-account table and not a global sequence.
+  'ConversationReferenceCounter',
 ] as const;

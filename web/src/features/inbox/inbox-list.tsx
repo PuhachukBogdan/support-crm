@@ -74,15 +74,23 @@ function cellFor(col: InboxColumn): ColumnDef<ConversationRow, unknown> {
     case 'subject':
       return {
         ...base,
-        cell: ({ row }) =>
-          row.original.subject ? (
+        // ⭐ W24 (R43): `[1043] Тема` is ONE field — his words: «его нужно объединить с темой тикета…
+        // Получается одно объединённое поле». A ticket with no subject reads `[1043] —`, never bare
+        // brackets; a pre-backfill row with no number degrades to the subject alone.
+        cell: ({ row }) => {
+          const ref = row.original.reference;
+          const subject = row.original.subject;
+          if (!ref && !subject) return <EmptyValue label="no subject" />;
+          const text = ref ? `[${ref}] ${subject || '—'}` : subject;
+          return (
             // Truncates rather than widening the table — the operator's «страница слишком растянута».
-            <span className="block max-w-[42ch] truncate" title={row.original.subject}>
-              {row.original.subject}
+            <span className="block max-w-[42ch] truncate" title={text}>
+              {ref && <span className="font-mono text-xs text-muted-foreground">[{ref}]</span>}
+              {ref ? ' ' : ''}
+              {subject || '—'}
             </span>
-          ) : (
-            <EmptyValue label="no subject" />
-          ),
+          );
+        },
       };
     case 'status':
       return {

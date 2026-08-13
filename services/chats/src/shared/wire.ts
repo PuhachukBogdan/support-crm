@@ -119,9 +119,10 @@ export interface ConversationSummaryRow {
   updated_at: Date;
   /** Feature 023 (roadmap 4.18): the human-readable title. Null while the window is open. */
   subject: string | null;
+  /** ⭐ W24 (R43): the ticket NUMBER — per-account sequential; null only on rows born before the backfill ran. */
+  reference: string | null;
 }
 export interface ConversationDetailRow extends ConversationSummaryRow {
-  reference: string | null;
   category: string | null;
   sub_category: string | null;
   classified_by: string | null;
@@ -160,6 +161,8 @@ export function toSummaryWire(r: ConversationSummaryRow) {
     createdAt: r.created_at.toISOString(),
     // Feature 023: the reason this whole feature exists — a scannable list.
     subject: r.subject ?? '',
+    // ⭐ W24 (R43): the ticket number — the list renders `[1043] Тема` as one field.
+    reference: r.reference ?? '',
   };
 }
 export interface MessageRow {

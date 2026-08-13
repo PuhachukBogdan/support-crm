@@ -146,6 +146,8 @@ export class ConversationsController implements OnModuleInit {
       statusCategories?: string;
       /** W5 (roadmap 4.19): only conversations this operator has OPENED — the rail's middle leg. */
       openedByOperatorId?: string;
+      /** ⭐ W24 (R43): free text over `[номер] тема` — the service edge cleans and caps it. */
+      search?: string;
     },
     @Req() req: ChatsReq,
   ) {
@@ -154,6 +156,9 @@ export class ConversationsController implements OnModuleInit {
         {
           // Feature 032: the retired `status` ENUM field is deliberately never sent — chats refuses it.
           statusKey: (q.status ?? '').trim(),
+          // ⭐ W24: named in the destructure above or it silently vanishes (this object is a FIXED
+          // DESTRUCTURE — the additive-field-lost-at-the-edge lesson, twice paid already).
+          search: q.search ?? '',
           statusCategory: toStatusCategoryWire(q.statusCategory),
           statusCategories: (q.statusCategories ?? '')
             .split(',')

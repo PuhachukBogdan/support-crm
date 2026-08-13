@@ -208,6 +208,29 @@ describe('*** the R39 rail: four buttons on categories, then the archive section
   });
 });
 
+describe('⭐ W24 (R43) — the Subject column is ONE field: [номер] тема', () => {
+  it('renders the number before the subject', async () => {
+    setDataAccess(stubConversations({ count: 1, rowOverrides: { reference: '1043', subject: 'Не пришёл депозит' } }));
+    renderInbox();
+    await waitFor(() => expect(screen.getByText(/Не пришёл депозит/)).toBeInTheDocument());
+    expect(screen.getByText('[1043]')).toBeInTheDocument();
+  });
+
+  it('a ticket with NO subject reads «[1043] —», never bare brackets', async () => {
+    setDataAccess(stubConversations({ count: 1, rowOverrides: { reference: '1043', subject: '' } }));
+    renderInbox();
+    await waitFor(() => expect(screen.getByText('[1043]')).toBeInTheDocument());
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('a pre-backfill row with no number degrades to the subject alone — no empty brackets', async () => {
+    setDataAccess(stubConversations({ count: 1, rowOverrides: { reference: '', subject: 'старый тикет' } }));
+    renderInbox();
+    await waitFor(() => expect(screen.getByText('старый тикет')).toBeInTheDocument());
+    expect(screen.queryByText(/\[\s*\]/)).not.toBeInTheDocument();
+  });
+});
+
 describe('the Status column reads the model of record (feature 032), labelled by the catalogue (W6)', () => {
   /**
    * ⭐ The operator's report, verbatim: *«не тянуться статусы тикетов. То есть в solved например тикеты

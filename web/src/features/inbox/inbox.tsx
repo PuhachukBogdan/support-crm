@@ -8,7 +8,7 @@ import { FilterBar } from './filter-bar';
 import { InboxList } from './inbox-list';
 import { BucketRail } from './bucket-rail';
 import { bucketById } from './buckets';
-import { SearchPlaceholder } from './coming-soon';
+import { InboxSearch } from './inbox-search';
 import { useInboxQuery } from './use-inbox-query';
 import { useConversations } from './use-conversations';
 import { useLiveRefresh } from './use-live-refresh';
@@ -127,8 +127,9 @@ export function Inbox() {
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
           {/* Status, channel and priority live in their own column headers — see `column-filter.tsx`. */}
           <FilterBar hasActiveFilters={hasActiveFilters} onClear={clearFilters} />
-          {/* The shape of the search to come, labelled so nobody mistakes it for a working one. */}
-          <SearchPlaceholder />
+          {/* ⭐ W24: the search is REAL now, over exactly what the list shows — `[номер] тема`.
+              Player/assignee/message text stay W39's global screen. */}
+          <InboxSearch value={filters.search ?? ''} onChange={(v) => setFilter('search', v)} />
           <BulkActions selectedCount={selected.length} />
         </div>
 

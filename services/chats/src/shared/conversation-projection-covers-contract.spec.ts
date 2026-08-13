@@ -44,6 +44,8 @@ const summaryRow = {
   created_at: new Date('2026-08-04T10:00:00.000Z'),
   updated_at: new Date('2026-08-04T11:00:00.000Z'),
   subject: 'не пришёл депозит',
+  // ⭐ W24: the ticket number rides the summary — `[1043] Тема` is one field on the list.
+  reference: '1043',
 };
 
 const detailRow = {

@@ -128,6 +128,10 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
       // written when someone opens the ticket. An operator ID rather than a `me` flag, because a
       // supervisor may read an agent's rail; the window sends its own id (from `/me/operator`).
       openedByOperatorId: 'openedByOperatorId',
+      // ⭐ W24 (R43): free text over the ONE combined field the list shows — the ticket number
+      // exactly (brackets/# stripped server-side) OR the subject as a substring. This is the LIST's
+      // own narrowing (bucket + agent scope still apply); the everything-search is W39's screen.
+      search: 'search',
     },
     required: [],
     pageSizeParam: 'pageSize',

@@ -135,6 +135,10 @@ message ConversationSummary {
   // fetching the catalogue. The names live in `ConversationStatusDef`, fetched once per screen.
   string status_key = 11;
   ConversationStatusCategory status_category = 12;
+  // ⭐ MVP block W24 (R43) — additive. The human-facing ticket NUMBER, per-account sequential,
+  // assigned at creation inside the create transaction (and backfilled once, in created_at order).
+  // The list renders `[1043] Subject` as ONE field — which is why the number rides the summary.
+  string reference = 13;
 }
 
 // Full conversation detail (metadata; thread via GetThread).
@@ -484,6 +488,11 @@ message ListConversationsRequest {
   // `me` boolean: a FILTER may name anyone (a teamlead reading an agent's rail reads facts the list
   // already shows); only the mark's WRITE is self-scoped, which is what makes the fact trustworthy.
   string opened_by_operator_id = 14;
+  // ⭐ MVP block W24 (R43) — free-text search over the ONE combined field the list shows:
+  // matches the ticket NUMBER exactly (leading `[`/`#` stripped at the edge) OR the subject as a
+  // case-insensitive substring. "" = no filter. Scoped like every other filter — this is the LIST's
+  // own narrowing (bucket + agent scope still apply); the everything-search is W39's separate screen.
+  string search = 15;
 }
 
 message ConversationPage {
@@ -1402,6 +1411,10 @@ message ExportFilters {
   // narrowed to «Ждут» or to one operator's opened set must export exactly what it showed.
   repeated ConversationStatusCategory status_categories = 13;
   string opened_by_operator_id = 14;
+  // ⭐ W24: mirrors the list's search — a screen narrowed to `[номер] тема` must export exactly the
+  // rows it showed, never the whole set (SEC-AP2, the same sentence as `channel`). Same number as
+  // the list request's field.
+  string search = 15;
 }
 
 message CreateExportRequest {

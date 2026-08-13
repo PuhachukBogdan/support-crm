@@ -24,7 +24,11 @@ model Conversation {
   account_id           String
   brand_id             String // soft ref to brands.Brand.id
   player_id            String? // soft ref / feed key; nullable until linked
-  reference            String? // human-facing ticket id (format id–date–channel TBD) — reserved
+  /// ⭐ W24 (R43): the human-facing ticket NUMBER — per-account sequential, assigned inside the
+  /// create transaction from `ConversationReferenceCounter`, backfilled once in created_at order.
+  /// The old "format id–date–channel TBD" idea is dead: the operator's own example is a bare
+  /// number (`[1043] Тема`). Stays String on the wire; uniqueness per account is structural below.
+  reference            String?
   /// The status KEY — a row in `ConversationStatus`, not a value in an enum (feature 032, ADR 0040).
   /// The composite foreign key below is what makes "every status resolves to a category" structural:
   /// there is no way to store a word the account has not configured, so no read has to cope with one.
@@ -170,6 +174,10 @@ model Conversation {
   /// stand on another tenant's vocabulary.
   status_def ConversationStatus @relation(fields: [account_id, status], references: [account_id, key])
 
+  // ⭐ W24: two tickets of one account can never share a number — a claim the UI makes in every
+  // list row, so it is a constraint rather than a convention. (Postgres permits multiple NULLs,
+  // which is what lets the backfill migration run before anything relies on it.)
+  @@unique([account_id, reference])
   @@index([account_id, status])
   @@index([account_id, player_id])
   @@index([brand_id])
@@ -372,6 +380,17 @@ model OutboundMessage {
 /// ── Why nothing is ever deleted ──────────────────────────────────────────────────────────────────
 /// `active = false` retires a status. There is no delete path: conversations reference the key, so
 /// removing the row would either orphan history or force a bulk rewrite of tickets nobody touched.
+/// ⭐ W24 (R43) — the per-account ticket-number counter. `last` is the last ASSIGNED number, so a
+/// fresh account's first ticket is 1. Incremented atomically (INSERT … ON CONFLICT DO UPDATE via
+/// Prisma upsert on the PK) inside the same transaction that creates the conversation — a number is
+/// never burned by a create that failed, and two concurrent creates cannot share one. Per-account
+/// rather than a global sequence ON PURPOSE: a shared sequence leaks one tenant's ticket volume to
+/// another through the gaps (Principle I).
+model ConversationReferenceCounter {
+  account_id String @id
+  last       Int
+}
+
 model ConversationStatus {
   id            String   @id @default(uuid())
   account_id    String

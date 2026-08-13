@@ -20,9 +20,19 @@ interface TransactionScope {
   conversation: {
     findFirst(args: unknown): Promise<ConversationBefore | null>;
     updateMany(args: unknown): Promise<{ count: number }>;
+    create(args: { data: Record<string, unknown>; select: unknown }): Promise<unknown>;
   };
   conversationTransition: {
     create(args: { data: Record<string, unknown> }): Promise<unknown>;
+  };
+  // ⭐ W24: the ticket-number counter, touched ONLY inside the create transaction.
+  conversationReferenceCounter: {
+    upsert(args: {
+      where: { account_id: string };
+      create: { account_id: string; last: number };
+      update: { last: { increment: number } };
+      select: { last: true };
+    }): Promise<{ last: number }>;
   };
 }
 
@@ -115,6 +125,8 @@ const SUMMARY_SELECT = {
   updated_at: true,
   // Feature 023 (roadmap 4.18): the title rides the SUMMARY, because the list is what it exists to fix.
   subject: true,
+  // ⭐ W24 (R43): the ticket NUMBER rides the summary too — the list renders `[1043] Тема` as ONE field.
+  reference: true,
   // Feature 031: selected because the URGENCY order's page token has to carry it — a cursor cannot name
   // a row's position in a sequence whose leading column the query did not read. Not on the wire.
   priority_rank: true,
@@ -122,7 +134,6 @@ const SUMMARY_SELECT = {
 
 const DETAIL_SELECT = {
   ...SUMMARY_SELECT,
-  reference: true,
   category: true,
   sub_category: true,
   classified_by: true,
@@ -156,6 +167,13 @@ export interface ListFilters {
   statusIn?: string[];
   priority?: string;
   assigneeOperatorId?: string;
+  /**
+   * ⭐ W24 (R43) — free text over the ONE combined field the list shows: the ticket NUMBER exactly,
+   * OR the subject as a case-insensitive substring. Already cleaned by the gRPC edge (brackets/`#`
+   * stripped, trimmed, length-capped); `undefined`/`''` = no filter. A number that names no ticket
+   * intersects to an EMPTY page — the honest answer, never an error.
+   */
+  search?: string;
   playerId?: string;
   /**
    * Feature 014 (R10): restrict to these conversation ids — the `sla_outcome` filter, resolved by the
@@ -313,6 +331,18 @@ export class ConversationRepository {
         });
     }
 
+    if (f.search) {
+      // ⭐ W24: in the `and` accumulator, NOT `where.OR` — membersIn already owns that key, and an
+      // assignment here would silently drop one of the two (the exact hazard the accumulator exists
+      // to prevent). Number matches exactly; subject matches as a substring, case-insensitively.
+      and.push({
+        OR: [
+          { reference: f.search },
+          { subject: { contains: f.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
     if (f.cursor) {
       // ⭐ The keyset predicate MUST name the same columns and directions as the `orderBy` below. If they
       // ever disagree, page two is drawn from a different sequence than page one — and the result is not
@@ -351,33 +381,49 @@ export class ConversationRepository {
   }
 
   async create(accountId: string, input: CreateInput): Promise<ConversationDetailRow> {
-    return (await this.prisma.forAccount(accountId).conversation.create({
-      data: {
-        // account_id is also injected by the scoped client (feature 007); set explicitly to the
-        // same value so the static create type is satisfied (the extension applies it last).
-        account_id: accountId,
-        brand_id: input.brandId,
-        player_id: input.playerId ?? null,
-        // Feature 031: the word and its rank together, always — see `urgency.ts` and the structural
-        // guard that fails when any path writes the column by hand.
-        ...priorityWrite(input.priority),
-        channel: input.channel ?? null,
-        assignee_operator_id: input.assigneeOperatorId ?? null,
-        // Feature 033. `status` is spread conditionally so an absent value keeps the column DEFAULT
-        // rather than writing `undefined` — Prisma treats an explicit `undefined` as "no value", but
-        // spelling it out here would invite a future edit to pass `null`, which the composite foreign
-        // key would then refuse at the moment a customer's message arrived.
-        ...(input.status !== undefined ? { status: input.status } : {}),
-        identity_state: input.identityState ?? null,
-        channel_participant_id: input.channelParticipantId ?? null,
-        continues_conversation_id: input.continuesConversationId ?? null,
-        // Feature 033 (FR-028). Both or neither: a title with no source would leave the derivation
-        // window open over it, and closing that window would overwrite the customer's own subject line.
-        ...(input.subject && input.subjectSource
-          ? { subject: input.subject, subject_source: input.subjectSource }
-          : {}),
-      },
-      select: DETAIL_SELECT,
+    const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
+    // ⭐ W24 (R43): the ticket NUMBER is assigned here — the ONE create path all four callers share
+    // (mail intake ×2, the API write edge, initiate-by-email). The counter increment and the insert
+    // land in one transaction, so a failed create burns no number and two concurrent creates cannot
+    // share one: Prisma's upsert on a PK compiles to INSERT … ON CONFLICT DO UPDATE, which is atomic.
+    // `last` is the last ASSIGNED number — a fresh account's first ticket is 1, like the operator's
+    // own `[1043]` example, not a format string (the schema's "id–date–channel TBD" idea is dead).
+    return (await db.$transaction(async (tx) => {
+      const counter = await tx.conversationReferenceCounter.upsert({
+        where: { account_id: accountId },
+        create: { account_id: accountId, last: 1 },
+        update: { last: { increment: 1 } },
+        select: { last: true },
+      });
+      return tx.conversation.create({
+        data: {
+          reference: String(counter.last),
+          // account_id is also injected by the scoped client (feature 007); set explicitly to the
+          // same value so the static create type is satisfied (the extension applies it last).
+          account_id: accountId,
+          brand_id: input.brandId,
+          player_id: input.playerId ?? null,
+          // Feature 031: the word and its rank together, always — see `urgency.ts` and the structural
+          // guard that fails when any path writes the column by hand.
+          ...priorityWrite(input.priority),
+          channel: input.channel ?? null,
+          assignee_operator_id: input.assigneeOperatorId ?? null,
+          // Feature 033. `status` is spread conditionally so an absent value keeps the column DEFAULT
+          // rather than writing `undefined` — Prisma treats an explicit `undefined` as "no value", but
+          // spelling it out here would invite a future edit to pass `null`, which the composite foreign
+          // key would then refuse at the moment a customer's message arrived.
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          identity_state: input.identityState ?? null,
+          channel_participant_id: input.channelParticipantId ?? null,
+          continues_conversation_id: input.continuesConversationId ?? null,
+          // Feature 033 (FR-028). Both or neither: a title with no source would leave the derivation
+          // window open over it, and closing that window would overwrite the customer's own subject line.
+          ...(input.subject && input.subjectSource
+            ? { subject: input.subject, subject_source: input.subjectSource }
+            : {}),
+        },
+        select: DETAIL_SELECT,
+      });
     })) as ConversationDetailRow;
   }
 

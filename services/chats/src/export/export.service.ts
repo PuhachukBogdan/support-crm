@@ -268,6 +268,9 @@ export class ExportService {
     // W5: same hop, same hazard, for the rail filter. (The plural categories need no line here — the
     // edge resolves them into `statusIn` before anything is stored.)
     if (typeof raw.openedByOperatorId === 'string') out.openedByOperatorId = raw.openedByOperatorId;
+    // ⭐ W24: same hop, same hazard — a search accepted at the edge and dropped here exports MORE
+    // customer rows than the screen showed, in the direction that looks like a correct answer.
+    if (typeof raw.search === 'string') out.search = raw.search;
     return out;
   }
 

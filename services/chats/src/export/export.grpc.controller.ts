@@ -12,6 +12,9 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { wireToSlaOutcome } from '../shared/wire';
 import { StatusRepository } from '../status/status.repository';
 import { resolveStatusFilter, StatusFilterError } from '../status/status-filter';
+// ⭐ W24: the ONE cleaning of the search operand — the export must interpret `[1043]` exactly the
+// way the list does, or the same request exports a different set than it showed (SEC-AP2).
+import { cleanSearch } from '../conversation/conversation.grpc.controller';
 import { QuotaExhaustedError } from './export.quota';
 import { ExportMaintenance } from './export.maintenance';
 import {
@@ -39,6 +42,8 @@ interface CreateWire {
     statusCategories?: string[];
     /** W5: mirrors the list's rail filter — an export of "my opened set" is exactly that set. */
     openedByOperatorId?: string;
+    /** ⭐ W24: mirrors the list's search — an export of a searched screen is exactly that screen (SEC-AP2). */
+    search?: string;
   };
 }
 interface ListWire {
@@ -155,6 +160,11 @@ export class ExportController {
             ...(f.channel ? { channel: f.channel } : {}),
             // W5: the rail filter, mirrored end to end for the SEC-AP2 reason the proto states.
             ...(f.openedByOperatorId ? { openedByOperatorId: f.openedByOperatorId } : {}),
+            // ⭐ W24: the search, cleaned exactly as the list cleans it.
+            ...(() => {
+              const search = cleanSearch(f.search);
+              return search ? { search } : {};
+            })(),
           },
           // The stored filter set, for production on a later tick. Stored DECODED, so `filtersOf` reads
           // DB values and no second decode step can be forgotten there.
@@ -172,6 +182,11 @@ export class ExportController {
             // W5: stored too — `filtersOf` reads DB values, and a filter accepted here and absent
             // there is the exact drop this file already paid for once with `slaOutcome`.
             ...(f.openedByOperatorId ? { openedByOperatorId: f.openedByOperatorId } : {}),
+            // ⭐ W24: stored CLEANED, so production applies exactly the operand the screen used.
+            ...(() => {
+              const search = cleanSearch(f.search);
+              return search ? { search } : {};
+            })(),
           },
         },
         new Date(),

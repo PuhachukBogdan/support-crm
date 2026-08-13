@@ -54,6 +54,19 @@ interface ListConversationsRequestWire {
   statusCategories?: string[];
   /** W5 (roadmap 4.19): only conversations this operator has OPENED — the rail's middle predicate. */
   openedByOperatorId?: string;
+  /** ⭐ W24 (R43): free text over `[номер] тема` — number exact OR subject substring. '' = no filter. */
+  search?: string;
+}
+
+/**
+ * ⭐ W24 — one cleaning, at the service edge, for every caller: a person pastes `[1043]`, `#1043` or
+ * `1043]` off the screen and means the number; whitespace is noise; and the operand is CAPPED because
+ * an unbounded ILIKE against the largest table in the system is a self-inflicted slow query. Returns
+ * `undefined` for "no filter" so the repository's `if (f.search)` stays one branch.
+ */
+export function cleanSearch(raw: string | undefined): string | undefined {
+  const cleaned = (raw ?? '').trim().replace(/^[[#]+/, '').replace(/\]+$/, '').trim().slice(0, 100);
+  return cleaned.length > 0 ? cleaned : undefined;
 }
 interface GetConversationRequestWire {
   id: string;
@@ -184,6 +197,10 @@ export class ConversationReadController {
       // '' means "no filter on channel", NOT "conversations that have no channel" — the rows with no
       // channel (~1 in 6 on the stand) stay reachable precisely by this being undefined.
       channel: req.channel || undefined,
+      // ⭐ W24 (R43): cleaned HERE — the service edge — so every caller gets one semantics: a person
+      // pastes `[1043]` or `#1043` from the screen and means the number 1043; length-capped because
+      // an unbounded ILIKE operand is a cheap way to make the largest table in the system sweat.
+      search: cleanSearch(req.search),
       order,
       ...(idIn === undefined ? {} : { idIn }),
       limit: clampPageSize(req.pageSize),

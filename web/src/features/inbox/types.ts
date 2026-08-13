@@ -35,6 +35,8 @@ export interface ConversationRow {
   lastActivityAt: string;
   createdAt: string;
   subject: string;
+  /** ⭐ W24 (R43): the ticket NUMBER — the Subject column renders `[1043] Тема` as ONE field. */
+  reference?: string;
   /** Present on the detail read; absent from the summary today. Rendered as "not set". */
   category?: string;
 }

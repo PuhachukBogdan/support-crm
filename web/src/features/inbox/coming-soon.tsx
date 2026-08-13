@@ -1,6 +1,5 @@
 'use client';
 
-import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -33,26 +32,10 @@ export function ComingSoonBadge({ className }: { className?: string }) {
   );
 }
 
-/**
- * The search the operator wants across ticket fields — player id, subject, assignee, category.
- *
- * ⚠️ **Two of those are ordinary filters that already exist** (`playerId`, `assigneeOperatorId`), and
- * one — **subject** — needs full-text search the product does not have. That is roadmap **9.13**, and
- * it carries a binding constraint: an **index**, never a `LIKE` fanned across services, because the
- * fan-out is impossible under DB-per-service and would not survive ~3 000 tickets/day. So this shape
- * is here to be seen, not to be wired up cheaply.
+/*
+ * ⓘ `SearchPlaceholder` lived here until W24 (R43) made the box REAL — `inbox-search.tsx`, over
+ * exactly the field the list shows (`[номер] тема`: number exact within THIS list's scope, subject
+ * as a substring on the already-narrowed set). What the placeholder used to promise beyond that —
+ * player, assignee, message text — remains W39's global screen, with its original constraint intact:
+ * an INDEX, never a `LIKE` fanned across services.
  */
-export function SearchPlaceholder() {
-  return (
-    <div
-      data-testid="search-coming-soon"
-      // Inert by construction: not a button, not an input, not focusable, not announced.
-      aria-hidden
-      className="flex h-9 min-w-0 flex-1 cursor-default select-none items-center gap-2 rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground"
-    >
-      <Search className="h-4 w-4 shrink-0 opacity-60" />
-      <span className="truncate">Search tickets — by player, subject, assignee…</span>
-      <ComingSoonBadge className="ml-auto" />
-    </div>
-  );
-}

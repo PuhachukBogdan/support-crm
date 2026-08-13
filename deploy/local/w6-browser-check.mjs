@@ -105,7 +105,10 @@ try {
   const domClick = (sel) => p.$eval(sel, (el) => el.click());
   const rows = async () => {
     await p.waitForTimeout(1300);
-    return p.$$eval('table tbody tr', (rs) => rs.length).catch(() => 0);
+    // ⚠️ tr[data-index] — REAL virtualized rows only. A bare `tbody tr` also matches the empty-state
+    // row, so five empty buckets all "hold 1 row" and the narrowing assertion compares nothing
+    // (found 2026-08-11, first W23 round: every bucket read 1 while the agent held 0 tickets).
+    return p.$$eval('table tbody tr[data-index]', (rs) => rs.length).catch(() => 0);
   };
 
   // ── 1. the R39 rail (W23 — supersedes R38's five buttons) ───────────────────────────────────────

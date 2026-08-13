@@ -48,7 +48,20 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   // `fromBrandRef` / `toBrandRef` (feature 032) = brand IDS, never a brand's name. The name lives in the
   // brands service, and copying it here would make the trail store state instead of referencing it — the
   // same rule that keeps a group's name out of `privilege` after a rename.
-  assignment: ['selfAssigned', 'managerRef', 'reasonClass', 'fromBrandRef', 'toBrandRef'],
+  // `channelKind` (feature 033) = `api | email | messenger` — the closed vocabulary from
+  // `libs/common/src/channels/kinds.ts`, never a channel's key and never its address.
+  // `identifierClass` (feature 033) = WHICH KIND of identifier decided who wrote: `email` | `phone` |
+  // `player_id`. ⚠️ The class is recordable and the value never is (ADR 0044 §4) — an audited email
+  // address would put customer contact data in the one table nothing may delete from.
+  assignment: [
+    'selfAssigned',
+    'managerRef',
+    'reasonClass',
+    'fromBrandRef',
+    'toBrandRef',
+    'channelKind',
+    'identifierClass',
+  ],
   retention: ['deletedCount', 'olderThan'],
 };
 

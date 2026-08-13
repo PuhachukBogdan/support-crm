@@ -313,6 +313,13 @@ services:
       #
       # An absent host means the reader never starts, which is correct for every deployment with no
       # email channel; it is deliberately NOT refuse-to-start config for that reason.
+      # ⭐ WHICH channel this mailbox is. The reader asks chats which tenant owns this key rather than
+      # being told in configuration — a configured account id can DISAGREE with the `Channel` row, and the
+      # disagreement uploads one tenant's customer files into another tenant's storage.
+      CHANNEL_KEY: ${CHANNEL_KEY:-}
+      # The address this channel sends FROM, when it differs from the IMAP user. Used for ONE thing: the
+      # loop check no header provides — our own reply arriving back through somebody's auto-forward.
+      CHANNEL_MAIL_FROM: ${CHANNEL_MAIL_FROM:-}
       CHANNEL_IMAP_HOST: ${CHANNEL_IMAP_HOST:-greenmail}
       CHANNEL_IMAP_PORT: ${CHANNEL_IMAP_PORT:-3143}
       CHANNEL_IMAP_SECURE: ${CHANNEL_IMAP_SECURE:-false}

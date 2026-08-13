@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Metadata } from '@grpc/grpc-js';
 import { buildTransitionDims, type DimsSource } from './transition.dims';
 import type { RecordTransitionInput } from './transition.recorder';
+import type { SubjectSource } from '../subject/subject.derive';
 
 /**
  * Shaping a conversation transition, in one place (feature 023, roadmap 4.8a).
@@ -128,7 +129,17 @@ export function statusChanged(
 export function subjectSet(
   accountId: string,
   before: ConversationBefore,
-  source: 'auto' | 'manual',
+  /**
+   * `auto` (we derived it) · `manual` (a person typed it) · `source` (⭐ feature 033: the source named
+   * it — an email's `Subject`). All three are the same KIND of fact and belong in one type; three
+   * transition types would be three vocabularies free to drift.
+   *
+   * ⓘ `source` reaches here only if a future writer records a transition for a source-given title.
+   * Channel intake today writes the column at CREATION, where there is no prior value to transition
+   * from — the conversation's own creation is the record. The parameter accepts it so that writer does
+   * not have to widen this signature under a deadline.
+   */
+  source: SubjectSource,
   actor: TransitionActor,
   occurredAt: Date,
   metadata?: Metadata,

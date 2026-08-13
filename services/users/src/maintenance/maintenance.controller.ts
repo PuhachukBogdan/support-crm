@@ -5,6 +5,7 @@ import type { Metadata, MetadataValue } from '@grpc/grpc-js';
 import { MaintenanceService } from './maintenance.service';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
 import { OperatorRepository } from '../operator/operator.repository';
+import { ChannelParticipantService } from '../channel/channel-participant.service';
 import type { PresenceState } from '@crm/common';
 import { loadUsersConfig } from '../config';
 
@@ -15,6 +16,14 @@ interface BatchWire {
 interface ResolveRoutingWire {
   accountId?: string;
   authUserIds?: string[];
+}
+
+interface ResolveParticipantWire {
+  accountId?: string;
+  brandId?: string;
+  channelKind?: string;
+  kind?: string;
+  value?: string;
 }
 
 /**
@@ -69,6 +78,9 @@ export class MaintenanceController {
     // Feature 031: the same repository the human-facing rpc uses. ONE method answers "who can take
     // this work?" — two surfaces ask it, with two different gates.
     @Inject(OperatorRepository) private readonly operators: OperatorRepository,
+    // ⭐ Feature 033 (roadmap 6.4): the reply envelope. Here for the same three properties — system
+    // actor only, no gateway route, and a caller that is a machine with no credentials to forward.
+    @Inject(ChannelParticipantService) private readonly participants: ChannelParticipantService,
   ) {}
 
   @GrpcMethod('UsersMaintenanceService', 'PurgeExpiredArtefacts')
@@ -146,5 +158,54 @@ export class MaintenanceController {
         blockedChannels: r.blockedChannels,
       })),
     };
+  }
+
+  /**
+   * ⭐ Where to answer, and who wrote — one call (feature 033, roadmap 6.4).
+   *
+   * ── ⚠️ THE REQUEST CARRIES A CUSTOMER'S CONTACT VALUE, AND NOTHING HERE MAY LOG IT ─────────────
+   * `value` is an email address in clear. It crosses one in-cluster hop because this service owns
+   * contact values, the hash salt and the masking regime — sending the value to its owner is strictly
+   * better than copying `CONTACT_HASH_SALT` into chats so chats could hash locally (research R10).
+   *
+   * The consequence is a rule, not a preference: **this handler logs nothing about its request**, and
+   * `services/users/src/channel/channel-participant.spec.ts` asserts it — on the accepted path and on the
+   * refused ones. An error message must not quote the request either, which is why the refusals below name
+   * the missing FIELD and never its content.
+   *
+   * ── Why one rpc does two jobs ──────────────────────────────────────────────────────────────────
+   * Intake performs both at the same moment for the same message. Two calls would allow the envelope to
+   * be recorded for a thread whose identity lookup failed, or the reverse — and either leaves a ticket
+   * whose two halves disagree about the same customer.
+   */
+  @GrpcMethod('UsersMaintenanceService', 'ResolveChannelParticipant')
+  async resolveChannelParticipant(req: ResolveParticipantWire, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const accountId = String(req?.accountId ?? '').trim();
+    const brandId = String(req?.brandId ?? '').trim();
+    if (!accountId || !brandId) {
+      // ⚠️ Both refused rather than defaulted. Identity is brand-scoped (ADR 0038): the same address
+      // under two brands is two people until a `Person` link says otherwise, so a missing brand is not
+      // "any brand" — it is a cross-brand attachment waiting to happen.
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'account_id and brand_id are required',
+      });
+    }
+    const value = String(req?.value ?? '').trim();
+    if (!value) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'value is required' });
+    }
+
+    return this.participants.register({
+      accountId,
+      brandId,
+      // The CHANNEL kind (`email`), not the identifier class. `kind` on the request is the identifier
+      // class and belongs to the resolution half US3 adds; the row is keyed by the channel.
+      kind: String(req?.channelKind ?? '').trim() || 'email',
+      address: value,
+    });
   }
 }

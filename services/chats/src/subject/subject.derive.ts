@@ -10,6 +10,15 @@
  *   subject_source = null    → the window is OPEN. `subject` may already hold a candidate.
  *   subject_source = 'auto'  → CLOSED by us. No automated writer touches it again (FR-018).
  *   subject_source = 'manual'→ CLOSED by a person. Nothing automated touches it, ever (FR-022).
+ *   subject_source = 'source'→ ⭐ Feature 033: CLOSED BY THE SOURCE ITSELF. An email's `Subject` header
+ *                              IS the title (FR-028) — the customer already named their own ticket, and
+ *                              our derivation must never overwrite it. The window is closed at the
+ *                              moment of creation, so nothing here ever sees such a conversation open.
+ *
+ * ⚠️ `'source'` is a THIRD value rather than a reuse of `'manual'`, and the distinction is not
+ * decoration: `manual` asserts that a person in this system typed the title, which would be false, and
+ * would put an agent's name on a customer's words in any later report that reads the column. All three
+ * are equally truthy, which is all the freeze itself needs.
  *
  * The window closes at whichever comes first (FR-018):
  *   · the customer's 3rd message,
@@ -41,8 +50,14 @@ export const MAX_SUBJECT_LENGTH = 120;
 /** The attachment kinds a title may name. Never the file name (FR-017 / SEC-26). */
 export type AttachmentKind = 'image' | 'video' | 'audio' | 'document' | 'file';
 
-/** `subject_source` values. `null` is a third state — the window is still open — and is not one of these. */
-export type SubjectSource = 'auto' | 'manual';
+/**
+ * `subject_source` values. `null` is a further state — the window is still open — and is not one of these.
+ *
+ * ⚠️ Only `auto` and `manual` are ever WRITTEN by this module and the rename path. `source` is written
+ * once, at creation, by channel intake for a source-given title (FR-028); it appears in this type so the
+ * vocabulary stays in one place, and so a reader of the column knows the third value exists.
+ */
+export type SubjectSource = 'auto' | 'manual' | 'source';
 
 export interface SubjectBefore {
   subject: string | null;

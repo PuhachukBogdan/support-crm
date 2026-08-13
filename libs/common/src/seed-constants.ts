@@ -156,6 +156,12 @@ export const SEED_CHANNEL_API_ID = 'seed-channel-api-0000-000000001';
 export const SEED_CHANNEL_EMAIL_ID = 'seed-channel-email-0000-00000001';
 export const SEED_CHANNEL_API_KEY = 'stand-api-brand1';
 export const SEED_CHANNEL_EMAIL_ADDRESS = 'support-brand1@stand.test';
+// ⚠️ And `SEED_CHANNEL_EMAIL_KEY` must match the WORKER's `CHANNEL_KEY`, or the mailbox reader resolves no
+// tenant and stays shut — silently, because an unknown key and a disabled channel are deliberately
+// indistinguishable (FR-008). A named constant rather than a literal in the seed for the same reason the
+// API key above is one: the stand's `.env` and this file are a pair, and a mismatch presents as "inbound
+// mail does not work" with nothing pointing at the cause.
+export const SEED_CHANNEL_EMAIL_KEY = 'stand-email-brand1';
 
 // feature 014 (automations + first-reply SLA, roadmap 4.6/4.7) fixtures.
 /** Keyword rule: inbound message + unassigned + text contains the keyword → label + status. */

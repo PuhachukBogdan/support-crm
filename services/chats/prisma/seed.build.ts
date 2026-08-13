@@ -54,6 +54,7 @@ import {
   SEED_CHANNEL_API_ID,
   SEED_CHANNEL_EMAIL_ID,
   SEED_CHANNEL_API_KEY,
+  SEED_CHANNEL_EMAIL_KEY,
   SEED_CHANNEL_EMAIL_ADDRESS,
   // Feature 032 (roadmap 4.16): the nine configured statuses — the SAME constant the SQL migration's
   // backfill is written from, so a fresh database and a migrated one cannot disagree.
@@ -192,7 +193,7 @@ export function buildSeed() {
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         kind: SEED_CHANNEL_EMAIL,
-        key: 'stand-email-brand1',
+        key: SEED_CHANNEL_EMAIL_KEY,
         address: SEED_CHANNEL_EMAIL_ADDRESS as string | null,
         enabled: true,
       },

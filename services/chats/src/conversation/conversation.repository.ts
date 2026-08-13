@@ -27,6 +27,7 @@ interface TransactionScope {
 interface TxCapableClient {
   $transaction<T>(fn: (tx: TransactionScope) => Promise<T>): Promise<T>;
 }
+import type { SubjectSource } from '../subject/subject.derive';
 import type { OrderedCursor } from '../shared/cursor';
 import { keysetPredicate, orderByFor, sortKeyOf, type OrderPart } from './order-parts';
 import { priorityWrite, urgencyOrderParts } from './urgency';
@@ -225,6 +226,17 @@ export interface CreateInput {
   channelParticipantId?: string;
   /** Set when a reply on a CLOSED thread produced this ticket (FR-029b). */
   continuesConversationId?: string;
+  /**
+   * A title the SOURCE gave — an email's `Subject` header (FR-028).
+   *
+   * ⚠️ Passed together with `subjectSource: 'source'` and never alone. A title with a NULL source would
+   * leave the 4.18 derivation window open over a title that already exists, and the window's close would
+   * then overwrite the customer's own words with our summary of them. Empty/absent leaves both NULL,
+   * which is the correct reading of an empty `Subject`: the source gave no title, so our window stays
+   * open — as opposed to a stored `''`, which would be a title that is blank for ever.
+   */
+  subject?: string;
+  subjectSource?: SubjectSource;
 }
 
 /**
@@ -347,6 +359,11 @@ export class ConversationRepository {
         identity_state: input.identityState ?? null,
         channel_participant_id: input.channelParticipantId ?? null,
         continues_conversation_id: input.continuesConversationId ?? null,
+        // Feature 033 (FR-028). Both or neither: a title with no source would leave the derivation
+        // window open over it, and closing that window would overwrite the customer's own subject line.
+        ...(input.subject && input.subjectSource
+          ? { subject: input.subject, subject_source: input.subjectSource }
+          : {}),
       },
       select: DETAIL_SELECT,
     })) as ConversationDetailRow;

@@ -15,6 +15,9 @@ import { ContactSummaryRepository } from './contact/contact-summary.repository';
 // caller; the module that finally makes the call is registered here (a module nobody imports contributes
 // no providers, which is feature 015's live-only defect one level up).
 import { ChatsPersonModule } from './person/person-members.client';
+// Feature 033 (roadmap 6.4): chats → users for the reply envelope (research R9).
+import { ChatsChannelParticipantModule } from './channel/participant.client';
+import { ThreadResolver } from './channel/threading';
 import { AssignmentRepository } from './assignment/assignment.repository';
 import { AssignmentWriteController } from './assignment/assignment.grpc.controller';
 import { LabelsRepository } from './labels/labels.repository';
@@ -73,7 +76,7 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
 // ChatsReadService / ChatsWriteService over chats_db, account-scoped (forAccount) with a
 // service-tier RBAC guard (ChatsAccessGuard). US1 conversations + US2 messages; feed lands in US3.
 @Module({
-  imports: [ChatsAuthModule, ChatsUploadsModule, ChatsPersonModule],
+  imports: [ChatsAuthModule, ChatsUploadsModule, ChatsPersonModule, ChatsChannelParticipantModule],
   controllers: [
     HealthGrpcController,
     ConversationReadController,
@@ -130,6 +133,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     IntakeLedger,
     ApiChannelAdapter,
     ChannelIntakeService,
+    // US2 (roadmap 6.4): where a reply belongs, matched only on identifiers we ourselves stored.
+    ThreadResolver,
     ChatsAccessGuard,
     // Feature 023 (roadmap 4.8a). The recorder is injected into the repositories that own the write
     // paths — it is never reached from a controller, which is where the automation dispatcher is

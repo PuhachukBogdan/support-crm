@@ -29,6 +29,14 @@ function build(rows: { operatorId: string; authUserId: string; state: string; bl
     {} as unknown as MaintenanceService,
     {} as unknown as PresenceSweepService,
     { resolveByAuthUserIds } as unknown as OperatorRepository,
+    // Feature 033: the participant registration lives on the same controller for the same three
+    // properties. Unused by this rpc, and deliberately a stub that would THROW if reached — a routing
+    // test that quietly touched the envelope path would be testing two things and proving neither.
+    {
+      register: () => {
+        throw new Error('the routing rpc must not touch the participant path');
+      },
+    } as unknown as import('../channel/channel-participant.service').ChannelParticipantService,
   );
   return { ctrl, resolveByAuthUserIds };
 }

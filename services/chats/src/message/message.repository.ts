@@ -110,6 +110,18 @@ export interface PostInput {
    * one argument instead of re-deriving the rule.
    */
   attachmentKind?: AttachmentKind | null;
+  /**
+   * Feature 033 (roadmap 6.4): this message's identity ON ITS CHANNEL — an email's `Message-ID`.
+   *
+   * ⚠️ **Written on the way IN and on the way OUT, and both are required for threading to work at all.**
+   * A customer's reply quotes the identifier we put on the message weeks earlier; if it was not stored
+   * then, there is nothing to match and the thread splits with no way back (`threading.ts`).
+   *
+   * Absent for every other write path — an agent's note, a widget message, a seeded row. The column is
+   * `@@unique([account_id, external_id])` and Postgres treats NULLs as distinct, so those coexist; the
+   * constraint is what makes "the same inbound email appears once" true (FR-032) rather than hoped for.
+   */
+  externalId?: string | null;
 }
 
 /**
@@ -221,6 +233,9 @@ export class MessageRepository {
       private: input.isPrivate,
       // mentions are meaningful only on a private note (R6); empty otherwise.
       mentions: input.isPrivate ? input.mentions : [],
+      // Feature 033. NULL for every path that has no channel identity — never `''`, which would be a
+      // value and would therefore collide with the next blank under the unique constraint.
+      external_id: input.externalId ?? null,
     };
     const uploadIds = [...new Set(input.uploadIds ?? [])];
     // ONE rule, one place (`contact-stamp.ts`): a private note and a system entry stamp nothing.

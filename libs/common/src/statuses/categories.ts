@@ -50,6 +50,25 @@ export interface StatusCategorySpec {
   terminal: boolean;
   /** The proto enum value. Explicit, never derived by string munging — see `wire.ts`'s precedent. */
   wire: string;
+  /**
+   * ⭐ Feature 033 (roadmap 6.4, FR-029): a customer's reply arrives on a ticket in this category —
+   * does the ticket COME BACK, or does the reply become a new ticket that records what it continues?
+   *
+   * Only consulted for a **terminal** category; a non-terminal ticket simply gains the message, so the
+   * value there is `false` in the sense of "there is nothing to reopen".
+   *
+   * ⚠️ **This is here, as data, so that no code has to name a category.** The alternative was
+   * `category === 'solved'` inside the intake path — which `tests/statuses/no-status-key-branch.spec.ts`
+   * refused, correctly: `solved` is simultaneously a category name and a seeded status KEY, and a
+   * comparison against that word cannot be told apart from the branching ADR 0040 exists to forbid. The
+   * guard did not merely block a line; it pointed at the property that was missing from the model.
+   *
+   * The two answers, and why they differ: a **solved** ticket the customer answers was not finished, so
+   * it returns to the rail. A **closed** one is final — reviving it would put it back into routing,
+   * restart an SLA clock against a date that has passed, and change a closed-work number for a period
+   * already reported.
+   */
+  reopenOnCustomerReply: boolean;
 }
 
 export const STATUS_CATEGORIES: Readonly<Record<StatusCategory, StatusCategorySpec>> = {
@@ -57,11 +76,13 @@ export const STATUS_CATEGORIES: Readonly<Record<StatusCategory, StatusCategorySp
     label: 'Not yet picked up',
     terminal: false,
     wire: 'CONVERSATION_STATUS_CATEGORY_NEW',
+    reopenOnCustomerReply: false,
   },
   open: {
     label: 'Being worked on',
     terminal: false,
     wire: 'CONVERSATION_STATUS_CATEGORY_OPEN',
+    reopenOnCustomerReply: false,
   },
   pending: {
     // ⚠️ Waiting on the CUSTOMER. This is the one category 0041 pauses the clock for, and the reason
@@ -70,6 +91,7 @@ export const STATUS_CATEGORIES: Readonly<Record<StatusCategory, StatusCategorySp
     label: 'Waiting for the customer',
     terminal: false,
     wire: 'CONVERSATION_STATUS_CATEGORY_PENDING',
+    reopenOnCustomerReply: false,
   },
   on_hold: {
     // Waiting on US — an escalation, a colleague, a third party. NOT a pause: an escalated ticket is
@@ -77,11 +99,15 @@ export const STATUS_CATEGORIES: Readonly<Record<StatusCategory, StatusCategorySp
     label: 'Waiting on us',
     terminal: false,
     wire: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD',
+    reopenOnCustomerReply: false,
   },
   solved: {
     label: 'Resolved, may still reopen',
     terminal: true,
     wire: 'CONVERSATION_STATUS_CATEGORY_SOLVED',
+    // ⭐ The one `true` in the catalogue, and the label above already said so before the channel existed:
+    // "may still reopen". Feature 033 made the sentence executable.
+    reopenOnCustomerReply: true,
   },
   closed: {
     // No seeded status belongs to it yet (ADR 0040 §3): the rule that would move a solved ticket here
@@ -89,6 +115,8 @@ export const STATUS_CATEGORIES: Readonly<Record<StatusCategory, StatusCategorySp
     label: 'Archived',
     terminal: true,
     wire: 'CONVERSATION_STATUS_CATEGORY_CLOSED',
+    // Final. A reply becomes a NEW ticket carrying a link to this one (FR-029b).
+    reopenOnCustomerReply: false,
   },
 };
 

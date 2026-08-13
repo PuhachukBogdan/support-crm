@@ -16,7 +16,19 @@ export type IntakeRefusal =
   | 'disabled'
   | 'no_status_configured'
   | 'replay_window'
-  | 'incomplete';
+  | 'incomplete'
+  /**
+   * Feature 033 US2: `users` could not be REACHED to register the reply envelope — not "it found
+   * nobody", which is an ordinary unidentified answer. Refused before the claim, so the message stays
+   * in the mailbox and the next pass takes it in; accepting would create a ticket nobody can answer.
+   */
+  | 'identity_unavailable'
+  /**
+   * The channel the key named is not of the kind this path serves — an `api` channel handed to the
+   * mailbox reader. A misconfiguration, and taking mail in on it would stamp `channel = api` on tickets
+   * that arrived by email, quietly corrupting the SLA dimension (ADR 0041) and the Inbox filter.
+   */
+  | 'channel_kind_mismatch';
 
 export interface ClaimResult {
   /** False when this exact delivery has already been accepted — the caller answers success, not error. */
@@ -100,6 +112,35 @@ export class IntakeLedger {
       where: { id: intakeId },
       data: { conversation_id: produced.conversationId, message_id: produced.messageId },
     });
+  }
+
+  /**
+   * Give a claim back, so the delivery can be taken in again.
+   *
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════
+   * ⚠️ **WITHOUT THIS, A FAILED WRITE LOSES THE CUSTOMER'S MESSAGE PERMANENTLY.** The claim is what
+   * makes a retry answer "already accepted". If the write after it throws — the database blinked, a
+   * transaction deadlocked — the ledger says accepted, no ticket exists, and every retry from now on is
+   * told it is a duplicate. The delivery is gone, the provider is satisfied, and nothing anywhere is red.
+   *
+   * That is the same shape as the defect this project found twice on live runs, one step later in the
+   * sequence: the check said yes and the write never happened. **Deterministic refusals are decided
+   * BEFORE the claim** (an unknown status, an unreachable identity source), so this exists only for the
+   * genuinely unexpected — which is precisely when nobody is watching.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠️ **Never throws.** It runs while another error is already on its way up; a second one would
+   * replace the real cause with a bookkeeping failure.
+   */
+  async release(accountId: string, intakeId: string): Promise<void> {
+    if (!intakeId) return;
+    try {
+      // `deleteMany`, not `delete`: the scoped client injects an `account_id` predicate, which composes
+      // with a filter and not with a unique-id lookup — the pattern every write in this service uses.
+      await this.prisma.forAccount(accountId).channelIntake.deleteMany({ where: { id: intakeId } });
+    } catch {
+      this.logger.error(`intake claim not released intake=${intakeId} — a retry will read as duplicate`);
+    }
   }
 
   /**

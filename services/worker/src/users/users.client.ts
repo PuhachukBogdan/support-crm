@@ -2,7 +2,12 @@ import { Inject, Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { ClientsModule, type ClientGrpc } from '@nestjs/microservices';
 import { Metadata } from '@grpc/grpc-js';
 import { firstValueFrom, type Observable } from 'rxjs';
-import { USERS_PACKAGE, USERS_PROTO, grpcClientOptions } from '@crm/common';
+import {
+  USERS_PACKAGE,
+  USERS_PROTO,
+  UPLOAD_CLIENT_CHANNEL_OPTIONS,
+  grpcClientOptions,
+} from '@crm/common';
 
 /**
  * worker → users maintenance client (feature 017, roadmap 4.10 / research R8).
@@ -22,6 +27,16 @@ import { USERS_PACKAGE, USERS_PROTO, grpcClientOptions } from '@crm/common';
  */
 export const WORKER_USERS_CLIENT = 'WORKER_USERS_CLIENT';
 
+/**
+ * ⭐ Feature 033 (roadmap 6.4): a SECOND channel to the same service, for the one call that carries bytes.
+ *
+ * Separate because the message-size ceiling differs and nothing else does. The maintenance channel below
+ * deliberately keeps the default ceiling — *"this call carries a LIMIT and returns COUNTS"* — and raising
+ * it there would tie a counts-only tick's limits to whatever the byte path needs next. That is the same
+ * split `chats` already makes between `ChatsUploadsModule` and `ChatsPersonModule`.
+ */
+export const WORKER_USERS_UPLOADS_CLIENT = 'WORKER_USERS_UPLOADS_CLIENT';
+
 export interface PurgeResult {
   purged: number;
   objectMissing: number;
@@ -33,6 +48,14 @@ export interface SweepPresenceResult {
   toAway: number;
   toOffline: number;
   failed: number;
+}
+
+/** Feature 033: the one byte-carrying call this service makes. See `UsersUploadsClient` below. */
+interface UploadsGrpc {
+  createUpload(
+    d: { purpose: string; declaredContentType: string; filename: string; content: Buffer },
+    md?: Metadata,
+  ): Observable<{ id?: string }>;
 }
 
 interface UsersMaintenanceGrpc {
@@ -75,6 +98,76 @@ export class UsersMaintenanceClient implements OnModuleInit {
   }
 }
 
+/**
+ * ⭐ The customer's attachment, stored through the ONE ingest path (feature 033 — FR-035, research R12).
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⚠️ **THE WORKER UPLOADS, AND THAT IS THE SHORTER ROUTE RATHER THAN A WORKAROUND.**
+ *
+ * The first draft of this feature carried attachment bytes to `chats` on the intake rpc.
+ * `tests/uploads/single-ingest-path.spec.ts` refused it: feature 016 pins the complete set of
+ * `bytes`-carrying proto messages, so that raw content enters the product by exactly one path. The guard
+ * did not merely block a contract — it pointed at the better design. The worker already holds a `users`
+ * client, so the bytes travel ONE hop instead of two, `chats` never buffers a stranger's file in memory,
+ * and the validation that decides whether a file is acceptable happens in the service that owns storage.
+ *
+ * ⚠️ **A refused file must not lose the message** (FR-018). This method reports a per-file verdict rather
+ * than throwing for the batch: silently dropping a customer's words because of a bad screenshot is
+ * indistinguishable from the product working.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+@Injectable()
+export class UsersUploadsClient implements OnModuleInit {
+  private uploads!: UploadsGrpc;
+
+  constructor(@Inject(WORKER_USERS_UPLOADS_CLIENT) private readonly client: ClientGrpc) {}
+
+  onModuleInit(): void {
+    this.uploads = this.client.getService<UploadsGrpc>('UploadsService');
+  }
+
+  /**
+   * Store one inbound file under the `channel_inbound_attachment` purpose.
+   *
+   * @param accountId whose account it belongs to — resolved from `chats` by channel key, never configured
+   *        (see `ChatsMaintenanceClient.resolveIntakeChannel`).
+   * @returns the upload id, or `null` when `users` refused the file (wrong type, too large, unreadable).
+   *
+   * ⚠️ **Nothing about the file is logged**: a filename can itself be PII (feature 016's FR-020), and a
+   * refusal reason from `users` can quote it. The caller counts refusals; it never names one.
+   */
+  async storeInbound(
+    accountId: string,
+    file: { filename: string; declaredContentType: string; content: Buffer },
+  ): Promise<string | null> {
+    // The purpose's `permission` is null — "authenticated is sufficient" — but `users` still refuses
+    // without an ACCOUNT, which is what makes this a scoped write rather than an anonymous one. No
+    // `x-actor-user-id`: there is no user, and inventing one would attribute a customer's file to a
+    // member of staff.
+    const md = new Metadata();
+    md.set('x-actor-account-id', accountId);
+    md.set('x-actor-kind', 'system');
+
+    try {
+      const res = await firstValueFrom(
+        this.uploads.createUpload(
+          {
+            purpose: 'channel_inbound_attachment',
+            declaredContentType: file.declaredContentType,
+            filename: file.filename,
+            content: file.content,
+          },
+          md,
+        ),
+      );
+      return typeof res?.id === 'string' && res.id !== '' ? res.id : null;
+    } catch {
+      // Refused or unreachable — both mean this file does not travel, and neither may stop the message.
+      return null;
+    }
+  }
+}
+
 @Module({
   imports: [
     ClientsModule.registerAsync([
@@ -86,9 +179,20 @@ export class UsersMaintenanceClient implements OnModuleInit {
           // bytes are deleted inside `users`, never streamed anywhere.
           grpcClientOptions(USERS_PACKAGE, USERS_PROTO, process.env.USERS_GRPC_TARGET as string),
       },
+      {
+        name: WORKER_USERS_UPLOADS_CLIENT,
+        useFactory: () =>
+          // Feature 033: the raised ceiling, and the ONLY channel out of this service that carries bytes.
+          grpcClientOptions(
+            USERS_PACKAGE,
+            USERS_PROTO,
+            process.env.USERS_GRPC_TARGET as string,
+            UPLOAD_CLIENT_CHANNEL_OPTIONS,
+          ),
+      },
     ]),
   ],
-  providers: [UsersMaintenanceClient],
-  exports: [UsersMaintenanceClient],
+  providers: [UsersMaintenanceClient, UsersUploadsClient],
+  exports: [UsersMaintenanceClient, UsersUploadsClient],
 })
 export class WorkerUsersModule {}

@@ -88,7 +88,7 @@ const RPCS = maintenanceRpcs();
  * How each maintenance rpc is reached. Pinned by name, so a new one cannot be added without answering
  * *"and what calls it?"* — the question this whole file exists to force.
  */
-const CALLER_KIND: Readonly<Record<string, 'tick' | 'service'>> = {
+const CALLER_KIND: Readonly<Record<string, 'tick' | 'service' | 'reader'>> = {
   'ChatsMaintenanceService.DrainBacklog': 'tick',
   'ChatsMaintenanceService.ExpireDueExports': 'tick',
   'ChatsMaintenanceService.ReportTransitionStreamHealth': 'tick',
@@ -99,10 +99,21 @@ const CALLER_KIND: Readonly<Record<string, 'tick' | 'service'>> = {
   'UsersMaintenanceService.SweepIdlePresence': 'tick',
   // ⭐ Feature 031: asked by CHATS while draining the backlog, not by a tick. See the header.
   'UsersMaintenanceService.ResolveRoutingOperators': 'service',
+  // ⭐ Feature 033 (roadmap 6.4): asked by CHATS while taking an email in — the reply envelope, owned by
+  // the service that owns contact values (research R9). Not a tick: it happens per message.
+  'UsersMaintenanceService.ResolveChannelParticipant': 'service',
+  // ⭐ Feature 033: a THIRD kind of caller, and the reason this map gained a value rather than bending an
+  // existing one. `ResolveIntakeChannel` is asked by the worker — so it is not `service` — but not from a
+  // repeatable job either, because the mailbox reader holds a PERSISTENT IMAP connection rather than firing
+  // a tick (research R2). Calling it `tick` would have made the "reached from a JOB" assertion below fail
+  // for an honest reason, and the tempting fix — widening that assertion's directory predicate — would
+  // have weakened it for the eight rpcs it exists to protect. A new kind of caller gets a new kind.
+  'ChatsMaintenanceService.ResolveIntakeChannel': 'reader',
 };
 
 const TICKED = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'tick');
 const ASKED = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'service');
+const READ_BY_READER = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'reader');
 
 /** Every service's source except the worker's, keyed by service name, comments stripped. */
 const SERVICE_CODE = walk(join(ROOT, 'services'))
@@ -134,6 +145,10 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // "what calls it?" is the expiry tick — a five-minute heartbeat, which is the right frequency
       // for "has recording stopped".
       'ChatsMaintenanceService.ReportTransitionStreamHealth',
+      // ⭐ Feature 033 (roadmap 6.4). The review moment happened a fourth time, and the answer to "what
+      // calls it?" is the mailbox reader — which is neither a tick nor another service, so the CALLER_KIND
+      // map above gained a third value rather than this rpc being filed under a kind it is not.
+      'ChatsMaintenanceService.ResolveIntakeChannel',
       'ChatsMaintenanceService.RunDueExports',
       // Feature 023 (roadmap 4.18). Same review moment, second time: the answer to "what calls it?" is
       // the SLA tick and NOT the expiry tick — the title window is ten minutes, and a five-minute
@@ -141,6 +156,10 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       'ChatsMaintenanceService.SweepConversationSubjects',
       'ChatsMaintenanceService.SweepFirstReplySla',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
+      // ⭐ Feature 033 (roadmap 6.4): asked by chats per inbound email. It is the only rpc in the product
+      // whose REQUEST carries a customer's contact value, which is why it lives on a surface no gateway
+      // route reaches and why nothing on either side of it logs its request (research R9/R10).
+      'UsersMaintenanceService.ResolveChannelParticipant',
       // ⭐ Feature 031 (roadmap 4.20): the one rpc here that is NOT ticked — chats asks it while draining.
       // Its gate is the actor KIND, which is why it belongs on this service rather than beside the
       // permission-gated human rpc that answers the same question.
@@ -221,6 +240,32 @@ describe('*** a `service` maintenance RPC has a REMOTE caller ***', () => {
           new RegExp(`\\.${method}\\s*\\(`).test(f.code),
       ).map((f) => f.file);
       expect({ rpc, called: callers.length > 0 }).toEqual({ rpc, called: true });
+    },
+  );
+
+  it.each(READ_BY_READER.map((r) => [`${r.service}.${r.rpc}`, r.rpc]))(
+    '%s is reached from a registered worker component that is not a job',
+    (_label, rpc) => {
+      const method = camel(rpc as string);
+      // The same load-bearing half as the JOB assertion, adapted: a client method with no caller is the
+      // defect feature 017 shipped, and it does not become less of one because the caller is a persistent
+      // connection instead of a tick.
+      const callers = WORKER_CODE.filter(
+        (f) =>
+          !f.file.includes('/chats/') &&
+          !f.file.includes('/users/') &&
+          new RegExp(`\\.${method}\\s*\\(`).test(f.code),
+      );
+      expect({ rpc, called: callers.length > 0 }).toEqual({ rpc, called: true });
+
+      // …and the component that calls it is REGISTERED, or its `onModuleInit` never runs and the mailbox
+      // is never opened — the same silent nothing as an unregistered job.
+      const appModule = WORKER_CODE.find((f) => f.file.endsWith('app.module.ts'))!.code;
+      const classes = callers.flatMap((f) =>
+        [...f.code.matchAll(/export class (\w+)\b/g)].map((m) => m[1]!),
+      );
+      expect(classes.length).toBeGreaterThan(0);
+      expect(classes.filter((c) => !appModule.includes(c))).toEqual([]);
     },
   );
 

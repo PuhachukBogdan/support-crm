@@ -390,7 +390,7 @@ service UsersMaintenanceService {
   // hash locally would put a secret in a second service purely to avoid one in-cluster hop of a value this
   // service already owns. Sending the value to its owner is strictly better than distributing the key that
   // protects it. The value is never logged on either side.
-  // ⚠️ The rpc line is declared by US2 beside its handler (`every-rpc-is-served.spec.ts`).
+  rpc ResolveChannelParticipant(ResolveChannelParticipantRequest) returns (ChannelParticipant);
 
   // ⚠️ **THE ONE RPC IN THE PRODUCT THAT RETURNS AN UNMASKED CONTACT VALUE.** Its terms, all firm:
   // callable only by the outbound delivery path, reachable from no gateway route, never logged, and

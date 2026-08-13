@@ -71,6 +71,25 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env) {
      * suite. It is not a refuse-to-start key for that reason: an absent mailbox is a legitimate
      * configuration, unlike an unreachable chats service.
      */
+    /**
+     * Which channel this mailbox IS (`2.1h`). Empty ⇒ the reader stays shut, exactly as an absent host.
+     *
+     * ⚠️ Deliberately NOT accompanied by a `CHANNEL_ACCOUNT_ID`. The account and brand are resolved from
+     * `chats` by this key (`ResolveIntakeChannel`), because a configured copy of what the `Channel` row
+     * already states can DISAGREE with it — and the disagreement uploads one tenant's customer files into
+     * another tenant's storage. Configuration may name which mailbox; only chats may say whose it is.
+     */
+    CHANNEL_KEY: (env.CHANNEL_KEY ?? '').trim(),
+
+    /**
+     * The address this channel sends FROM, when it differs from the IMAP user.
+     *
+     * Used for one thing only: recognising **our own mail coming back** (FR-033, research R14) — the loop
+     * signal no header reliably provides. A reply arriving through a customer's auto-forward looks like a
+     * customer message in every other respect.
+     */
+    CHANNEL_MAIL_FROM: (env.CHANNEL_MAIL_FROM ?? '').trim(),
+
     CHANNEL_IMAP: {
       host: (env.CHANNEL_IMAP_HOST ?? '').trim(),
       port: clampInt(env.CHANNEL_IMAP_PORT, 3143, 1, 65_535),

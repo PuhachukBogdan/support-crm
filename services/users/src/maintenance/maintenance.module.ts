@@ -6,6 +6,7 @@ import { PresenceModule } from '../presence/presence.module';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
 import { PrismaService } from '../prisma.service';
 import { OperatorRepository } from '../operator/operator.repository';
+import { ChannelParticipantService } from '../channel/channel-participant.service';
 
 /**
  * The maintenance surface (feature 017, US3).
@@ -20,6 +21,14 @@ import { OperatorRepository } from '../operator/operator.repository';
   controllers: [MaintenanceController],
   // Feature 031: `ResolveRoutingOperators` answers the routing question for a MACHINE, from the same
   // repository the permission-gated human rpc uses. One method, two surfaces, two different gates.
-  providers: [MaintenanceService, PresenceSweepService, PrismaService, OperatorRepository],
+  // Feature 033: `ResolveChannelParticipant` — the reply envelope, owned by the service that owns
+  // contact values (research R9).
+  providers: [
+    MaintenanceService,
+    PresenceSweepService,
+    PrismaService,
+    OperatorRepository,
+    ChannelParticipantService,
+  ],
 })
 export class MaintenanceModule {}

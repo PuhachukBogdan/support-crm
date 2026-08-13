@@ -141,7 +141,10 @@ model Conversation {
   // the timeout sweep's predicate is `subject_source IS NULL AND created_at <= …`, and without it that
   // is a sequential scan over every conversation ever created, once a minute (research R5).
   subject              String?
-  subject_source       String? // auto | manual; null = window still open
+  // `auto` = we derived it · `manual` = a person typed it · `source` = ⭐ feature 033: the SOURCE named
+  // it (an email's `Subject` header, FR-028) and no automated writer may overwrite it. NULL = the
+  // derivation window is still open.
+  subject_source       String?
 
   // ── Feature 024 (roadmap 5.3, ADR 0039 §5.3): WHICH DESK this conversation was routed to ───────
   //

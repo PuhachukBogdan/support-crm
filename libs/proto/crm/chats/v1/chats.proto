@@ -525,8 +525,15 @@ service ChatsWriteService {
   //
   // ⚠️ Declared WITH its handler (`channel/channel.grpc.controller.ts`), not before it — the rule the
   // note two services above records, and which `every-rpc-is-served.spec.ts` enforced against this
-  // feature's first draft. `AcceptInboundEmail` follows in US2, beside its own handler.
+  // feature's first draft.
   rpc AcceptChannelDelivery(AcceptChannelDeliveryRequest) returns (AcceptChannelDeliveryResponse);
+
+  // ⭐ US2 (roadmap 6.4) — one message taken out of a brand's mailbox, called by the worker's reader.
+  //
+  // The response shape is shared with the delivery above, because the outcomes are the same three:
+  // accepted, already-accepted, refused-with-a-class. A duplicate here is ORDINARY rather than
+  // exceptional — an IMAP reconnect re-reads its batch by design (FR-027c).
+  rpc AcceptInboundEmail(AcceptInboundEmailRequest) returns (AcceptChannelDeliveryResponse);
 }
 
 // ── Feature 033 (roadmap 6.1) — one signed delivery from an API channel ───────────────────────────
@@ -593,6 +600,21 @@ message AcceptInboundEmailRequest {
   // guard did not merely block a contract; it pointed at the shorter route.
   repeated string upload_ids = 8;
   int64 sent_at = 9;
+}
+
+// Feature 033 (roadmap 6.4) — who owns a channel key. Asked by the worker's mailbox reader.
+message ResolveIntakeChannelRequest {
+  string channel_key = 1;
+}
+
+// ⚠️ An unknown OR DISABLED key answers with everything empty rather than an error, exactly as the HTTP
+// edge answers 404 for both (FR-008): a disabled channel must not be distinguishable from one that never
+// existed. The reader treats an empty account as "this mailbox is not configured for intake" and stays
+// shut, which is the correct behaviour for a key the operator has retired.
+message IntakeChannel {
+  string account_id = 1;
+  string brand_id = 2;
+  string kind = 3;                    // `api | email | messenger` — the closed vocabulary
 }
 
 message PostMessageRequest {
@@ -936,6 +958,22 @@ service ChatsMaintenanceService {
   // server-capped, and the answer is COUNTS ONLY — a drain that returned conversation ids would put
   // customer work in a maintenance log that nobody reads with customer eyes.
   rpc DrainBacklog(MaintenanceBatchRequest) returns (DrainResult);
+
+  // ⭐ Feature 033 (roadmap 6.4): **which tenant owns this channel key.**
+  //
+  // ── Why the worker has to ask, and must not be configured with the answer ────────────────────────
+  // The mailbox reader ingests a customer's attachments through `users.CreateUpload`, and that call needs
+  // an ACCOUNT in its metadata. The worker holds no database and knows only the channel key from its own
+  // configuration. The alternative was a `CHANNEL_ACCOUNT_ID` env var beside the mailbox — rejected,
+  // because a value that duplicates what the `Channel` row already states can DISAGREE with it, and the
+  // disagreement uploads one tenant's customer files into another tenant's storage. Configuration may
+  // name which mailbox; only chats may say whose it is.
+  //
+  // Asked once per key and held for the process lifetime: the mailbox↔channel binding is configuration,
+  // not runtime state. Every property of the sweeps above — system actor only, no gateway route — and it
+  // returns IDS AND A KIND, never an address and never the channel's secret (which chats does not hold
+  // in the database at all, research R11).
+  rpc ResolveIntakeChannel(ResolveIntakeChannelRequest) returns (IntakeChannel);
 
   // ⭐ Feature 033 (roadmap 6.4): claim and send due conversation replies.
   //

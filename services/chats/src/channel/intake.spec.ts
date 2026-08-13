@@ -111,6 +111,28 @@ function harness(opts: { statusKeys?: Record<string, string | null> } = {}) {
     },
   } as unknown as import('../status/status.repository').StatusRepository;
 
+  /**
+   * The three collaborators US2 added, stubbed to **throw**.
+   *
+   * ⚠️ Deliberately not `{}` or a no-op. The API channel resolves no thread, registers no envelope and
+   * reopens nothing — so if any of these is ever reached from this path, that is a real defect (the API
+   * channel does not have an address to send to `users` at all), and a silent stub would let it pass with
+   * every assertion still green. A throw makes the boundary between the two channels enforced rather
+   * than assumed.
+   */
+  const mustNotBeUsed = (what: string) => () => {
+    throw new Error(`the API intake path must not reach ${what}`);
+  };
+  const threads = {
+    resolve: mustNotBeUsed('thread resolution'),
+  } as unknown as import('./threading').ThreadResolver;
+  const participants = {
+    resolve: mustNotBeUsed('the participant registration'),
+  } as unknown as import('./participant.client').ChannelParticipantClient;
+  const audit = {
+    append: mustNotBeUsed('the audit trail'),
+  } as unknown as import('../audit/audit.repository').AuditRepository;
+
   const service = new ChannelIntakeService(
     CFG(),
     channels,
@@ -119,6 +141,9 @@ function harness(opts: { statusKeys?: Record<string, string | null> } = {}) {
     conversations,
     messages,
     statuses,
+    threads,
+    participants,
+    audit,
   );
   return { service, written };
 }

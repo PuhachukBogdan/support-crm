@@ -11,6 +11,11 @@ import { ExpirySweepJob } from './jobs/expiry-sweep.job';
 import { PresenceSweepJob } from './jobs/presence-sweep.job';
 import { MailSweepJob } from './jobs/mail-sweep.job';
 import { WorkerAuthModule } from './auth/auth.client';
+// ⭐ Feature 033 (roadmap 6.4): the mailbox. Unlike every provider above, `ImapReaderService` holds a
+// PERSISTENT connection rather than firing a tick — which is why it needs a Redis lease and why the
+// repeatable-job mechanism the other five rely on does not apply to it (research R2).
+import { ImapReaderService } from './channels/imap-reader.service';
+import { InboundMailSweepJob } from './channels/mail-sweep-inbound.job';
 
 // Phase 1 (spec 003): the worker is a gRPC microservice exposing HealthService.Check over
 // its Redis connection (via BullMQ).
@@ -30,6 +35,17 @@ import { WorkerAuthModule } from './auth/auth.client';
 @Module({
   imports: [WorkerChatsModule, WorkerUsersModule, WorkerAuthModule],
   controllers: [HealthGrpcController],
-  providers: [RedisService, SlaSweepJob, ExportRunJob, ExpirySweepJob, PresenceSweepJob, MailSweepJob],
+  providers: [
+    RedisService,
+    SlaSweepJob,
+    ExportRunJob,
+    ExpirySweepJob,
+    PresenceSweepJob,
+    MailSweepJob,
+    // Feature 033: the reader and its safety net. Registered here because a provider nobody registers
+    // contributes nothing while looking present — feature 015's single live-only defect.
+    ImapReaderService,
+    InboundMailSweepJob,
+  ],
 })
 export class AppModule {}

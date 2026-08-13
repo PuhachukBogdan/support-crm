@@ -58,8 +58,44 @@ interface DrainResult {
   unroutable: number;
 }
 
+/** Feature 033: which tenant owns a channel key. Empty account = unknown or disabled (FR-008). */
+export interface IntakeChannel {
+  accountId: string;
+  brandId: string;
+  kind: string;
+}
+
+/** Feature 033: one message out of a mailbox, already normalised. See `channels/email.adapter.ts`. */
+export interface InboundEmail {
+  channelKey: string;
+  messageId: string;
+  inReplyTo?: string;
+  references: string[];
+  fromAddress: string;
+  subject: string;
+  bodyText: string;
+  uploadIds: string[];
+  sentAt?: number;
+}
+
+/** Feature 033: what chats did with it. `duplicate` is a SUCCESS — a reconnect redelivers by design. */
+export interface IntakeOutcome {
+  conversationId: string;
+  duplicate: boolean;
+  refusalClass: string;
+}
+
+interface WriteGrpc {
+  acceptInboundEmail(data: InboundEmail, md?: Metadata): Observable<Record<string, unknown>>;
+}
+
 interface MaintenanceGrpc {
   sweepFirstReplySla(data: { limit: number }, md?: Metadata): Observable<SweepResult>;
+  // Feature 033: asked once per channel key and held — the mailbox↔channel binding is configuration.
+  resolveIntakeChannel(
+    data: { channelKey: string },
+    md?: Metadata,
+  ): Observable<Partial<IntakeChannel>>;
   // Feature 017 (roadmap 4.10): the export queue tick and the record-expiry tick. Same shape as the
   // sweep above — a limit in, counts out.
   runDueExports(data: { limit: number }, md?: Metadata): Observable<RunDueExportsResult>;
@@ -75,11 +111,55 @@ interface MaintenanceGrpc {
 @Injectable()
 export class ChatsMaintenanceClient implements OnModuleInit {
   private svc!: MaintenanceGrpc;
+  private write!: WriteGrpc;
 
   constructor(@Inject(WORKER_CHATS_CLIENT) private readonly client: ClientGrpc) {}
 
   onModuleInit(): void {
     this.svc = this.client.getService<MaintenanceGrpc>('ChatsMaintenanceService');
+    // ⚠️ Feature 033: the FIRST time this client reaches a write service rather than a maintenance one,
+    // and the exception is stated rather than quietly taken. Taking mail in IS a write — there is no
+    // counts-only shape for "here is a customer's message" — and the alternative was a maintenance rpc
+    // that writes, which would make this client's own rule ("scheduling only") false while looking true.
+    this.write = this.client.getService<WriteGrpc>('ChatsWriteService');
+  }
+
+  /**
+   * Which tenant owns a channel key (feature 033).
+   *
+   * ⚠️ An empty `accountId` is an ANSWER, not a failure: the key is unknown or the operator disabled the
+   * channel, and those are deliberately indistinguishable (FR-008). The reader stays shut on it.
+   *
+   * A transport failure THROWS — the caller must not read "cannot ask" as "not configured", or a downed
+   * chats would silently turn the mailbox off and the mail would pile up unread with nothing red anywhere.
+   */
+  async resolveIntakeChannel(channelKey: string): Promise<IntakeChannel> {
+    const res = await firstValueFrom(
+      this.svc.resolveIntakeChannel({ channelKey }, systemMetadata()),
+    );
+    return {
+      accountId: String(res?.accountId ?? ''),
+      brandId: String(res?.brandId ?? ''),
+      kind: String(res?.kind ?? ''),
+    };
+  }
+
+  /**
+   * Hand one mailbox message to chats (feature 033, roadmap 6.4).
+   *
+   * ⚠️ **Nothing about the message is logged by this client**, and the parameter object is never spread
+   * into an error: `fromAddress`, `subject` and `bodyText` are all customer content (FR-047).
+   *
+   * Chats decides everything else — the thread, the identity, the status, at-most-once. This is a
+   * transport, and keeping it one is what stops two intake paths from growing two sets of rules.
+   */
+  async acceptInboundEmail(message: InboundEmail): Promise<IntakeOutcome> {
+    const res = await firstValueFrom(this.write.acceptInboundEmail(message, systemMetadata()));
+    return {
+      conversationId: String(res?.conversationId ?? ''),
+      duplicate: res?.duplicate === true,
+      refusalClass: String(res?.refusalClass ?? ''),
+    };
   }
 
   /** Run one sweep. Returns counts only — no tenant data crosses this boundary (research R3). */

@@ -283,6 +283,8 @@ export function DataTable<T>({
   // ⚠️ TEMPORARY probe: `?probe=norows` keeps the table instance but renders no body rows.
   const probeNoRows =
     typeof window !== 'undefined' && window.location.search.includes('probe=norows');
+  const probePlainCells =
+    typeof window !== 'undefined' && window.location.search.includes('probe=plaincells');
   const rows = probeNoRows ? [] : table.getRowModel().rows;
   const parentRef = useRef<HTMLDivElement>(null);
   const colCount = allColumns.length;
@@ -404,7 +406,14 @@ export function DataTable<T>({
                   data-index={index}
                   data-selected={row.getIsSelected()}
                 >
-                  {row.getVisibleCells().map((cell) => (
+                  {/* ⚠️ TEMPORARY probe: `?probe=plaincells` renders the row id instead of the
+                      declared cells, isolating flexRender's cell components from the row markup. */}
+                  {probePlainCells ? (
+                    <TableCell colSpan={colCount} className="truncate text-xs">
+                      {row.id}
+                    </TableCell>
+                  ) : (
+                  row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
                       // Single line, clipped — so no cell can make the row taller than the pin.
@@ -414,7 +423,7 @@ export function DataTable<T>({
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
-                  ))}
+                  )))}
                 </TableRow>
               );
             })}

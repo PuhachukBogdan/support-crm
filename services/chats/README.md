@@ -752,3 +752,27 @@ the service; no subscribe/get/set in the one file holding a client).
   future channel inherits the event without anyone remembering to add it.
 - The payload is four identifiers and no content (`libs/common/src/realtime/events.ts` says why at length).
 - ⚠️ Absent `REDIS_URL` ⇒ the publisher is inert, deliberately (the whole unit suite runs that way).
+
+## Routing to the edge + the agent rail (MVP block W5 — roadmap 2.4, 5.11, 4.19)
+
+The three W5 pieces this service owns, and the shape of each:
+
+- **A channel names its desk** — `Channel.default_group_id` (NULL = not push-routed, an honest
+  absence). Intake **enqueues** newly created tickets into the one ordered backlog (031) and never
+  assigns synchronously: assignment needs two cross-service hops (desk membership, presence) that do
+  not belong inside the one write path a stranger can reach. The drain routes within a tick. An
+  append keeps its owner; a reopen returns to whoever worked it — neither is re-queued.
+- **Intake publishes domain events now** (`conversationCreated` / `messageReceived`) — closing W3's
+  recorded gap. Still no cascade: intake is an inbound EDGE like a controller, and nothing the
+  automation engine can do calls intake.
+- **The rail (4.19) is a VIEW over three facts**, not a stored list: `assignee = me` ∧ a
+  `ConversationReadMark` (written once per `(account, conversation, operator)` on a successful
+  detail read, from the caller's identity resolved via `shared/operator-identity.client.ts` — chats'
+  own use of 5.11; cached for ever because the mapping is immutable; never under preview) ∧ a
+  non-terminal status category. Nothing is ever deleted; reassignment and solving remove by
+  predicate, and `last_read_at` is the half 9.12's unread badge will stand on.
+- **Every assignment path publishes `conversation.updated`** (manual, auto-assign, drain) — whose
+  queue a ticket is in is exactly what the Inbox renders.
+- ⚠️ The list's two W5 filters (`opened_by_operator_id`, `status_categories`) are mirrored into
+  `ExportFilters` — the parity guard fails anything less, because an export must not carry more rows
+  than the screen showed (SEC-AP2).

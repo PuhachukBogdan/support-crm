@@ -83,7 +83,21 @@ Full stack: `docker compose up` (see [`deploy/local/README.md`](../../deploy/loc
   were added **additively** rather than by repurposing `x-actor-role`, because changing a header's meaning
   is the kind of change nothing fails on.
 
-## `/me/ui-preferences` (feature 021, roadmap 5.6) — the only edge gated by NO permission
+## The `/me/*` family — edges gated by NO permission, and why that is the design
+
+Two edges answer questions whose subject is the CALLER and can be nobody else. Neither checks a
+permission; both still require a session (the global AuthGuard), and both make the isolation
+guarantee structural: no path segment, no query and no body could name another person, so
+`/operators/:id/…` fails a planted-input structural test rather than passing review.
+
+**`GET /me/operator` (roadmap 5.11, MVP block W5)** — "which operator am I?" Forwards to W1's
+`EnsureOwnOperator` in `users` (idempotent; the write branch is practically dead because the login
+tail already ensured the profile — and if it fires it repairs). This is the translation the browser
+cannot do itself: assignments point at `Operator.id`, the session carries only the auth identity.
+"Your work" and the agent rail stand on it. The response is restated field by field, so an rpc field
+added later does not silently reach the browser.
+
+## `/me/ui-preferences` (feature 021, roadmap 5.6)
 
 `GET` and `PATCH`, forwarding to `OperatorUiPreferencesService` in `users`. The operator's own theme
 and font-size step. **Not** `Player.preferences_json`, which is customer data.

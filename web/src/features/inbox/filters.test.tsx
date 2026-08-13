@@ -38,7 +38,8 @@ function renderInbox() {
 
 /** The bucket whose catalogue slice offers more than one status, so the status funnel renders. */
 async function openPending() {
-  fireEvent.click(screen.getByTestId('bucket-pending'));
+  // R39 (W23): pending lives in «Ждут клиента» now — two statuses (Pending, VIP Pending), funnel on.
+  fireEvent.click(screen.getByTestId('bucket-waiting'));
   await screen.findByTestId('filter-status');
 }
 
@@ -137,14 +138,13 @@ describe('*** each filter lives in ITS OWN column header ***', () => {
     setDataAccess(stubConversations({ count: 3 }));
     renderInbox();
     await screen.findByText('Conversation 1');
-    await openPending();
+    // «В работе» (on_hold), active only: the retired `auto_ended_chat` renders on old rows but is
+    // not offerable — not settable, not offerable, still readable (feature 032's three-way rule).
+    fireEvent.click(screen.getByTestId('bucket-inwork'));
+    await screen.findByTestId('filter-status');
 
-    // pending + on_hold, active only: the retired `auto_ended_chat` renders on old rows but is not
-    // offerable — not settable, not offerable, still readable (feature 032's three-way rule).
     expect(optionsOf('filter-status')).toEqual([
       'Any',
-      'Pending',
-      'VIP Pending',
       'In progress',
       'Follow-up',
       'Supervisor Review – In Progress',
@@ -156,8 +156,10 @@ describe('*** each filter lives in ITS OWN column header ***', () => {
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    // The default bucket is Inbox = category `new`, which holds exactly one status.
-    expect(screen.queryByTestId('filter-status')).not.toBeInTheDocument();
+    // «Решённые» = category `solved`, which holds exactly one status. (R39 merged new+open into
+    // Inbox, so the DEFAULT bucket offers a real choice now — the one-status case moved here.)
+    fireEvent.click(screen.getByTestId('bucket-solved'));
+    await waitFor(() => expect(screen.queryByTestId('filter-status')).not.toBeInTheDocument());
     // The other two funnels are unaffected: their vocabularies do not depend on the bucket.
     expect(screen.getByTestId('filter-channel')).toBeInTheDocument();
     expect(screen.getByTestId('filter-priority')).toBeInTheDocument();
@@ -168,13 +170,14 @@ describe('*** each filter lives in ITS OWN column header ***', () => {
     setDataAccess(stub);
     renderInbox();
     await screen.findByText('Conversation 1');
-    await openPending();
+    fireEvent.click(screen.getByTestId('bucket-inwork'));
+    await screen.findByTestId('filter-status');
 
     chooseOption('filter-status', 'Follow-up');
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
         status: 'follow_up',
-        statusCategories: 'pending,on_hold',
+        statusCategories: 'on_hold',
       }),
     );
   });
@@ -238,7 +241,7 @@ describe('*** filters are transient and nothing is persisted (FR-013) ***', () =
 
     // A fresh mount is back in the default bucket asking for its categories, its scope, nothing else.
     expect(stub.calls[0]!.filters).toEqual({
-      statusCategories: 'new',
+      statusCategories: 'new,open',
       assigneeOperatorId: 'op-me',
     });
     expect(stub.calls[0]!.order).toBe('updated_desc');
@@ -272,7 +275,7 @@ describe('*** filters are transient and nothing is persisted (FR-013) ***', () =
     fireEvent.click(screen.getByTestId('filter-clear'));
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toEqual({
-        statusCategories: 'pending,on_hold',
+        statusCategories: 'pending',
         assigneeOperatorId: 'op-me',
       }),
     );

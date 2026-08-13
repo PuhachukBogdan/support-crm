@@ -80,7 +80,7 @@ describe('*** …and neither pretends to work (FR-015b, narrowed) ***', () => {
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    for (const id of ['bucket-inbox', 'bucket-open', 'bucket-pending', 'bucket-solved', 'bucket-archive']) {
+    for (const id of ['bucket-inbox', 'bucket-inwork', 'bucket-waiting', 'bucket-solved', 'bucket-archive']) {
       expect(screen.getByTestId(id).tagName.toLowerCase()).toBe('button');
       expect(screen.getByTestId(id)).not.toHaveAttribute('aria-hidden');
     }

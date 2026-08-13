@@ -1,12 +1,14 @@
 /**
- * W6 browser check — the R38 Inbox on the PUBLIC origin (block W6, subpoints 2.5 + 2.9).
+ * W6→W23 browser check — the Inbox rail as the operator decided it LAST (R39 supersedes R38).
  *
  * What only a real browser can answer:
- *   · the five R38 buttons render, and a click changes the LIST rather than only the highlight
+ *   · the four R39 buckets + the archive section render, and a click changes the LIST
+ *   · the archive is a SECTION under a labelled separator — never a navigation
+ *   · «на согласовании» narrows to supervisor_review INSIDE «В работе» — a filter, not a button
  *   · the toolbar's Status ▾ offers the ACCOUNT's own statuses, by agent name, per bucket
  *   · the «Мои» scope narrows to the signed-in agent via /me/operator
  *   · the status column shows catalogue names, not raw keys
- *   · nothing on the page is red any more (R38 freed the colour)
+ *   · nothing on the page is red any more (R38 freed the colour, R39 keeps it free)
  *
  * ⚠️ The harness lesson (`gotchas/the-harness-avoided-what-was-broken`) applied: this runs against the
  * PUBLIC origin, through the real proxy and its basic auth, exactly as the operator will.
@@ -106,33 +108,42 @@ try {
     return p.$$eval('table tbody tr', (rs) => rs.length).catch(() => 0);
   };
 
-  // ── 1. the R38 rail ─────────────────────────────────────────────────────────────────────────────
+  // ── 1. the R39 rail (W23 — supersedes R38's five buttons) ───────────────────────────────────────
   const labels = await p.$$eval('[data-testid="bucket-rail"] button', (bs) => bs.map((b) => b.textContent?.trim()));
-  if (JSON.stringify(labels) === JSON.stringify(['Inbox', 'Open', 'Pending', 'Solved', 'Archive']))
-    pass('the rail is R38’s five buttons, in plain English (operator, 2026-08-06)');
-  else fail('R38 rail', JSON.stringify(labels));
+  if (JSON.stringify(labels) === JSON.stringify(['Inbox', 'В работе', 'Ждут клиента', 'Решённые', 'Весь архив']))
+    pass('the rail is R39’s four buckets + the archive entry, his own names (2026-08-07)');
+  else fail('R39 rail', JSON.stringify(labels));
+
+  // R47: the archive is a SECTION of this rail — separated by a line and a heading, same page.
+  const sep = await p.$eval('[data-testid="archive-separator"]', (el) => el.textContent?.trim() ?? '').catch(() => null);
+  if (sep === 'Архив') pass('the archive sits under its own labelled separator — a section, not a page');
+  else fail('archive separator', String(sep));
 
   if (!/\d/.test(await p.$eval('[data-testid="bucket-rail"]', (el) => el.textContent ?? '')))
-    pass('⛔ no button carries a number — counts are 9.2a’s, unread is 9.12’s (R38)');
+    pass('⛔ no button carries a number — counts are 9.2a’s, unread is 9.12’s (R38, kept by R39)');
   else fail('no numbers on the rail');
 
   // REAL click #1: a rail button genuinely receives pointer events (no overlay, no dead region).
-  await p.click('[data-testid="bucket-open"]', { timeout: 12000 });
-  const counts = { open: await rows() };
-  pass(`a real click on «Open» switched the bucket (${counts.open} rows)`);
+  await p.click('[data-testid="bucket-inwork"]', { timeout: 12000 });
+  const counts = { inwork: await rows() };
+  pass(`a real click on «В работе» switched the bucket (${counts.inwork} rows)`);
 
-  for (const id of ['inbox', 'pending', 'solved', 'archive']) {
+  const pathBefore = await p.evaluate(() => window.location.pathname);
+  for (const id of ['inbox', 'waiting', 'solved', 'archive']) {
     await domClick(`[data-testid="bucket-${id}"]`);
     counts[id] = await rows();
   }
   console.log(`        rows per bucket (dom): ${JSON.stringify(counts)}`);
   if (new Set(Object.values(counts)).size > 1) pass('each bucket shows a DIFFERENT list — the categories really narrow');
   else fail('buckets narrow', `every bucket showed ${Object.values(counts)[0]} rows`);
+  const pathAfter = await p.evaluate(() => window.location.pathname);
+  if (pathBefore === pathAfter) pass('…and «Весь архив» stayed on THIS page — the section is not a navigation');
+  else fail('archive is not a page', `${pathBefore} → ${pathAfter}`);
 
-  // ── 2. the toolbar in «Ждут» ────────────────────────────────────────────────────────────────────
-  await domClick('[data-testid="bucket-pending"]');
+  // ── 2. the toolbar in «Ждут клиента» ────────────────────────────────────────────────────────────
+  await domClick('[data-testid="bucket-waiting"]');
   await p.waitForSelector('[data-testid="filter-status"]', { timeout: 10000 });
-  pass('Pending renders the status funnel — the one bucket whose categories hold >1 status');
+  pass('«Ждут клиента» renders the status funnel — its category holds more than one status');
   for (const key of ['status', 'channel', 'priority']) {
     const handle = await p.$(`[data-testid="filter-${key}"]`);
     if (!handle) {
@@ -162,11 +173,47 @@ try {
     return res.json();
   });
   const wanted = (catalogue.statuses ?? [])
-    .filter((s) => s.active !== false && ['CONVERSATION_STATUS_CATEGORY_PENDING', 'CONVERSATION_STATUS_CATEGORY_ON_HOLD'].includes(s.category))
+    .filter((s) => s.active !== false && s.category === 'CONVERSATION_STATUS_CATEGORY_PENDING')
     .map((s) => s.agentName);
   if (wanted.length > 1 && JSON.stringify(options) === JSON.stringify(['Any', ...wanted]))
-    pass(`the status funnel offers exactly the account’s ACTIVE Pending statuses, by name (${wanted.length})`);
+    pass(`the status funnel offers exactly the account’s ACTIVE pending statuses, by name (${wanted.length})`);
   else fail('Status ▾ options', `offered ${JSON.stringify(options)} vs catalogue ${JSON.stringify(wanted)}`);
+
+  // ── 2a. ⭐ R39's approvals decision, proven on the wire: «на согласовании» is the FUNNEL inside
+  // «В работе» narrowing by the KEY supervisor_review — never a fifth button (which would have to
+  // filter by a status key, the exact defect class the categories rule prevents).
+  await domClick('[data-testid="bucket-inwork"]');
+  await p.waitForSelector('[data-testid="filter-status"]', { timeout: 10000 });
+  const superName = (catalogue.statuses ?? []).find((s) => s.key === 'supervisor_review')?.agentName;
+  if (!superName) {
+    fail('approvals filter', 'the catalogue has no supervisor_review status on this stand');
+  } else {
+    const approvalAsk = await p.evaluate(async (name) => {
+      const seen = [];
+      const orig = window.fetch;
+      window.fetch = (...args) => {
+        const url = String(args[0] ?? '');
+        if (url.includes('/api/conversations?')) seen.push(url);
+        return orig.apply(window, args);
+      };
+      document.querySelector('[data-testid="filter-status"]')?.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const opt = Array.from(document.querySelectorAll('[role="option"]')).find(
+        (o) => o.textContent?.trim() === name,
+      );
+      opt?.click();
+      await new Promise((r) => setTimeout(r, 1200));
+      window.fetch = orig;
+      return seen;
+    }, superName);
+    const last = approvalAsk[approvalAsk.length - 1] ?? '';
+    if (last.includes('status=supervisor_review') && last.includes('statusCategories=on_hold'))
+      pass('⭐ «на согласовании» narrows to supervisor_review INSIDE «В работе» — a filter, never a button (R39)');
+    else fail('approvals filter on the wire', last.slice(0, 160) || 'no request sampled');
+    // A bucket switch clears the exact-status key by design — that IS the cleanup.
+    await domClick('[data-testid="bucket-waiting"]');
+    await p.waitForTimeout(600);
+  }
 
   // ── 3. ⭐⭐ the self-scope, and the loop that is no longer there ────────────────────────────────
   //
@@ -184,7 +231,7 @@ try {
       if (url.includes('/api/conversations?')) seen.push(url);
       return orig.apply(window, args);
     };
-    document.querySelector('[data-testid="bucket-open"]')?.click();
+    document.querySelector('[data-testid="bucket-inbox"]')?.click();
     await new Promise((r) => setTimeout(r, 1500));
     window.fetch = orig;
     return seen;
@@ -198,10 +245,10 @@ try {
    * block's browser check calls it on its page's key interaction. Here that is the bucket switch —
    * the click the operator makes most, and the one that killed the page three times.
    */
-  await assertNoRenderStorm({ page: p, selector: '[data-testid="bucket-pending"]', pass, fail });
+  await assertNoRenderStorm({ page: p, selector: '[data-testid="bucket-waiting"]', pass, fail });
 
   // ── 4. the status column, and the freed colour ─────────────────────────────────────────────────
-  await domClick('[data-testid="bucket-pending"]');
+  await domClick('[data-testid="bucket-waiting"]');
   await p.waitForTimeout(1300);
   const cells = await p.$$eval('table tbody tr [data-kind="status"]', (cs) => cs.map((c) => c.textContent?.trim()));
   const raw = cells.filter((t) => (t ?? '').includes('_'));

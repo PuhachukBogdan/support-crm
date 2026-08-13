@@ -23,7 +23,8 @@ import type { ConversationRow } from './types';
  * on the operator's 2026-08-06 instructions).
  *
  * ── The arrangement, and where each piece is decided ─────────────────────────────────────────────
- * · the RAIL is R38's five buttons on **categories**, labelled in plain English (`buckets.ts`);
+ * · the RAIL is R39's four buttons on **categories** plus the archive SECTION under its own
+ *   heading (`buckets.ts` — W23; supersedes R38's five);
  * · filters are **funnels in the column headers** — status (from the account's own catalogue,
  *   narrowed to the bucket), channel, priority (`columns.ts` / `column-filter.tsx`). The W6 toolbar
  *   that briefly replaced them is gone: *«Мы зачем по-твоему их добавляли? Верни»*;

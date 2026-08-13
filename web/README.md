@@ -86,8 +86,8 @@ The screen's narrowing has three axes, and keeping them apart is the whole desig
 | Axis | Control | State |
 |---|---|---|
 | **which state** | the rail — five buttons on status CATEGORIES (`buckets.ts`) | where you ARE |
-| **which subset** | Status ▾ (an exact key) · channel chips | filters you APPLIED |
-| **whose** | «Мои» (roadmap 5.11) | a SCOPE |
+| **which subset** | funnels in the column headers: status (from the catalogue, per bucket) · channel · priority | filters you APPLIED |
+| **whose** | none — the screen IS the signed-in agent's (roadmap 5.11) | a SCOPE, not optional |
 
 - ⭐⭐ **Buckets filter by `status_category`, NEVER by a status key.** Nine statuses collapse into five
   buttons by themselves; a status configured later lands in the right button with no code change. The
@@ -97,9 +97,15 @@ The screen's narrowing has three axes, and keeping them apart is the whole desig
 - **Status ▾ options come from `GET /conversations/statuses`**, narrowed to the current bucket's
   categories and to ACTIVE rows. A retired or renamed status is therefore unofferable while still
   rendering on old rows, and a key-vs-category contradiction is unbuildable by UI.
-- **«Мои» survives bucket switches and "Clear filters"** (a scope is not a filter), and it is DISABLED
-  until `/me/operator` answers — "my tickets" silently meaning "all tickets" is the
-  confidently-wrong-answer shape this codebase keeps refusing.
+- ⭐⭐ **Self-scoped, with no control to widen it** (operator, 2026-08-06: *«Менеджеру и так только его
+  тикеты приходят в инбокс и только его должны быть видны в open, solved, pending»*). Every request
+  carries `assigneeOperatorId = mine`; until `/me/operator` answers there is **no request at all** and
+  the screen shows its own loading, because "my tickets" silently meaning "all tickets" is both the
+  confidently-wrong answer and a disclosure. ⓘ Consequence, stated: work assigned to NOBODY is visible
+  to nobody here — the supervisor surface over that is 4.20/9.2a.
+- ⚠️ **A funnel lives in its column, so it sheds with its column.** `channel` and `priority` are
+  `contextual` tier: below ~1500 px they are dropped and their filters go too. That is the price of the
+  header placement the operator asked for; the browser check runs at his own 1920 and says so.
 - ⛔ **No numbers on the rail** (R38): counts are 9.2a's, the unread badge 9.12's. A number that is
   sometimes stale is worse than none.
 - **Nothing is red.** R38 freed the colour for one meaning — a new customer message (9.12) — so `open`
@@ -107,6 +113,16 @@ The screen's narrowing has three axes, and keeping them apart is the whole desig
 - ⓘ The transient-filter rule (FR-013) is unchanged: nothing is persisted, because anything named and
   kept is a *view* and views are granted by an admin. R38's "remember the channel chip per operator"
   is a server-side preference and rides W18's settings machinery rather than a second mechanism here.
+
+### ⛔ The two libraries this table may not host
+
+`DataTable` renders `ColumnDef`s **itself** — no TanStack Table row model, no virtualizer — and the
+funnels are hand-written, not Radix. That is not preference: `table.getRowModel()` turned one click
+into ~9 000 React scheduler posts per second and killed the tab with no JS error (the operator's freeze,
+three times), and both a native `<select>` and Radix `Select` had frozen the same screen before. The
+long note in `data-table.tsx` carries the probe-by-probe measurement; the vault gotcha carries the
+method. ⇒ **Anything a render prop receives must be a stable reference** (an inline arrow is a new
+component type per render), and **an element a long-lived observer watches must outlive the observer**.
 
 **The screen check lives in `deploy/local/w6-browser-check.mjs`** and runs on the stand against the
 PUBLIC origin — the rail, the catalogue-derived options, «Мои» narrowing, the column's names, no red.

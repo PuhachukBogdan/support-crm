@@ -26,10 +26,16 @@ function make(opts: {
   /** Feature 031: is the desk fed by the router? Defaults to true — see the stub below. */
   routable?: boolean;
   operators?: AssignableOperator[] | Error;
-  load?: { assignee_operator_id: string | null; _count: { _all: number } }[];
+  /**
+   * Feature 031: held conversations per operator, with their CHANNEL — the load is measured in units
+   * now, and a count cannot express an exclusive channel (ADR 0042 §3).
+   */
+  load?: { assignee_operator_id: string | null; channel: string | null }[];
 }) {
-  const groupBy = jest.fn(async () => opts.load ?? []);
-  const forAccount = jest.fn((accountId: string) => ({ accountId, conversation: { groupBy } }));
+  // Typed with the argument so a spec can read the  the pool built — a mock without it makes
+  //  a type error rather than a captured query.
+  const findMany = jest.fn(async (args: { select?: Record<string, boolean> }) => (args ? opts.load ?? [] : []));
+  const forAccount = jest.fn((accountId: string) => ({ accountId, conversation: { findMany } }));
   const prisma = { forAccount } as unknown as PrismaService;
 
   const listGroupMembers = jest.fn(async () => {
@@ -49,7 +55,7 @@ function make(opts: {
     { listGroupMembers } as unknown as AuthorAuthorityClient,
     { resolveOperators } as unknown as PersonMembersClient,
   );
-  return { pool, listGroupMembers, resolveOperators, groupBy, forAccount };
+  return { pool, listGroupMembers, resolveOperators, findMany, forAccount };
 }
 
 const md = () => new Metadata();
@@ -78,13 +84,13 @@ describe('GroupPoolService — assembling the pool', () => {
   });
 
   it('counts current load from THIS service’s own conversations', async () => {
-    const { pool, groupBy } = make({
+    const { pool, findMany } = make({
       members: ['u-a', 'u-b'],
       operators: [
         { operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] },
         { operatorId: 'op-b', authUserId: 'u-b', state: 'online', blockedChannels: [] },
       ],
-      load: [{ assignee_operator_id: 'op-a', _count: { _all: 4 } }],
+      load: [{ assignee_operator_id: 'op-a', channel: 'chat' }, { assignee_operator_id: 'op-a', channel: 'chat' }, { assignee_operator_id: 'op-a', channel: 'chat' }, { assignee_operator_id: 'op-a', channel: 'chat' }],
     });
     const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
 
@@ -92,7 +98,7 @@ describe('GroupPoolService — assembling the pool', () => {
     // Absent from the grouped result = nothing open = 0. Not "unknown".
     expect(candidates.find((c) => c.operatorId === 'op-b')!.currentLoad).toBe(0);
     // ONE grouped query, not one per candidate (Principle VII).
-    expect(groupBy).toHaveBeenCalledTimes(1);
+    expect(findMany).toHaveBeenCalledTimes(1);
   });
 
   it('a member with no ACTIVE operator profile is simply not a candidate', async () => {
@@ -107,16 +113,16 @@ describe('GroupPoolService — assembling the pool', () => {
   });
 
   it('an EMPTY group is an empty pool, and costs no second hop', async () => {
-    const { pool, resolveOperators, groupBy } = make({ members: [] });
+    const { pool, resolveOperators, findMany } = make({ members: [] });
     expect((await pool.candidatesFor('acc-1', 'g-1', md())).candidates).toEqual([]);
     expect(resolveOperators).not.toHaveBeenCalled();
-    expect(groupBy).not.toHaveBeenCalled();
+    expect(findMany).not.toHaveBeenCalled();
   });
 
   it('a group whose members are ALL unassignable is an empty pool, and costs no load query', async () => {
-    const { pool, groupBy } = make({ members: ['u-a'], operators: [] });
+    const { pool, findMany } = make({ members: ['u-a'], operators: [] });
     expect((await pool.candidatesFor('acc-1', 'g-1', md())).candidates).toEqual([]);
-    expect(groupBy).not.toHaveBeenCalled();
+    expect(findMany).not.toHaveBeenCalled();
   });
 
   it('every query is scoped to the caller’s account (Principle I)', async () => {
@@ -220,5 +226,58 @@ describe('T015d — routability is a property of the DESK', () => {
     const { pool, resolveOperators } = make({ routable: false, members: ['u-1', 'u-2'] });
     await pool.candidatesFor('acc-1', 'g-1', md());
     expect(resolveOperators).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * T010 (feature 031, roadmap 4.21 / ADR 0042 §3) — **why units, and not a count of conversations.**
+ *
+ * The shipped gate compared a row count against one flat number. That cannot express "this person is on a
+ * voice call, so they are unavailable regardless of how few rows they hold" — and the test below is the
+ * case that proves it: **one** held conversation, a budget of six, and the agent is still full.
+ */
+describe('T010 — capacity is measured in UNITS', () => {
+  const online = (id: string) => ({ operatorId: id, authUserId: `u-${id}`, state: 'online' as const, blockedChannels: [] });
+
+  it('⭐ one EXCLUSIVE conversation fills an agent a row count would call nearly empty', async () => {
+    const { pool } = make({
+      members: ['u-op-1'],
+      operators: [online('op-1')],
+      load: [{ assignee_operator_id: 'op-1', channel: 'voice' }],
+    });
+
+    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    // ENV budget is 6. A count of conversations would report 1 of 6 used — five slots free.
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.currentLoad).toBe(candidates[0]!.capacity);
+  });
+
+  it('⭐ POSITIVE CONTROL: the same agent holding one CHAT has room', async () => {
+    const { pool } = make({
+      members: ['u-op-1'],
+      operators: [online('op-1')],
+      load: [{ assignee_operator_id: 'op-1', channel: 'chat' }],
+    });
+
+    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    expect(candidates[0]!.currentLoad).toBeLessThan(candidates[0]!.capacity);
+  });
+
+  it('an absent channel still costs a unit — it is work like any other', async () => {
+    const { pool } = make({
+      members: ['u-op-1'],
+      operators: [online('op-1')],
+      load: [{ assignee_operator_id: 'op-1', channel: null }, { assignee_operator_id: 'op-1', channel: null }],
+    });
+
+    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    expect(candidates[0]!.currentLoad).toBe(2);
+  });
+
+  it('⛔ the load read carries only the channel — no subject, no player, no body (Principle IV)', async () => {
+    const { pool, findMany } = make({ members: ['u-op-1'], operators: [online('op-1')] });
+    await pool.candidatesFor('acc-1', 'g-1', md());
+    const select = findMany.mock.calls[0]?.[0]?.select ?? {};
+    expect(Object.keys(select).sort()).toEqual(['assignee_operator_id', 'channel']);
   });
 });

@@ -32,9 +32,10 @@ const op = (
 ): AssignableOperator => ({ operatorId: id, authUserId: `u-${id}`, state, blockedChannels });
 
 function make(opts: { members?: string[]; operators?: AssignableOperator[] | Error }) {
-  const groupBy = jest.fn(async () => [] as unknown[]);
+  // Feature 031: load is now held conversations with their channel, not a count.
+  const findMany = jest.fn(async () => [] as unknown[]);
   const prisma = {
-    forAccount: () => ({ conversation: { groupBy } }),
+    forAccount: () => ({ conversation: { findMany } }),
   } as unknown as PrismaService;
 
   const auth = {

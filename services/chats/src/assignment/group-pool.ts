@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Metadata } from '@grpc/grpc-js';
 import { PrismaService } from '../prisma.service';
+import { type HeldConversation, unitsUsed } from './capacity';
 import { AuthorAuthorityClient } from '../auth/auth.client';
 import { PersonMembersClient } from '../person/person-members.client';
 import { isAvailableFor } from '@crm/common';
@@ -149,7 +150,7 @@ export class GroupPoolService {
       accountId,
       operators.map((o) => o.operatorId),
     );
-    const capacity = defaultCapacity();
+    const budget = defaultCapacity();
 
     // Sorted by operator id, deliberately: the rotation cursor is an INDEX into this list, so an
     // unstable order would make the cursor point at a different person between calls and quietly
@@ -157,11 +158,21 @@ export class GroupPoolService {
     return {
       reason: null,
       candidates: operators
-      .map((o) => ({
-        operatorId: o.operatorId,
-        capacity,
-        currentLoad: load.get(o.operatorId) ?? 0,
-      }))
+      .map((o) => {
+        const held = load.get(o.operatorId) ?? [];
+        const used = unitsUsed(held);
+        /**
+         * ⭐ Feature 031: the SAME predicate the rotation already applies (`load < capacity`), fed with
+         * units instead of a row count — so `exclusive` is expressible without the rotation learning a
+         * new concept. An agent holding an exclusive conversation is reported as full, which is exactly
+         * what `hasRoomFor` decides; the decision stays in this file (one decision point).
+         */
+        return {
+          operatorId: o.operatorId,
+          capacity: budget,
+          currentLoad: used === 'exclusive' ? budget : used,
+        };
+      })
         .sort((a, b) => a.operatorId.localeCompare(b.operatorId)),
     };
   }
@@ -176,23 +187,34 @@ export class GroupPoolService {
   private async currentLoad(
     accountId: string,
     operatorIds: readonly string[],
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, HeldConversation[]>> {
     if (operatorIds.length === 0) return new Map();
     // `as never` on the argument: Prisma's `groupBy` overload demands `orderBy` whenever `by` is a
     // non-literal array, and there is nothing to order — one row per operator, read into a Map. The
     // same cast the feature-022 summary read uses, for the same reason.
-    const rows = (await this.prisma.forAccount(accountId).conversation.groupBy({
-      by: ['assignee_operator_id'],
+    /**
+     * ⚠️ Feature 031: this used to be a `groupBy` COUNT, and a count cannot express a unit.
+     *
+     * ADR 0042 §3 prices work per channel — a voice call is exclusive, a chat costs one — so the load has
+     * to carry **which channels** the person is holding, not how many rows. The read is still one query
+     * over an indexed column and still returns only what capacity needs: a channel per held conversation
+     * and nothing else. No subject, no player, no body (Principle IV).
+     */
+    const rows = await this.prisma.forAccount(accountId).conversation.findMany({
       where: {
         assignee_operator_id: { in: [...operatorIds] },
         status: { in: [...OPEN_STATUSES] },
       },
-      _count: { _all: true },
-    } as never)) as unknown as { assignee_operator_id: string | null; _count: { _all: number } }[];
+      select: { assignee_operator_id: true, channel: true },
+    });
 
-    const out = new Map<string, number>();
+    const out = new Map<string, HeldConversation[]>();
     for (const r of rows) {
-      if (r.assignee_operator_id) out.set(r.assignee_operator_id, r._count._all);
+      const id = r.assignee_operator_id;
+      if (!id) continue;
+      const held = out.get(id) ?? [];
+      held.push({ channel: r.channel });
+      out.set(id, held);
     }
     return out;
   }

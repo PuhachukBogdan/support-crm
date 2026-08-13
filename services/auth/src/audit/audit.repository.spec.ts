@@ -135,6 +135,10 @@ describe('list — ordering, paging, and pushed-down filters', () => {
         // grants access — so "show me every permission change" must return these too.
         'group.create',
         'group.rename',
+        // Feature 031 (ADR 0042): switching a desk into automatic distribution. A DISTINCT action
+        // rather than part of `group.rename`, because it changes who receives customer conversations
+        // without anybody choosing — and this hardcoded list is what caught the addition.
+        'group.routability_changed',
         'group.delete',
         'group_member.add',
         'group_member.remove',

@@ -39,6 +39,11 @@ interface RenameGroupRequest extends CallerCtx {
   groupId: string;
   name: string;
 }
+interface SetGroupRoutableRequest extends CallerCtx {
+  groupId: string;
+  /** proto3 omits a false bool, so this may be absent — read as NOT routable. */
+  routable?: boolean;
+}
 interface DeleteGroupRequest extends CallerCtx {
   groupId: string;
 }
@@ -96,6 +101,22 @@ export class GroupGrpcController {
     if (!(await this.mayManage(req))) return reply(FORBIDDEN);
     return this.map(
       await this.groups.rename(req.callerAccountId, this.actor(req), req.groupId, req.name),
+    );
+  }
+
+  @GrpcMethod('AuthService', 'SetGroupRoutable')
+  async setGroupRoutableRpc(req: SetGroupRoutableRequest) {
+    // Same key as every other group mutation: reorganising a desk is routine, and deciding which desks
+    // the router feeds is part of reorganising one.
+    if (!(await this.mayManage(req))) return reply(FORBIDDEN);
+    return this.map(
+      await this.groups.setRoutable(
+        req.callerAccountId,
+        this.actor(req),
+        req.groupId,
+        // proto3 omits a false bool, so an absent field is legitimately "not routable".
+        req.routable === true,
+      ),
     );
   }
 

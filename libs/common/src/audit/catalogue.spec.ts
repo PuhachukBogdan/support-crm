@@ -57,6 +57,7 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // else would split "who gained rights, and how?" across two filters.
     'group.create',
     'group.rename',
+    'group.routability_changed',
     'group.delete',
     'group_member.add',
     'group_member.remove',
@@ -193,6 +194,7 @@ describe('actionsOfClass', () => {
         // about it is that every member LOSES the group's grants, not that a row went away.
         'group.create',
         'group.rename',
+    'group.routability_changed',
         'group.delete',
         'group_member.add',
         'group_member.remove',

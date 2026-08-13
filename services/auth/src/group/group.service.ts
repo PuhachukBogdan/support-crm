@@ -166,6 +166,59 @@ export class GroupService {
     return { status: 'ok', affectedUserIds: [], groupId };
   }
 
+  /**
+   * ⭐ Feature 031 (ADR 0042) — switch a desk into or out of **automatic distribution**.
+   *
+   * ⚠️ **This is not a cosmetic flag.** Marking a desk routable means the router may hand its members a
+   * customer conversation without anybody choosing — so it is audited under its own action rather than
+   * folded into `group.rename`, whose subject is a label nothing branches on (ADR 0039 §9).
+   *
+   * ⚠️ **A no-op still writes an entry, and that is the project's convention rather than my preference.**
+   * `group.audit.spec.ts` states it for the other seven group mutations: adding somebody who is already a
+   * member changes no row, but *an administrator still ACTED* — which is why feature 015 deliberately left
+   * the audit table without a unique constraint (*"a retry is a NEW act by the operator and deserves its
+   * own entry"*). My first version skipped the entry when the value was unchanged, reasoning that no-op
+   * flips would bury the moment that mattered. That would have been a **second philosophy about audit
+   * no-ops** living beside the first, which is worse than a slightly noisier trail.
+   *
+   * The entry is written in the SAME transaction as the update, so "the desk started receiving pushed work
+   * and nobody knows when" is unrepresentable.
+   *
+   * ⓘ Nothing to invalidate: the router reads this row per decision, and adding a cache here would let a
+   * desk keep receiving work after being switched off — the failure that looks like a UI lag and is not.
+   */
+  async setRoutable(
+    accountId: string,
+    actor: Actor,
+    groupId: string,
+    routable: boolean,
+  ): Promise<GroupOutcome> {
+    const db = this.prisma.forAccount(accountId);
+
+    const group = await db.group.findFirst({ where: { id: groupId } });
+    if (!group) return { status: 'not_found' };
+
+    // Unchanged value: the update is a no-op and the ENTRY IS STILL WRITTEN — see the note above.
+    await db.$transaction([
+      db.group.update({ where: { id: groupId }, data: { routable } }),
+      this.audit.statement(accountId, {
+        action: 'group.routability_changed',
+        actorUserId: actor.userId,
+        underPreview: actor.underPreview,
+        targetRef: groupId,
+        /**
+         * ⚠️ `grant`, not a new key. The `privilege` class allows `scope | permissionKey | roleKey | grant`,
+         * and the allow-list is deliberately narrow — widening it for one action would make "no PII here"
+         * a slightly weaker property for every action in the class. Enabling routability **is** a grant:
+         * the desk gains the ability to receive customer conversations it did not have.
+         */
+        detail: { scope: 'group', grant: routable },
+      }),
+    ] as never);
+
+    return { status: 'ok', affectedUserIds: [], groupId };
+  }
+
   async remove(accountId: string, actor: Actor, groupId: string): Promise<GroupOutcome> {
     const db = this.prisma.forAccount(accountId);
 

@@ -126,3 +126,79 @@ describe('group mutations write exactly one audit entry each', () => {
     expect(entries()[0]).toMatchObject({ actor_user_id: 'admin-9', under_preview: true });
   });
 });
+
+/**
+ * T015b (feature 031, ADR 0042) — switching a desk into automatic distribution is an eighth audited
+ * group mutation, under its own action.
+ *
+ * ⚠️ Its own action rather than part of `group.rename`: a rename changes a label nothing branches on
+ * (ADR 0039 §9), while routability changes **who receives customer conversations without anybody
+ * choosing**. Two facts of that different a weight under one name make the trail unreadable for the
+ * question that matters — *when did this desk start being fed by the router?*
+ */
+describe('group.routability_changed', () => {
+  it('writes exactly one entry, and records which way it went', async () => {
+    const { groups, entries } = make();
+    const created = await groups.create('acc-1', ACTOR, 'Queue');
+    // ⚠️ Fixture check, not ceremony: a failed create would make every assertion below vacuous.
+    if (created.status !== 'ok') throw new Error(`fixture: create returned ${created.status}`);
+    const { groupId } = created;
+    const before = entries().length;
+
+    const on = await groups.setRoutable('acc-1', ACTOR, groupId, true);
+    expect(on.status).toBe('ok');
+
+    // The DELTA, never an absolute: `create` already wrote one, and history keeps supplying the number.
+    const added = entries().slice(before);
+    expect(added).toHaveLength(1);
+    expect(added[0]!.action).toBe('group.routability_changed');
+    expect(added[0]!.target_ref).toBe(groupId);
+    expect(added[0]!.detail_json).toMatchObject({ grant: true });
+  });
+
+  it('records switching it OFF distinguishably from switching it on', async () => {
+    const { groups, entries } = make();
+    const created = await groups.create('acc-1', ACTOR, 'Queue');
+    // ⚠️ Fixture check, not ceremony: a failed create would make every assertion below vacuous.
+    if (created.status !== 'ok') throw new Error(`fixture: create returned ${created.status}`);
+    const { groupId } = created;
+    await groups.setRoutable('acc-1', ACTOR, groupId, true);
+    const before = entries().length;
+
+    await groups.setRoutable('acc-1', ACTOR, groupId, false);
+    const added = entries().slice(before);
+    expect(added).toHaveLength(1);
+    expect(added[0]!.detail_json).toMatchObject({ grant: false });
+  });
+
+  it('⚠️ a no-op still writes — the administrator acted (the convention this file states)', async () => {
+    const { groups, entries } = make();
+    const created = await groups.create('acc-1', ACTOR, 'Queue');
+    // ⚠️ Fixture check, not ceremony: a failed create would make every assertion below vacuous.
+    if (created.status !== 'ok') throw new Error(`fixture: create returned ${created.status}`);
+    const { groupId } = created;
+    await groups.setRoutable('acc-1', ACTOR, groupId, true);
+    const before = entries().length;
+
+    // Setting the value it already has. No row changes; the act still happened.
+    await groups.setRoutable('acc-1', ACTOR, groupId, true);
+    expect(entries().slice(before)).toHaveLength(1);
+  });
+
+  it('a missing desk is not_found and writes nothing', async () => {
+    const { groups, entries } = make();
+    const before = entries().length;
+    const res = await groups.setRoutable('acc-1', ACTOR, 'no-such-group', true);
+    expect(res.status).toBe('not_found');
+    expect(entries().slice(before)).toHaveLength(0);
+  });
+
+  it('⛔ the detail carries no NAME — an id and a grant flag only (0019/SEC-29)', async () => {
+    const { groups, entries } = make();
+    const created = await groups.create('acc-1', ACTOR, 'Payments desk');
+    if (created.status !== 'ok') throw new Error(`fixture: create returned ${created.status}`);
+    const before = entries().length;
+    await groups.setRoutable('acc-1', ACTOR, created.groupId, true);
+    expect(JSON.stringify(entries().slice(before))).not.toContain('Payments desk');
+  });
+});

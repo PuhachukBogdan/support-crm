@@ -77,6 +77,22 @@ export const AUDIT_ACTIONS = {
   'group.create': { class: 'privilege', writer: 'auth', status: 'live', label: 'Group created' },
   'group.rename': { class: 'privilege', writer: 'auth', status: 'live', label: 'Group renamed' },
   'group.delete': { class: 'privilege', writer: 'auth', status: 'live', label: 'Group deleted' },
+  /**
+   * ⭐ Feature 031 (ADR 0042) — a desk was switched into, or out of, automatic distribution.
+   *
+   * ⚠️ **A distinct action, not folded into `group.rename`.** Renaming a desk changes a label nothing
+   * branches on (ADR 0039 §9); making it routable changes **who receives customer conversations without
+   * anybody choosing**. Two facts of very different weight under one action name would make the trail
+   * unreadable for the question that matters: *when did this desk start being fed by the router?*
+   *
+   * `privilege` class, like every other group mutation: it changes what a set of people receive.
+   */
+  'group.routability_changed': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'Group routability changed',
+  },
   'group_member.add': {
     class: 'privilege',
     writer: 'auth',

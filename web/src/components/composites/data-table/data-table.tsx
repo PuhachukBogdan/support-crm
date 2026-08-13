@@ -8,7 +8,6 @@ import {
   type ColumnDef,
   type RowSelectionState,
 } from '@tanstack/react-table';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Table,
   TableBody,
@@ -49,13 +48,33 @@ export const ROW_HEIGHT_CLASS = 'h-11';
 export { ROW_HEIGHT };
 
 /**
- * First-paint guess for the scroll viewport, before it is measured.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⛔⛔ **THE VIRTUALIZER IS GONE, and that is the freeze fix — measured, not reasoned.**
  *
- * ⚠️ A module constant on purpose: it used to be an object literal built inside the render, so every
- * render handed the virtualizer a fresh `initialRect`. That is a re-measure invitation on a component
- * whose measurement loop is the one thing that must not be provoked.
+ * The operator froze this page three times in three shapes. Bisected on the live stand with a probe
+ * switch built into one deploy (`?probe=…`), reading React's own scheduler:
+ *
+ *   · at rest, React posts NOTHING;
+ *   · one bucket click and it posts **~9 000 times a second, for ever** — the page answers for a few
+ *     seconds, then the next click wedges the renderer and it dies with no JS error;
+ *   · `?probe=nolist` (everything except the table): **2 posts.** So it is the table;
+ *   · `?probe=nolive`, `?probe=nostatuses`: still ~9 000/s. Not realtime, not the catalogue;
+ *   · ResizeObserver callbacks: **zero** — so it is not the width/measurement loop earlier fixes
+ *     chased, and removing Radix Select from the header did not stop it either.
+ *
+ * `virtual-core`'s `_willUpdate` runs in a layout effect on EVERY render and re-subscribes whenever
+ * `getScrollElement()` differs from what it holds, notifying as it goes; a notify is a React update,
+ * and a React update is another render. That is the engine of the loop, and it is one this screen
+ * never needed: **the list is keyset-paginated at 50 rows.** 50 DOM rows want no virtualization —
+ * "bounded row nodes at 372K rows" was a property of a list nothing renders.
+ *
+ * ⇒ Rows render directly. The trade-off, stated rather than buried: with many "Load more" clicks the
+ * DOM grows linearly (20 pages = 1 000 rows), which browsers handle comfortably; if a screen ever
+ * genuinely needs to render tens of thousands of rows at once, virtualization comes back **with a
+ * scroll element held in state** (so its subscription cannot re-run per render) and a live-browser
+ * commit-rate assertion beside it — jsdom cannot see any of this.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════
  */
-const INITIAL_RECT = { width: 0, height: 600 } as const;
 
 /**
  * The three tiers of `ui-design/density-spec.md` §2 — the mechanism that makes §1 hold ("a ticket list
@@ -249,19 +268,6 @@ export function DataTable<T>({
 
   const rows = table.getRowModel().rows;
   const parentRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
-    // A first-paint guess only; the real size is measured from the scroll element. Kept constant so
-    // the options object does not hand the virtualizer a new rect on every render.
-    initialRect: INITIAL_RECT,
-  });
-  const vItems = virtualizer.getVirtualItems();
-  const paddingTop = vItems.length > 0 ? vItems[0]!.start : 0;
-  const paddingBottom =
-    vItems.length > 0 ? virtualizer.getTotalSize() - vItems[vItems.length - 1]!.end : 0;
   const colCount = allColumns.length;
 
   function cycleSort(field: string) {
@@ -372,19 +378,13 @@ export function DataTable<T>({
                 </TableCell>
               </TableRow>
             )}
-            {paddingTop > 0 && (
-              <tr aria-hidden>
-                <td colSpan={colCount} style={{ height: paddingTop }} />
-              </tr>
-            )}
-            {vItems.map((vi) => {
-              const row = rows[vi.index]!;
+            {rows.map((row, index) => {
               return (
                 <TableRow
                   key={row.id}
                   // Pinned so the row a browser lays out is the row the virtualizer budgeted for.
                   className={ROW_HEIGHT_CLASS}
-                  data-index={vi.index}
+                  data-index={index}
                   data-selected={row.getIsSelected()}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -401,11 +401,6 @@ export function DataTable<T>({
                 </TableRow>
               );
             })}
-            {paddingBottom > 0 && (
-              <tr aria-hidden>
-                <td colSpan={colCount} style={{ height: paddingBottom }} />
-              </tr>
-            )}
           </TableBody>
         </Table>
       </div>

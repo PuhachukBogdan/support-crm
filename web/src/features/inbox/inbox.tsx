@@ -34,10 +34,23 @@ import type { ConversationRow } from './types';
  * ⛔ **Shared views.** No view entity, grant or count exists (roadmap 9.2a) — and no placeholder.
  * ⛔ **A requester name.** The product stores none (research R9).
  */
+/**
+ * ⚠️ TEMPORARY diagnostic switch for the freeze hunt (2026-08-06). `?probe=nolist` renders no table,
+ * `?probe=nolive` skips the realtime subscription, `?probe=nostatuses` skips the catalogue fetch.
+ * Removed the moment the cause is named — it exists because bisecting a minified production bundle by
+ * rebuilds costs two minutes a step and this costs one deploy.
+ */
+function probeFlag(): string {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('probe') ?? '';
+}
+
 export function Inbox() {
+  const probe = probeFlag();
   // "Which operator am I?" — the scope the whole screen stands on (5.11).
   const me = useMyOperator();
-  const { statuses } = useStatuses();
+  const { statuses: fetchedStatuses } = useStatuses();
+  const statuses = probe === 'nostatuses' ? [] : fetchedStatuses;
   const {
     query,
     filters,
@@ -55,7 +68,7 @@ export function Inbox() {
    * Feature 034 (W4): a ticket that arrives by itself appears by itself. The event carries ids only and
    * nothing is merged from it — see the hook for why, and for why it holds off below page one.
    */
-  useLiveRefresh(query, list.refetch);
+  useLiveRefresh(probe === 'nolive' ? null : query, list.refetch);
   const [selected, setSelected] = useState<string[]>([]);
   // Row selection exists only where the actions it feeds do. An agent gets no checkboxes rather than
   // checkboxes that lead nowhere.
@@ -116,6 +129,11 @@ export function Inbox() {
           <BulkActions selectedCount={selected.length} />
         </div>
 
+        {probe === 'nolist' ? (
+          <div data-testid="probe-nolist" className="text-sm text-muted-foreground">
+            probe=nolist — table not rendered ({listState.status})
+          </div>
+        ) : (
         <InboxList
           state={listState}
           emptyLabel={emptyLabel}
@@ -129,6 +147,7 @@ export function Inbox() {
           filters={filters}
           onFilterChange={setFilter}
         />
+        )}
       </div>
     </div>
   );

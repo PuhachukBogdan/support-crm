@@ -32,14 +32,24 @@ const ready = (
 });
 
 describe('DataTable', () => {
-  it('virtualizes: bounded rendered rows regardless of dataset size (SC-003)', () => {
-    const items = makeDemoRecords(100_000);
+  /**
+   * ⛔ **This assertion USED to demand virtualization, and it is inverted deliberately (2026-08-06).**
+   *
+   * The virtualizer was the engine of a re-render loop that froze the page for the operator three
+   * times — measured on the live stand at ~9 000 React scheduler posts per second, with `?probe=nolist`
+   * dropping it to 2. See the long note in `data-table.tsx`. The list is keyset-paginated at 50 rows,
+   * so bounded row nodes were a property of a list nothing renders.
+   *
+   * What replaces the old claim: every LOADED row renders. If a screen ever pages far enough for that
+   * to matter, virtualization returns with a scroll element held in state and a commit-rate assertion
+   * in a real browser — jsdom sees neither layout nor commit storms, which is why it never caught this.
+   */
+  it('renders every loaded row — no virtualization (see the freeze note in data-table.tsx)', () => {
+    const items = makeDemoRecords(120);
     render(<DataTable columns={columns} state={ready(items)} getRowId={(r) => r.id} />);
 
     const rendered = document.querySelectorAll('tr[data-index]');
-    expect(rendered.length).toBeGreaterThan(0);
-    expect(rendered.length).toBeLessThan(200); // bounded — NOT 100k
-    expect(items).toHaveLength(100_000);
+    expect(rendered).toHaveLength(120);
   });
 
   /**

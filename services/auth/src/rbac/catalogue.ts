@@ -51,6 +51,13 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // Listed in `teamlead`'s defaults below (the supervisor role) and in NO agent role's, so it is off for
   // support/VIP/AM by construction; `admin`/`super_admin` receive it through the computed ALL_KEYS.
   { category: 'crm', key: 'crm.conversation.set_brand', label: "Change a conversation's brand" },
+  // W9 (ADR 0044 §4) — the single capability that INVERTS anti-pitching: "enter a phone number,
+  // learn whose it is". A DISTINCT key, granted deliberately per person (3.6 overrides), never
+  // implied by "can handle tickets" — so it sits in NO role template below, agent or supervisor
+  // (the 011 R-2 corollary); `admin`/`super_admin` receive it through ALL_KEYS. It gates the
+  // lookup AND attach AND detach (0044 §5: detach requires the same permission as attach). Every
+  // use is audited with a salted HASH of the searched value; the raw value is inexpressible.
+  { category: 'crm', key: 'crm.contact.lookup', label: 'Look up a player by contact & attach a conversation' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },

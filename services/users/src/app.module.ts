@@ -28,6 +28,9 @@ import { OperatorProfileController } from './operator/operator-profile.grpc.cont
 import { PlayerAccessGuard } from './player/player.guard';
 import { PlayerReadController } from './player/player.grpc.controller';
 import { PersonService } from './player/person.service';
+import { ContactLookupService } from './player/contact-lookup.service';
+import { CONTACT_HASH_SALT } from './channel/channel-participant.service';
+import { loadUsersConfig } from './config';
 // Feature 021 (roadmap 5.6): the OPERATOR's own appearance settings — cosmetic, self-owned, gated by
 // no permission, written to no audit trail. Its own module because every neighbouring surface here is
 // the opposite on all four counts. NOT `Player.preferences_json`, which is the customer's data.
@@ -75,6 +78,11 @@ import { AssignmentModule } from './assignment/assignment.module';
     AuditRepository,
     AuditAccessGuard,
     PlayerAccessGuard,
+    ContactLookupService,
+    // W9: the lookup hashes with the SAME salt ContactMatch rows were written with — one salt, one
+    // factory, mirrored from maintenance.module (the salt itself never travels, participant.client
+    // rule). A different salt here would make every lookup answer "none" while looking healthy.
+    { provide: CONTACT_HASH_SALT, useFactory: () => loadUsersConfig().CONTACT_HASH_SALT },
   ],
 })
 export class AppModule {}

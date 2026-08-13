@@ -25,6 +25,15 @@ service UsersReadService {
   // Keyset pagination (Principle VII): opaque page_token, never offset/total.
   rpc ListPlayersByBrand(ListPlayersByBrandRequest) returns (PlayerPage);
 
+  // ── W9 / spec 035 (ADR 0044 §4) — the anti-pitching inversion, caller-credentialed ──
+  //
+  // "Does this email/phone belong to a player?" — read-only (unlike Maintenance's
+  // ResolveChannelParticipant, which upserts), gated by `crm.contact.lookup`, audited on EVERY
+  // attempt with the salted hash of the value, rate-capped per user by counting the trail itself.
+  // The response is JUST ENOUGH to confirm and attach: ids, a matched flag, an ambiguous flag that
+  // names nobody. The searched value never comes back; no page, no list, no card.
+  rpc LookupPlayerByContact(LookupPlayerByContactRequest) returns (ContactLookupResult);
+
   // ── Feature 020 (roadmap 5.2) — additive. Which brand-scoped records make up one human.
   //
   // Chats needs it to answer a person's conversation feed and cannot join across services
@@ -213,6 +222,25 @@ message ListOperatorsByAuthUsersResponse {
 message PlayerPage {
   repeated Player players = 1;
   string next_page_token = 2; // empty when no more pages
+}
+
+// ── W9 / spec 035 — the contact lookup pair (ADR 0044 §4) ──
+message LookupPlayerByContactRequest {
+  // The CONVERSATION's own brand: a match on another brand is another human being (the 07-29
+  // Person repair), so the lookup is brand-scoped and a cross-brand hit answers `matched = false`
+  // rather than leaking presence elsewhere. The account rides the caller's metadata, never a field.
+  string brand_id = 1;
+  string kind = 2;  // 'email' | 'phone' — ContactMatch's closed vocabulary; anything else refused
+  string value = 3; // raw; normalised + salted-hashed inside, never stored, never echoed back
+}
+
+message ContactLookupResult {
+  bool matched = 1;
+  // Two records share the hash within this brand — the result names NOBODY (0044 §4: the response
+  // is enough to confirm a match, never a results grid to browse).
+  bool ambiguous = 2;
+  string player_id = 3; // set only when matched
+  string brand_id = 4;  // echoes the searched brand — the attach must carry the PAIR
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════

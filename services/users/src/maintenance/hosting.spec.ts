@@ -86,7 +86,7 @@ describe('*** UsersMaintenanceService is hosted, not merely written ***', () => 
 describe('*** UsersReadService is served across four controllers, completely ***', () => {
   const proto = readFileSync(USERS_PROTO, 'utf8');
 
-  it('the contract declares exactly ten methods on it', () => {
+  it('the contract declares exactly the pinned methods on it — editing the list is the visible act', () => {
     const block = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const rpcs = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
     expect(rpcs.sort()).toEqual([
@@ -113,6 +113,9 @@ describe('*** UsersReadService is served across four controllers, completely ***
       'ListOperatorsByAuthUsers',
       'ListPersonMembers',
       'ListPlayersByBrand',
+      // W9 / spec 035: the contact lookup — read-shaped (the sibling no-outbound guard requires it,
+      // and read-ONLY is the point: Maintenance's ResolveChannelParticipant upserts; this must not).
+      'LookupPlayerByContact',
     ]);
   });
 

@@ -40,7 +40,12 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   deletion: ['name', 'revision'],
   // `tier` = the most sensitive tier a read surfaced (never a field value).
   // `filters` = which fields a reader filtered on (names only, never their values).
-  access: ['tier', 'filters'],
+  // W9 (ADR 0044 §4) — the lookup trio: `valueHash` = the SALTED sha256 of the searched contact
+  // (64 hex chars — contains no `@` and no dialling shape, so the PII value guard passes it while
+  // still refusing a raw address); `valueKind` = `email | phone` in clear; `matched` =
+  // `found | none | ambiguous | rate_capped`. An investigator confirms "was this number looked up"
+  // by hashing it; nobody reads the number out of the log.
+  access: ['tier', 'filters', 'valueHash', 'valueKind', 'matched'],
   export: ['format', 'rowCount', 'scope'],
   // `reasonClass` (feature 031) = WHY routing found nobody, as a class: 'desk_not_routable',
   // 'nobody_available', 'all_at_capacity'. A class and never a sentence, so no relay's wording and no
@@ -53,6 +58,8 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   // `identifierClass` (feature 033) = WHICH KIND of identifier decided who wrote: `email` | `phone` |
   // `player_id`. ⚠️ The class is recordable and the value never is (ADR 0044 §4) — an audited email
   // address would put customer contact data in the one table nothing may delete from.
+  // `playerRef` / `brandRef` (W9, spec 035) = the attached/detached PAIR as ids — the pair, because
+  // a bare player id names two customers (the 07-29 Person repair); ids, never names or contacts.
   assignment: [
     'selfAssigned',
     'managerRef',
@@ -61,6 +68,8 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
     'toBrandRef',
     'channelKind',
     'identifierClass',
+    'playerRef',
+    'brandRef',
   ],
   retention: ['deletedCount', 'olderThan'],
 };

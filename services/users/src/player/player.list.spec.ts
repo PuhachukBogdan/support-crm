@@ -13,6 +13,8 @@ import type { PrismaService } from '../prisma.service';
  * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
  * which is what the required parameter was for.
  */
+// W9: these specs never look anybody up — the required dep makes each file SAY so.
+const lookupUnused = () => ({ lookup: jest.fn() }) as never;
 const attachStub = (attached = false) =>
   ({
     isAttached: async () => attached,
@@ -193,6 +195,7 @@ describe('*** page tokens: malformed is refused, FOREIGN is accepted and still f
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
       personsStub(),
       attachStub(),
+      lookupUnused(),
     );
     const res = await failure(
       ctl.listPlayersByBrand({ brandId: 'brand-a', pageToken: 'not-a-token!!' }, md()),
@@ -233,7 +236,7 @@ describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any 
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub()),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused()),
       players,
       access,
       role,
@@ -300,7 +303,7 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub()),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused()),
       players,
       access,
     };
@@ -364,7 +367,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub()),
+      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused()),
       access,
       bulk,
       role,
@@ -420,6 +423,7 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
       personsStub(),
       attachStub(),
+      lookupUnused(),
     );
     const page = (await ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'))) as {
       nextPageToken: string;
@@ -454,6 +458,7 @@ describe('T050 — one membership lookup per PAGE (never per row)', () => {
       { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) } as never,
       personsStub(),
       attachStub(),
+      lookupUnused(),
     );
     return { ctl, personIdsFor, personIdOf };
   }

@@ -13,6 +13,9 @@ import type { PlayerRow } from './player.repository';
  * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
  * which is what the required parameter was for.
  */
+// W9: these specs never look anybody up — the required dep makes each file SAY so (the same
+// compiler-enumerates-the-tests effect the assignment dep documented).
+const lookupUnused = () => ({ lookup: jest.fn() }) as never;
 const attachStub = (attached = false) =>
   ({
     isAttached: async () => attached,
@@ -102,7 +105,7 @@ function harness(opts: { row?: PlayerRow | null; auditThrows?: boolean } = {}) {
     })),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub()),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub(), lookupUnused()),
     players,
     operators,
     access,

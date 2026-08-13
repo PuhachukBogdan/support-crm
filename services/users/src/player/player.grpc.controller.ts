@@ -5,6 +5,8 @@ import type { Metadata } from '@grpc/grpc-js';
 import { clampPageSize, decodeCursor, encodeCursor, InvalidCursorError } from '@crm/common';
 import { OperatorRepository, type OperatorRow } from '../operator/operator.repository';
 import { ContactViewAuditService } from './contact-view-audit.service';
+import { ContactLookupService, LookupRateCapped } from './contact-lookup.service';
+import { normaliseContact } from './contact-match';
 import { PlayerAccessGuard } from './player.guard';
 import { RequiresPlayerPermission } from './requires-player-permission.decorator';
 import { assertCanMassExport, maskPlayer } from './player.masking';
@@ -71,6 +73,8 @@ export class PlayerReadController {
      * A test that does not say is a test that was not thinking about the tier (FR-014).
      */
     @Inject(AssignmentRepository) private readonly assignments: AssignmentRepository,
+    // W9: the lookup's security story (audit + cap + hash) lives in its own service.
+    @Inject(ContactLookupService) private readonly contactLookup: ContactLookupService,
   ) {}
 
   /**
@@ -350,6 +354,61 @@ export class PlayerReadController {
         blockedChannels: r.blockedChannels,
       })),
     };
+  }
+
+  /**
+   * W9 / spec 035 — the contact lookup (ADR 0044 §4). The whole security story lives in
+   * {@link ContactLookupService}; this handler owns the WIRE rules:
+   *
+   *  · validation errors name the KEY, never the value (SEC-26 — the searched value is a contact);
+   *  · an unparseable value is refused with NO audit entry — nothing was searched, and a row for a
+   *    typo would file a probe that never happened (the same rule GetPlayer applies to 404s);
+   *  · the rate cap surfaces as RESOURCE_EXHAUSTED, and that attempt IS audited (volume is the
+   *    only available anomaly signal, so the refusal is a data point).
+   */
+  @GrpcMethod('UsersReadService', 'LookupPlayerByContact')
+  @RequiresPlayerPermission('crm.contact.lookup')
+  async lookupPlayerByContact(
+    req: { brandId?: string; kind?: string; value?: string },
+    metadata: Metadata,
+  ) {
+    const actor = readPlayerActor(metadata);
+    const brandId = (req?.brandId ?? '').trim();
+    const kind = req?.kind === 'email' || req?.kind === 'phone' ? req.kind : null;
+    const value = (req?.value ?? '').trim();
+    if (!brandId || !kind || !value) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'brandId, kind (email|phone) and value are required',
+      });
+    }
+    if (normaliseContact(kind, value) === null) {
+      // The key of the failure, never the value: "value" here is a customer contact by definition.
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: `value is not a well-formed ${kind}`,
+      });
+    }
+
+    try {
+      const res = await this.contactLookup.lookup(
+        actor.accountId,
+        actor.userId,
+        { brandId, kind, value },
+        actor.underPreview,
+      );
+      return {
+        matched: res.matched,
+        ambiguous: res.ambiguous,
+        playerId: res.playerId,
+        brandId: res.brandId,
+      };
+    } catch (err) {
+      if (err instanceof LookupRateCapped) {
+        throw new RpcException({ code: GrpcStatus.RESOURCE_EXHAUSTED, message: err.message });
+      }
+      throw err;
+    }
   }
 }
 

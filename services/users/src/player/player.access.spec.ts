@@ -12,6 +12,8 @@ import { PlayerReadController } from './player.grpc.controller';
  * while proving nothing. Defaulting to "not attached" makes each one state its own assumption —
  * which is what the required parameter was for.
  */
+// W9: these specs never look anybody up — the required dep makes each file SAY so.
+const lookupUnused = () => ({ lookup: jest.fn() }) as never;
 const attachStub = (attached = false) =>
   ({
     isAttached: async () => attached,
@@ -84,7 +86,7 @@ function harness() {
     ),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub()),
+    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub(), lookupUnused()),
     players,
     operators,
     access,
@@ -281,7 +283,7 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
       }),
       recordBulkRead: jest.fn(),
     };
-    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub());
+    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused());
 
     await expect(ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())).rejects.toThrow('audit table unavailable');
     // The record WAS read — the refusal is about recording, not about access — and nothing was returned.
@@ -326,6 +328,9 @@ describe('*** T026: the SERVICE tier decides independently of the gateway *** (P
       'listOperatorsByAuthUsers',
       'listPersonMembers', // feature 020
       'listPlayersByBrand',
+      // W9 / spec 035: the contact lookup — gated by its OWN key (`crm.contact.lookup`), pinned in
+      // contact-lookup-gate.spec.ts; the security story lives in ContactLookupService.
+      'lookupPlayerByContact',
     ]);
     for (const name of handlers) {
       expect({

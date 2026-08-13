@@ -164,6 +164,18 @@ export const AUDIT_ACTIONS = {
   // Reading the audit log is itself a sensitive act: "who went looking at who accessed what" is the same
   // accountability question one level up, and the volume is trivial.
   'audit.read': { class: 'access', writer: 'auth', status: 'live', label: 'Audit log read' },
+  // W9 / spec 035 (ADR 0044 §4) — the anti-pitching inversion, audited on EVERY attempt: found,
+  // not-found, ambiguous and refused-by-cap alike (volume over time is the only available signal, so
+  // a refused attempt is still a data point). Detail carries {valueHash, valueKind, matched} — the
+  // SALTED HASH of the searched value, never the value: an investigator confirms "was this number
+  // looked up" by hashing it; nobody reads the number out of the log. Restricted class, short
+  // retention (0046 §U7: 90 days) — the retention machinery itself is SEC-25, still open.
+  'contact.lookup': {
+    class: 'access',
+    writer: 'users',
+    status: 'live',
+    label: 'Player looked up by contact value',
+  },
   // DEFERRED, deliberately (spec Q1): logging every record open is the busiest write path in the product
   // and would arrive before any retention policy. It ships WITH retention, not before.
   // ⚠️ Feature 018 (roadmap 5.1) tried to make this `live` and REVERTED, which is worth recording so the
@@ -228,6 +240,23 @@ export const AUDIT_ACTIONS = {
     writer: 'users',
     status: 'live',
     label: 'Player detached from an account manager',
+  },
+  // W9 / spec 035 (ADR 0044 §5) — a CONVERSATION gaining/losing its player, distinct from
+  // player.assign's manager↔player pair. Two separate events, both under the same key that gates
+  // the lookup (`crm.contact.lookup`); detail carries {playerId, brandId} — the PAIR, because a
+  // bare player id names two customers (the 07-29 Person repair). The detach event is what makes
+  // "what was written while the wrong player was attached" a computable window (0044 §5's hazard).
+  'conversation.player_attach': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation attached to a player',
+  },
+  'conversation.player_detach': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation detached from its player',
   },
 
   /**

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useDataAccess } from '@/data/provider';
 
 /**
@@ -10,10 +10,10 @@ import { useDataAccess } from '@/data/provider';
  * auth-identity → operator id never changes), so there is no refresh, no polling and no cache
  * invalidation to get wrong.
  *
- * ⚠️ **Failure is an ABSENCE, and the consumer must treat it as one.** `operatorId` stays undefined
- * when the read fails — the «Мои» scope control is then DISABLED, never silently un-scoped: "my
- * tickets" quietly meaning "all tickets" is the confidently-wrong-answer shape this codebase keeps
- * refusing (the 012 lesson, restated in `use-inbox-query`).
+ * ⚠️ **The whole Inbox is scoped by this answer** (operator, 2026-08-06), so failure here is not a
+ * degraded mode — it is "the screen cannot know whose tickets to show". The hook therefore reports a
+ * STATUS, and the screen renders the identity's own loading/error instead of a list: an unscoped
+ * list would be both the confidently-wrong answer (the 012 lesson) and a disclosure.
  */
 
 interface MeOperator {
@@ -22,26 +22,43 @@ interface MeOperator {
   active?: boolean;
 }
 
-export function useMyOperator(): { operatorId: string | undefined } {
+export interface MyOperator {
+  operatorId: string | undefined;
+  status: 'loading' | 'ready' | 'error';
+  retry: () => void;
+}
+
+export function useMyOperator(): MyOperator {
   const dataAccess = useDataAccess();
-  const [operatorId, setOperatorId] = useState<string | undefined>(undefined);
+  const [state, setState] = useState<{ operatorId?: string; status: MyOperator['status'] }>({
+    status: 'loading',
+  });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    setState((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }));
     dataAccess
       .get<MeOperator>('me-operator', '')
       .then((me) => {
-        if (alive && typeof me?.operatorId === 'string' && me.operatorId !== '') {
-          setOperatorId(me.operatorId);
+        if (!alive) return;
+        if (typeof me?.operatorId === 'string' && me.operatorId !== '') {
+          setState({ operatorId: me.operatorId, status: 'ready' });
+        } else {
+          // An answer with no id is a server defect, not a retryable blip — but the screen's
+          // response is the same either way: it cannot scope, so it must not list.
+          setState({ status: 'error' });
         }
       })
       .catch(() => {
-        // Contained: the screen works unscoped, exactly as it did before 5.11 existed.
+        if (alive) setState({ status: 'error' });
       });
     return () => {
       alive = false;
     };
-  }, [dataAccess]);
+  }, [dataAccess, attempt]);
 
-  return { operatorId };
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  return { operatorId: state.operatorId, status: state.status, retry };
 }

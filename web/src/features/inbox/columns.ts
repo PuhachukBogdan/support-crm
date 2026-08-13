@@ -50,14 +50,44 @@ export interface InboxColumn {
    */
   readonly sort?: { readonly asc: string; readonly desc: string };
   /**
-   * ⛔ **The per-column filter funnel is GONE (W6), and the reason is the operator's own snapshots.**
-   * The 08-03 decision put filters into column headers; the 08-04 snapshot batch then showed Zendesk's
-   * toolbar — Status ▾, Channel — with his caption *«Отличная вещь — фильтры. Оставим»*. The newer,
-   * explicit word wins: filters live in `inbox-toolbar.tsx` now, one control per narrowing, and the
-   * Status dropdown's options come from the ACCOUNT'S OWN catalogue (`use-statuses`) narrowed to the
-   * bucket's categories — which the old hardcoded `['open', 'pending']` list never could.
+   * ⭐ The filter this column owns, opened from a **funnel in its own header** (operator, 2026-08-03:
+   * *«может их прям в эту плашку и впихнуть»* — and reconfirmed the hard way on 2026-08-06 after W6's
+   * first cut replaced the funnels with a toolbar: *«Мы зачем по-твоему их добавляли? Верни. И не
+   * делай так больше»*. The 08-04 snapshot caption «Отличная вещь — фильтры. Оставим» praised having
+   * FILTERS, not Zendesk's placement of them; reading it as a layout instruction was my mistake, twice
+   * recorded so it is not made a third time).
+   *
+   * ⛔ **Declared only where the filter genuinely IS this column.** Static options live here; the
+   * status column's options are the ACCOUNT'S OWN catalogue (narrowed to the bucket's categories) and
+   * are resolved at render — a hardcoded status list is the retired-word defect waiting to recur.
    */
+  readonly filter?: {
+    readonly key: FilterKey;
+    /** Static options, or 'catalogue' — resolved by the screen from `use-statuses` per bucket. */
+    readonly options: readonly string[] | 'catalogue';
+  };
 }
+
+/** The keys the transient filter state accepts. Kept structural so a renamed filter breaks the build. */
+export type FilterKey = 'status' | 'channel' | 'priority';
+
+/**
+ * ⭐ **Corrected by feature 033 (2026-08-05): `'chat'` is gone.** The arrival channel is the closed
+ * vocabulary `api | email | messenger`; `messenger` is deliberately absent HERE because no messenger
+ * transport is connected in the MVP — an option that can only ever match nothing teaches an agent the
+ * queue is empty (the standing empty-filter rule). It arrives with the transport (6.2/6.3).
+ *
+ * ⛔ **No "no channel" option:** ~1 in 6 rows carry none, the wire cannot express "unset" as a value,
+ * and those rows stay reachable by NOT filtering (FR-011a).
+ */
+const CHANNELS = ['api', 'email'] as const;
+
+/**
+ * The priority vocabulary the product writes (`priorityWrite`, feature 031). A closed set — unlike
+ * statuses, priorities are not per-account configuration, so a static list here cannot rot the way
+ * the status list did.
+ */
+const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
 /**
  * ⭐ **Order copied from Zendesk** (`ui-design/screenshots/views_1.png`, 2026-08-03):
@@ -78,6 +108,7 @@ export const INBOX_COLUMNS: readonly InboxColumn[] = [
     tier: 'essential',
     width: 96,
     // ⓘ No sort arrow: Zendesk shows none on Ticket status either — a status is a set, not a scale.
+    filter: { key: 'status', options: 'catalogue' },
   },
   // "Requested" is the creation instant. §2 makes *time-since* essential and that is `Updated` below;
   // when the queue is narrow, which one still matters is the one that moved.
@@ -101,11 +132,25 @@ export const INBOX_COLUMNS: readonly InboxColumn[] = [
     width: 120,
     sort: { asc: 'updated_asc', desc: 'updated_desc' },
   },
-  { id: 'channel', header: 'Channel', tier: 'contextual', width: 100 },
+  {
+    id: 'channel',
+    header: 'Channel',
+    tier: 'contextual',
+    width: 100,
+    filter: { key: 'channel', options: CHANNELS },
+  },
   { id: 'playerId', header: 'Player', tier: 'essential', width: 140 },
   // The reason feature 023 exists: a queue you can scan. Never shed; truncates instead.
   { id: 'subject', header: 'Subject', tier: 'essential', width: 220 },
-  { id: 'priority', header: 'Priority', tier: 'contextual', width: 96 },
+  {
+    id: 'priority',
+    header: 'Priority',
+    tier: 'contextual',
+    width: 96,
+    // 2026-08-06: the operator counts priority among the funnels the screen owes him («по статусам,
+    // каналам и приоритетам»). The route has always accepted the parameter.
+    filter: { key: 'priority', options: PRIORITIES },
+  },
   { id: 'assigneeOperatorId', header: 'Assignee', tier: 'contextual', width: 140 },
   // Displayed, never filterable: ADR 0027 reserved it and nothing populates it yet except the seeded
   // rows, so a filter would offer options matching nothing.

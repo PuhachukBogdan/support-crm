@@ -29,9 +29,10 @@ import type { Query } from '@/data/types';
  * so a new message changes the row — filtering by kind here would be a rule the list's own columns
  * contradict.
  */
-export function useLiveRefresh(query: Query, refetch: () => void): void {
+export function useLiveRefresh(query: Query | null, refetch: () => void): void {
   const dataAccess = useDataAccess();
-  const paged = query.cursor != null;
+  // `null` query = the screen is not allowed to fetch yet (no scope) — treat as paged: hold off.
+  const paged = query === null || query.cursor != null;
 
   useEffect(() => {
     // ⓘ `subscribe` always exists and always returns an unsubscribe — an implementation with no transport

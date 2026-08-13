@@ -41,7 +41,7 @@ describe('*** the three states are visibly different (FR-003) ***', () => {
     renderInbox();
     await screen.findByText(/no tickets in this bucket/i);
 
-    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    fireEvent.click(screen.getByTestId('bucket-pending'));
     await screen.findByTestId('filter-status');
     chooseOption('filter-status', 'Pending');
 
@@ -76,7 +76,7 @@ describe('*** the three states are visibly different (FR-003) ***', () => {
     setDataAccess(stubConversations({ count: 0 }));
     const filtered = renderInbox();
     await screen.findByText(/no tickets in this bucket/i);
-    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    fireEvent.click(screen.getByTestId('bucket-pending'));
     await screen.findByTestId('filter-status');
     chooseOption('filter-status', 'Pending');
     await screen.findByText(/no tickets match these filters/i);
@@ -135,7 +135,7 @@ describe('*** what the screen ASKS FOR (the request it composes) ***', () => {
     fireEvent.click(screen.getByRole('button', { name: /load more/i }));
     await waitFor(() => expect(stub.calls.length).toBeGreaterThan(1));
 
-    fireEvent.click(screen.getByTestId('chip-channel-email'));
+    chooseOption('filter-channel', 'email');
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ channel: 'email' }),
     );

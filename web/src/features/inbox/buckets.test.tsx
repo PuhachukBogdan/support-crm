@@ -36,8 +36,8 @@ describe('*** the R38 rail: five buttons on categories ***', () => {
 
     const rail = screen.getByTestId('bucket-rail');
     const labels = Array.from(rail.querySelectorAll('button')).map((b) => b.textContent);
-    // «Ждут» is the operator's own word for the button — R38 records it verbatim.
-    expect(labels).toEqual(['Inbox', 'Open', 'Ждут', 'Solved', 'Archive']);
+    // Plain English on the operator's instruction (2026-08-06) — the first cut spelled «Ждут».
+    expect(labels).toEqual(['Inbox', 'Open', 'Pending', 'Solved', 'Archive']);
   });
 
   it('the default bucket is Inbox — the tickets waiting for a FIRST answer', async () => {
@@ -47,15 +47,17 @@ describe('*** the R38 rail: five buttons on categories ***', () => {
     await screen.findByText('Conversation 1');
 
     expect(stub.calls[0]!.filters).toMatchObject({ statusCategories: 'new' });
+    // ⭐⭐ …and the scope rides the very first request: the screen never asks unscoped.
+    expect(stub.calls[0]!.filters).toMatchObject({ assigneeOperatorId: 'op-me' });
   });
 
-  it('⭐ «Ждут» asks for the UNION pending,on_hold — one button, two categories', async () => {
+  it('⭐ Pending asks for the UNION pending,on_hold — one button, two categories', async () => {
     const stub = stubConversations({ count: 3 });
     setDataAccess(stub);
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    fireEvent.click(screen.getByTestId('bucket-pending'));
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
         statusCategories: 'pending,on_hold',
@@ -109,7 +111,7 @@ describe('*** the R38 rail: five buttons on categories ***', () => {
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    fireEvent.click(screen.getByTestId('bucket-pending'));
     await screen.findByTestId('filter-status');
     chooseOption('filter-status', 'VIP Pending');
     await waitFor(() =>
@@ -133,8 +135,8 @@ describe('*** the R38 rail: five buttons on categories ***', () => {
     renderInbox();
     await screen.findByText('Conversation 1');
 
+    chooseOption('filter-channel', 'email');
     fireEvent.click(screen.getByTestId('bucket-solved'));
-    fireEvent.click(screen.getByTestId('chip-channel-email'));
 
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({

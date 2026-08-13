@@ -19,24 +19,36 @@ export type ConversationsList = AsyncState<PaginatedResult<ConversationRow>> & {
  * it shows up as the list resetting to the top when someone asks for more, which reads like a scroll
  * glitch rather than a wrong action.
  */
-export function useConversations(query: Query): ConversationsList {
+/**
+ * @param query `null` = DO NOT FETCH — the caller's scope is not established yet (W6: the Inbox is
+ *        self-scoped, and a request without the scope would list other people's tickets). The hook
+ *        then reports `loading`, because that is what the screen is doing: waiting to be allowed to
+ *        ask.
+ */
+export function useConversations(query: Query | null): ConversationsList {
   const dispatch = useDispatch<AppDispatch>();
   const state = useSelector((s: RootState) => s.conversations);
 
   // A stable stringification: using the object itself would re-fire every render (new identity).
-  const key = JSON.stringify(query);
+  const key = query === null ? '' : JSON.stringify(query);
   const queryRef = useRef(query);
   queryRef.current = query;
 
   useEffect(() => {
     const q = queryRef.current;
+    if (q === null) return;
     dispatch(q.cursor ? conversationsActions.loadMore(q) : conversationsActions.load(q));
   }, [dispatch, key]);
 
   const refetch = useMemo(
-    () => () => dispatch(conversationsActions.load({ ...queryRef.current, cursor: null })),
+    () => () => {
+      const q = queryRef.current;
+      if (q === null) return;
+      dispatch(conversationsActions.load({ ...q, cursor: null }));
+    },
     [dispatch],
   );
 
+  if (query === null) return { status: 'loading', refetch };
   return { ...state, refetch };
 }

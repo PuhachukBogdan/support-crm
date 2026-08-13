@@ -270,73 +270,34 @@ export function DataTable<T>({
     onSortChange?.([{ field, dir }]);
   }
 
-  // Non-ready states render the shared states/ composites (single source of truth).
-  if (state.status === 'loading' || state.status === 'idle') {
-    return (
-      <div data-testid="dt-loading">
-        <LoadingRows />
-      </div>
-    );
-  }
-  if (state.status === 'error') {
-    return (
-      <div data-testid="dt-error">
-        <ErrorState error={state.error} onRetry={onRetry} />
-      </div>
-    );
-  }
   /**
-   * ⚠️ **Empty no longer replaces the table**, and that is both a copy of Zendesk and a bug fix.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════
+   * ⚠️⚠️ **ONE TREE FOR ALL FOUR STATES — the scroll container is NEVER unmounted.** This paragraph
+   * replaces three early returns, and the reason is the worst defect this screen has had.
    *
-   * `screenshots/views_1.png` keeps the column headers and puts *"No tickets in this view"* in a row
-   * beneath them — so a person can see what they filtered by and undo it. Ours replaced the entire
-   * table with a centred message, which meant every transition to an empty result **tore down the
-   * whole table**: hundreds of nodes removed in one commit, in the same commit as a `<select>`'s
-   * value change. That is the shape that froze the renderer once already, and the operator hit it
-   * again on the one filter that always returns nothing.
+   * The virtualizer above holds `getScrollElement: () => parentRef.current` for the whole life of
+   * the component. The early returns for loading / error / empty rendered trees WITHOUT `parentRef`,
+   * so every transition through them detached the virtualizer's element while the instance lived on —
+   * and TanStack Virtual then re-ran its setup against a vanishing target on every scheduler tick.
+   * Measured on the live stand (2026-08-06, CDP `Memory.getDOMCounters`): **~40 leaked JS event
+   * listeners per bucket switch** (each switch passes through `loading`), and on a SUSTAINED empty
+   * result a continuous re-render loop churning **~6 000 listeners per second** — the page still
+   * answers for a while, then the next click wedges the renderer and it dies without a JS error.
+   * That is the freeze the operator has now hit three times in three shapes («страница зависла», the
+   * filter-switch freeze, «в ждут с email на мои»): the previous fixes each removed a TRIGGER (the
+   * reconnect loop, the full-table teardown); this removes the mechanism.
    *
-   * Keeping the header mounted removes the teardown *and* answers the question the empty screen
-   * should answer: empty **of what**.
+   * ⇒ THE RULE, for every screen with a virtualizer or an observer: **the element a long-lived
+   * instance watches must live exactly as long as the instance.** States render INSIDE the body —
+   * a skeleton row set, an error row, an empty row (which is also Zendesk's own shape: headers stay,
+   * the message sits beneath them, so the screen still answers *empty of what*).
+   * ⓘ jsdom ships no ResizeObserver, which is why no unit test ever saw any of this; the browser
+   * check now walks an empty transition and reads the listener counters.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════
    */
-  if (state.status === 'empty') {
-    return (
-      <div
-        ref={rootRef}
-        className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')}
-        data-testid="dt-empty"
-      >
-        <div
-          className={cn(
-            'overflow-auto rounded-md border border-border',
-            fills && 'min-h-0 flex-1',
-          )}
-        >
-          <Table>
-            <TableHeader className="sticky top-0 z-sticky bg-card">
-              {table.getHeaderGroups().map((hg) => (
-                <TableRow key={hg.id}>
-                  {hg.headers.map((header) => (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell colSpan={colCount} className="py-8 text-center text-muted-foreground">
-                  {emptyLabel}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    );
-  }
+  const status =
+    state.status === 'idle' ? 'loading' : (state.status as 'loading' | 'error' | 'empty' | 'ready');
+
   return (
     <div ref={rootRef} className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')}>
       <div
@@ -390,6 +351,27 @@ export function DataTable<T>({
             ))}
           </TableHeader>
           <TableBody>
+            {status === 'loading' && (
+              <TableRow data-testid="dt-loading">
+                <TableCell colSpan={colCount} className="p-4">
+                  <LoadingRows />
+                </TableCell>
+              </TableRow>
+            )}
+            {status === 'error' && state.status === 'error' && (
+              <TableRow data-testid="dt-error">
+                <TableCell colSpan={colCount} className="p-4">
+                  <ErrorState error={state.error} onRetry={onRetry} />
+                </TableCell>
+              </TableRow>
+            )}
+            {status === 'empty' && (
+              <TableRow data-testid="dt-empty">
+                <TableCell colSpan={colCount} className="py-8 text-center text-muted-foreground">
+                  {emptyLabel}
+                </TableCell>
+              </TableRow>
+            )}
             {paddingTop > 0 && (
               <tr aria-hidden>
                 <td colSpan={colCount} style={{ height: paddingTop }} />
@@ -428,7 +410,7 @@ export function DataTable<T>({
         </Table>
       </div>
 
-      {state.data.hasMore && onLoadMore && (
+      {state.status === 'ready' && state.data.hasMore && onLoadMore && (
         <div className="flex justify-center">
           <Button variant="outline" size="sm" onClick={onLoadMore}>
             Load more

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useDataAccess } from '@/data/provider';
 import { uploadThumbUrl } from '@/data/asset-url';
-import { PRESENCE_CHOICES, PRESENCE_TONE, type PresenceChoice } from '@/data/presence';
+import { PRESENCE_CHOICES, PRESENCE_TONE, presenceLabel, type PresenceChoice } from '@/data/presence';
+import { usePresenceLabels } from '@/data/use-presence-labels';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,6 +57,12 @@ const TONE = PRESENCE_TONE;
 
 export function UserMenu() {
   const dataAccess = useDataAccess();
+  /**
+   * ⚠️ The words come from the ACCOUNT, not from this file. An administrator renaming «Break» to
+   * «Обед» must change what this menu says without a deploy — see `use-presence-labels.ts` for the
+   * contract test that makes this mandatory rather than tidy.
+   */
+  const labelNames = usePresenceLabels();
   const [operator, setOperator] = useState<OperatorWire | null>(null);
   const [presence, setPresence] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -99,6 +106,8 @@ export function UserMenu() {
   const avatarId = operator?.avatarUploadId ?? '';
   const name = operator?.displayName ?? '';
   const current = PRESENCE_CHOICES.find((c) => c.state === presence);
+  /** The account's word for a state, falling back to the state's plain wording. */
+  const nameOf = (state: string) => presenceLabel(state, labelNames);
 
   return (
     <DropdownMenu>
@@ -106,7 +115,7 @@ export function UserMenu() {
         <button
           type="button"
           data-testid="user-menu-trigger"
-          aria-label={`Your account${current ? ` — ${current.label}` : ''}`}
+          aria-label={`Your account${current ? ` — ${nameOf(current.state)}` : ''}`}
           className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-accent"
         >
           {avatarId ? (
@@ -147,7 +156,7 @@ export function UserMenu() {
             className="gap-2"
           >
             <span className={`h-2 w-2 shrink-0 rounded-full ${TONE[c.state]}`} />
-            <span className="flex-1">{c.label}</span>
+            <span className="flex-1">{nameOf(c.state)}</span>
             {presence === c.state && <span className="text-xs text-muted-foreground">✓</span>}
           </DropdownMenuItem>
         ))}

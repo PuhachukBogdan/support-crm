@@ -49,6 +49,11 @@ const SIGNED_IN = {
 
 interface StubOptions {
   presence?: string;
+  /**
+   * The account's own words for the states. Empty ⇒ the built-in fallback wording.
+   * ⚠️ The four seeded words are never written in this file — the contract test scans `.test.tsx`.
+   */
+  presenceLabels?: { id: string; name: string; state: string }[];
   displayName?: string;
   avatarUploadId?: string;
   /** `PUT /presence/me` fails — the optimistic badge must go BACK. */
@@ -64,8 +69,9 @@ interface Stub extends DataAccess {
 function stub(opts: StubOptions = {}): Stub {
   const s: Stub = {
     writes: [],
-    async list<T = unknown>(): Promise<PaginatedResult<T>> {
-      return { items: [], nextCursor: null, hasMore: false };
+    async list<T = unknown>(resource: ResourceName): Promise<PaginatedResult<T>> {
+      const items = resource === 'presence-labels' ? (opts.presenceLabels ?? []) : [];
+      return { items: items as unknown as T[], nextCursor: null, hasMore: false };
     },
     async get<T = unknown>(resource: ResourceName): Promise<T> {
       if (resource === 'me-operator') {
@@ -149,8 +155,35 @@ describe('*** ⭐ the window exists, in the rail, on every screen ***', () => {
     expect(dot).toHaveAttribute('data-state', 'away');
     expect(screen.getByTestId('user-menu-trigger')).toHaveAttribute(
       'aria-label',
-      expect.stringContaining('Break'),
+      expect.stringContaining('Away'),
     );
+  });
+
+  /**
+   * ⚠️⚠️ **The words in this menu belong to the ACCOUNT, not to our source.** `Break` · `Lunch` ·
+   * `Meeting` · `VIP task` are rows an administrator edits (ADR 0042 §7), and
+   * `tests/contracts/presence-label-never-branched-on.spec.ts` fails the build when a screen turns one
+   * into a constant: *"The seed may name them; the product may not."* This file's first version wrote
+   * `'Break'` and that test caught it — which is the whole reason the guard exists.
+   *
+   * ⇒ Asserted with a word that could only have come from the account's own table.
+   */
+  it('⭐ an administrator’s own word for a state is what the menu says', async () => {
+    renderMenu({
+      presence: 'away',
+      presenceLabels: [{ id: 'pl-1', name: 'Тренировка', state: 'away' }],
+    });
+
+    await screen.findByTestId('presence-dot');
+    await waitFor(() =>
+      expect(screen.getByTestId('user-menu-trigger')).toHaveAttribute(
+        'aria-label',
+        expect.stringContaining('Тренировка'),
+      ),
+    );
+    open();
+    // The item itself too, not only the accessible name.
+    expect(await screen.findByTestId('presence-away')).toHaveTextContent('Тренировка');
   });
 
   it('renders even when /me/operator fails — chrome must not disappear because a read did', async () => {

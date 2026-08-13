@@ -236,8 +236,17 @@ describe('*** FR-027: there is no write surface ***', () => {
       'utf8',
     );
     const verbs = [...source.matchAll(/@(Get|Post|Put|Patch|Delete)\s*\(/g)].map((m) => m[1]);
+    /**
+     * ⚠️ **The load-bearing half is the FIRST assertion — every verb is `Get`.** That is FR-027: this
+     * edge has no write surface, and a `@Post` appearing here would be the defect.
+     *
+     * The count below is only anti-vacuous: it fails if the regex stops matching and the set above
+     * silently becomes `[]`-shaped nonsense. So a new READ route is expected to bump it, and that is
+     * not a weakening — the verb assertion still covers the guarantee.
+     * ⓘ 3 → 4 on 2026-08-10: `GET /operators?authUserIds=…` (the ticket window's Assignee chooser).
+     */
     expect([...new Set(verbs)]).toEqual(['Get']);
-    expect(verbs.length).toBe(3);
+    expect(verbs.length).toBe(4);
   });
 
   it('the contract declares no write RPC for a player or an operator', () => {

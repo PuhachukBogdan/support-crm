@@ -46,6 +46,8 @@ export interface TicketStubOptions {
   resolvedOperators?: { operatorId: string; authUserId: string; state: string }[];
   /** The staff list fails — the chooser degrades to the read-only name, never to a broken menu. */
   failStaffWith?: DataError;
+  /** The account's own words for presence states (`GET /presence/labels`). Empty ⇒ built-in wording. */
+  presenceLabels?: { id: string; name: string; state: string }[];
 }
 
 /** Two colleagues and a disabled one — the disabled row must never reach the chooser. */
@@ -179,6 +181,14 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
         if (opts.failStaffWith) throw opts.failStaffWith;
         return page((opts.staff ?? DEFAULT_STAFF) as unknown as T[]);
       }
+      /**
+       * The account's presence words. EMPTY by default, so tests exercise the built-in fallback
+       * wording — and a test that wants to prove an administrator's word reaches the screen passes
+       * `presenceLabels` explicitly. ⚠️ The four seeded words are never written in this file: the
+       * contract test scans `.test.tsx` too (it only exempts `.spec.ts`).
+       */
+      if (resource === 'presence-labels')
+        return page((opts.presenceLabels ?? []) as unknown as T[]);
       throw new Error(`unexpected list: ${resource}`);
     },
     async get<T = unknown>(

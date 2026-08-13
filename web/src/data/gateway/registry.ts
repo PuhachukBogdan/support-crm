@@ -571,6 +571,25 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     verbs: { update: 'PUT' },
     ops: ['update'],
   },
+  /**
+   * ⭐ 2026-08-10 — the account's presence LABELS (`GET /presence/labels`, any signed-in session).
+   *
+   * ⚠️ It exists because the product may not spell them. `Break` · `Lunch` · `Meeting` · `VIP task`
+   * are rows an administrator edits (ADR 0042 §7), and
+   * `tests/contracts/presence-label-never-branched-on.spec.ts` fails the build when a screen turns one
+   * into a constant. So the word on screen comes from here, and `@/data/presence` only carries the
+   * four STATES plus a plain fallback wording.
+   */
+  {
+    resource: 'presence-labels',
+    path: '/presence/labels',
+    collection: 'labels',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
   {
     resource: 'my-presence',
     path: '/presence/me',

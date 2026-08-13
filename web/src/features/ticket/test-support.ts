@@ -37,6 +37,14 @@ export interface TicketStubOptions {
   /** The account's brands, for the Brand chooser. Defaults to two — a chooser needs a choice. */
   brands?: { brandId: string; name: string }[];
   /**
+   * ⭐ W30 — the custom-fields view (`conversation-field-view`). Defaults to NOTHING CONFIGURED
+   * (no forms, no entries), under which the block renders nothing at all — so every pre-W30 case
+   * keeps meaning exactly what it meant. Partial: a case states only what it is about.
+   */
+  fieldView?: Record<string, unknown>;
+  /** The field-view read fails — the block must degrade ALONE (the TagsBlock rule). */
+  failFieldViewWith?: DataError;
+  /**
    * ⭐ 2026-08-10 — the Assignee chooser's two reads (`use-assignable-operators.ts`).
    *
    * `staff` is the AUTH list (names); `resolvedOperators` is the users translation to the
@@ -227,6 +235,21 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
         if (opts.failDetailWith) throw opts.failDetailWith;
         if (id !== detail.id) throw { message: 'not found', retryable: false };
         return detail as unknown as T;
+      }
+      // ⭐ W30: the custom-fields view — resolved per caller on the real server; here, whatever the
+      // case declared, over an account with nothing configured.
+      if (resource === 'conversation-field-view') {
+        if (opts.failFieldViewWith) throw opts.failFieldViewWith;
+        return {
+          formKey: '',
+          entries: [],
+          values: [],
+          category: '',
+          subCategory: '',
+          classifiedBy: '',
+          availableForms: [],
+          ...(opts.fieldView ?? {}),
+        } as unknown as T;
       }
       throw new Error(`unexpected get: ${resource}`);
     },

@@ -85,6 +85,9 @@ import { CHANNEL_CONFIG, loadChannelConfig } from './config';
 import { StatusReadController } from './status/status.grpc.controller';
 // ⭐ W15a (subpoint 3.14): the status authoring writes — the counterpart the read's header promised.
 import { StatusAdminController } from './status/status-admin.grpc.controller';
+import { FieldsController } from './fields/fields.grpc.controller';
+import { FieldsAdminController } from './fields/fields-admin.grpc.controller';
+import { FieldsRepository } from './fields/fields.repository';
 // ⭐ W17 (subpoint 4.6): write first — one button, one channel (email).
 import { InitiateConversationController } from './conversation/initiate.grpc.controller';
 // ⭐ W20 (subpoints 6.2/6.3/6.4): the live numbers, straight from the journal.
@@ -158,6 +161,12 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // ⭐ W15 (roadmap 6.8 minimum): the channels ADMIN surface — tenant configuration, gated
     // `platform.settings.manage` at both tiers, every write audited in its own transaction.
     ChannelAdminController,
+    // ⭐ Feature 037 (roadmap 4.15 — W30): custom ticket fields. The agent surface — the per-caller
+    // resolved view + the two ticket writes (`crm.conversation.reply`, the SetPriority reasoning).
+    FieldsController,
+    // ⭐ Feature 037: the authoring surface — fields, option sets, forms; `platform.field.manage`
+    // at both tiers, every write audited in-transaction (the status-admin shape).
+    FieldsAdminController,
   ],
   providers: [
     PrismaService,
@@ -169,6 +178,9 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // Feature 032: read by the two write paths, both list filters, the macro/automation validators and
     // the two load counters. Everything that used to know four status words now asks this.
     StatusRepository,
+    // ⭐ Feature 037 (roadmap 4.15 — W30): field definitions, option sets, forms, values, the U9
+    // classification lock and the solve gate — all account-scoped, nothing branches on a field key.
+    FieldsRepository,
     MessageRepository,
     // ── ⭐ Feature 033 (roadmap 6.1/6.5) — channel intake ─────────────────────────────────────────
     //

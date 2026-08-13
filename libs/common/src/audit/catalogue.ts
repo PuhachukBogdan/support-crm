@@ -480,6 +480,46 @@ export const AUDIT_ACTIONS = {
     status: 'live',
     label: 'A ticket status was created or its definition changed',
   },
+  /**
+   * ⭐ Feature 037 (roadmap 4.15 — W30) — an admin created or changed a ticket FIELD definition.
+   *
+   * The `status.config_changed` reasoning, third instance: a field's shape decides what agents may
+   * record on a conversation and what analytics will read back, so a quiet edit re-shapes data with
+   * nothing to point at. Class `assignment` by the same honest reuse. `target_ref` is the field KEY
+   * (the per-account authoring identity). NO detail and NO values — the row holds its current
+   * state; the trail references it (the group-rename precedent). Value WRITES on conversations are
+   * deliberately not audited — parity with priority/status edits, which ride `conversation.updated`
+   * and the transition table instead.
+   */
+  'field.config_changed': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'A ticket field was created or its definition changed',
+  },
+  /**
+   * Feature 037 — an admin created, changed or deleted an option SET (the value list dropdown
+   * fields stand on). Same class, same no-copy rule; `target_ref` is the set id. Deactivating a
+   * value that conversations already hold is exactly the kind of quiet reshaping this exists for.
+   */
+  'option_set.config_changed': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'An option set was created, changed or deleted',
+  },
+  /**
+   * Feature 037 — an admin created or changed a FORM (the ordered field composition that also
+   * carries the analytics category and designates the sub-category source). A form edit can
+   * re-route classification for every future ticket filed under it — the loudest of the three.
+   * `target_ref` is the form KEY.
+   */
+  'form.config_changed': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'A ticket form was created or its composition changed',
+  },
 
   // ── retention (roadmap 7.3 + ADR 0015) ──
   'audit.trim': {

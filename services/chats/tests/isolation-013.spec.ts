@@ -233,6 +233,8 @@ const macrosCtrl = () =>
     // W29: memberships play no part in an isolation claim — the silent stub keeps it that way.
     { listUserGroups: async () => null } as never,
     { statement: () => Promise.resolve({}) } as never,
+    // W30: nor does the category vocabulary.
+    { activeFormCategories: async () => [] } as never,
   );
 const cannedCtrl = () => new CannedController(new CannedRepository(prisma));
 

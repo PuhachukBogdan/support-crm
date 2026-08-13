@@ -28,6 +28,9 @@ export interface TransitionDims {
   channel?: string;
   assignee?: string;
   submitterRole?: string;
+  /** ⭐ Feature 037 (roadmap 4.15 — W30): the form the conversation was filed under AT THE MOMENT
+   *  of the transition. The header's reservation, now written — going forward only, no backfill. */
+  form?: string;
 }
 
 /** The conversation columns a snapshot is taken from. Deliberately a structural type, not the row. */
@@ -35,6 +38,7 @@ export interface DimsSource {
   brand_id?: string | null;
   channel?: string | null;
   assignee_operator_id?: string | null;
+  form_key?: string | null;
 }
 
 const first = (md: Metadata | undefined, key: string): string | undefined => {
@@ -59,6 +63,8 @@ export function buildTransitionDims(
   const role = first(metadata, 'x-actor-effective-role');
   if (role) dims.submitterRole = role;
 
-  // group / form: intentionally not written — see the header.
+  // ⭐ W30 delivered the header's `form` reservation; `group` (roadmap 5.3) stays intentionally unwritten.
+  if (source.form_key) dims.form = source.form_key;
+
   return dims;
 }

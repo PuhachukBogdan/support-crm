@@ -12,6 +12,8 @@ import {
   type ConversationBefore,
   type TransitionActor,
 } from '../transition/conversation-transitions';
+// ⭐ W30 (US4): the U9 lock as a predicate, shared with the automations applier and the fields writes.
+import { classificationLock, classifiedByOf } from '../fields/classification-write';
 
 export interface MacroRow {
   id: string;
@@ -198,14 +200,18 @@ export class MacrosRepository {
          * contract is that it never overwrites a human's word (`classified_by !== 'ai'`).
          */
         case 'MACRO_ACTION_TYPE_SET_CATEGORY':
+          // ⭐ W30 (US4): through the ONE classification-write helper. For a macro the actor is a
+          // person (deliberate invocation — U9 counts it as human), so the lock extension is empty
+          // and the write stamps the operator id; the predicate exists so an AUTOMATED caller of
+          // the same helper cannot overwrite a human's word — structural, not a comment any more.
           return db.conversation.updateMany({
-            where: { id: conversationId },
-            data: { category: a.value, classified_by: actor.kind === 'user' ? actor.ref : 'ai' },
+            where: { id: conversationId, ...classificationLock(actor) },
+            data: { category: a.value, classified_by: classifiedByOf(actor) },
           });
         case 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY':
           return db.conversation.updateMany({
-            where: { id: conversationId },
-            data: { sub_category: a.value, classified_by: actor.kind === 'user' ? actor.ref : 'ai' },
+            where: { id: conversationId, ...classificationLock(actor) },
+            data: { sub_category: a.value, classified_by: classifiedByOf(actor) },
           });
       }
     });
@@ -224,7 +230,8 @@ export class MacrosRepository {
 /** Re-validate a stored definition; an unreadable blob yields no actions rather than a crash. */
 function safeActions(definition: unknown, statusKeys: readonly string[]): MacroAction[] {
   try {
-    return parseDefinition(definition, statusKeys);
+    // W30: category vocabulary explicitly unchecked on the APPLY path — see the validator's header.
+    return parseDefinition(definition, statusKeys, 'unchecked');
   } catch {
     return [];
   }

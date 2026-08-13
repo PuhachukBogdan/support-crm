@@ -794,3 +794,36 @@ The three W5 pieces this service owns, and the shape of each:
 - ⚠️ The list's two W5 filters (`opened_by_operator_id`, `status_categories`) are mirrored into
   `ExportFilters` — the parity guard fails anything less, because an export must not carry more rows
   than the screen showed (SEC-AP2).
+
+## Custom ticket fields, forms & option sets (feature 037 — W30, roadmap 4.15)
+
+- **Two levels, one of them code:** the field TYPE vocabulary lives in
+  `libs/common/src/fields/field-types.ts` (four closed values); field definitions, option sets,
+  forms and per-conversation values are **account rows** in `chats_db` (`FieldDefinition` /
+  `OptionSet` / `OptionValue` / `Form` / `FormField` / `ConversationFieldValue`, plus
+  `Conversation.form_key` — the `status` composite-FK shape). Nothing branches on a field or form
+  key — `tests/fields/no-field-key-branch.spec.ts` scans chats, the gateway AND web for it.
+- **Surface** (`src/fields/`): `GetFieldConfiguration` (authoring projection) +
+  `GetConversationFieldView` (per-conversation, per-CALLER — restricted fields are withheld,
+  definition and value both) on the read service; `UpsertFieldDefinition` / `UpsertOptionSet` /
+  `DeleteOptionSet` (only while unreferenced) / `UpsertForm` / `SetConversationForm` /
+  `SetConversationFieldValue` on the write service. Contracts in `libs/proto/crm/chats/v1/chats.proto`.
+- **Keys:** authoring rides the new `platform.field.manage`; the two ticket writes reuse
+  `crm.conversation.reply` (the SetPriority reasoning); seeing `restricted` fields needs the new
+  `crm.conversation.restricted_field.view` — a non-holder gets the SAME refusal an unknown key
+  gets (no existence oracle). ⚠️ New keys ⇒ role templates are not retroactive: a live stand needs
+  the auth re-seed.
+- **Classification contract (D2/D6, spec 037):** a human's form choice writes `category`; the
+  form's designated sub-category source writes `sub_category` — the reserved ADR-0027 columns are
+  the ONLY store. The U9 lock is a **predicate** (`src/fields/classification-write.ts`): automated
+  writers (automation rules today, the 15.2 classifier later) match only rows no human has locked;
+  macros count as human. The automations applier now serves SET_CATEGORY/SET_SUB_CATEGORY (the
+  W29-class latent defect, fixed and pinned).
+- **The solve gate (FR-011):** a transition into a terminal category is refused — naming the keys —
+  while a required, visible-to-the-actor field of the conversation's form is empty. Required gates
+  solve, never editing.
+- **Gotchas:** an option value in use deactivates, never deletes; fields and forms archive
+  (`active:false`), never delete; a form save replaces its entries atomically (≤ 1 sub-category
+  source — a partial unique index in the migration, not Prisma); `ConversationTransition.dims_json`
+  now carries the `form` dimension. Runbook: suites via the workspace jest; live via
+  `deploy/local/w30-browser-check.mjs` (see its header for the re-seed prerequisite).

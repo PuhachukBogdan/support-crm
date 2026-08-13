@@ -40,6 +40,10 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'permission.grant',
     'permission.revoke',
     'permission.reset',
+    // Feature 037 (W30): the field/form/option-set authoring surface writes these three.
+    'field.config_changed',
+    'option_set.config_changed',
+    'form.config_changed',
     'automation.delete',
     'contact.reveal',
     'audit.read',

@@ -103,6 +103,8 @@ const build = (prisma: PrismaService) =>
     fakeRealtime().publisher,
     noInboxUnseen(),
     noOperatorIdentity(),
+    // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+    { missingRequiredForSolve: async () => [] } as never,
   );
 
 function md(permissions: string[], accountId = 'acc-1'): Metadata {

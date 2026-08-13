@@ -183,6 +183,8 @@ describe('Conversation writes (US1)', () => {
       fakeRealtime().publisher,
       noInboxUnseen(),
       noOperatorIdentity(),
+      // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+      { missingRequiredForSolve: async () => [] } as never,
     );
 
     await expect(ctrl.createConversation({ brandId: '' }, md('acc-1'))).rejects.toBeInstanceOf(
@@ -205,6 +207,8 @@ describe('Conversation writes (US1)', () => {
       fakeRealtime().publisher,
       noInboxUnseen(),
       noOperatorIdentity(),
+      // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+      { missingRequiredForSolve: async () => [] } as never,
     );
     await expect(
       ctrl.setConversationStatus({ conversationId: 'c1', statusKey: 'closed' }, md()),
@@ -237,6 +241,8 @@ describe('Conversation writes (US1)', () => {
       fakeRealtime().publisher,
       noInboxUnseen(),
       noOperatorIdentity(),
+      // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+      { missingRequiredForSolve: async () => [] } as never,
     );
     const res = await ctrl.setConversationStatus(
       { conversationId: 'c1', statusKey: 'solved' },

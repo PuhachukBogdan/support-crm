@@ -21,6 +21,9 @@ import { ChannelsController } from '../channels/channels.controller';
 import { ChannelsAdminController } from '../channels/channels-admin.controller';
 // ⭐ W15a (subpoint 3.14): the status authoring writes — the read stays on /conversations/statuses.
 import { StatusesAdminController } from './statuses-admin.controller';
+// ⭐ Feature 037 (roadmap 4.15 — W30): the fields/forms edge — authoring at /admin/field-config,
+// the per-conversation view and the two ticket writes at /conversations/:id/….
+import { FieldConfigController } from './field-config.controller';
 // ⭐ W20 (roadmap 11.1 minimum): the analytics snapshot — aggregates only.
 import { AnalyticsController } from './analytics.controller';
 
@@ -36,6 +39,7 @@ import { AnalyticsController } from './analytics.controller';
     ChannelsController,
     ChannelsAdminController,
     StatusesAdminController,
+    FieldConfigController,
     AnalyticsController,
     ConversationsController,
     MessagesController,

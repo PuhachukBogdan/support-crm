@@ -15,14 +15,16 @@ import { presenceLabel } from '@/data/presence';
 import { EditableChoice, EditableText, ReadOnlyValue } from './editable';
 import { useAssignableOperators } from './use-assignable-operators';
 import { IdentityPanel } from './identity-panel';
+import { CustomFieldsBlock } from './custom-fields-block';
 import type { AsyncState } from '@/data/types';
 import type { TicketState } from '@/store/ticket/ticket.slice';
 import type { ConversationDetail, LabelWire } from './types';
 
 /**
  * The left properties column (W7 — frame `032-ticket-fields-left-column`, MVP subset per the
- * operator's caption and INDEX §2: brand · requester · assignee · status · Player ID; the cascading
- * Form/L1/L2/L3/PSP taxonomy is post-MVP 4.15 and gets no placeholder rows).
+ * operator's caption and INDEX §2: brand · requester · assignee · status · Player ID.
+ * ⭐ W30 delivered the reserved half: the cascading Form/L1→L2→L3 taxonomy and the account's custom
+ * fields render below Priority as `CustomFieldsBlock` — self-owned data, per-caller resolved).
  *
  * ⭐ **2026-08-10 — the column became editable** (operator: *«все остальные поля… тянутся сами, но мы
  * их должны иметь возможность редактировать в случае чего»*). Every property that HAS a write is one
@@ -240,6 +242,9 @@ export function FieldsColumn({
               clearLabel="None"
             />
           </Labelled>
+          {/* ⭐ W30 (4.15): the form + its fields — the frame-032 order puts the taxonomy right
+              after the workflow properties. Its own read, its own writes, degrades alone. */}
+          <CustomFieldsBlock conversationId={detail.data.id} />
           <Labelled label="Channel">
             <ReadOnlyValue
               value={detail.data.channel}

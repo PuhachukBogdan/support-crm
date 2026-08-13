@@ -93,6 +93,8 @@ const controller = (prisma: PrismaService) =>
     fakeRealtime().publisher,
     noInboxUnseen(),
     noOperatorIdentity(),
+    // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+    { missingRequiredForSolve: async () => [] } as never,
   );
 
 describe('SetConversationPriority — the word and its rank', () => {
@@ -162,6 +164,7 @@ describe('SetConversationPriority — the word and its rank', () => {
       realtime.publisher,
       noInboxUnseen(),
       noOperatorIdentity(),
+      { missingRequiredForSolve: async () => [] } as never,
     );
     await ctrl.setConversationPriority({ conversationId: 'c-1', priority: 'high' }, md());
     expect(realtime.published).toContainEqual(

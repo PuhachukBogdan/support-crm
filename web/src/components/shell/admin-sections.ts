@@ -65,6 +65,15 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     href: '/admin/statuses',
   },
   {
+    key: 'fields',
+    label: 'Ticket fields',
+    summary:
+      'Custom fields, the option sets their drop-downs read, and the forms that order them on a ticket.',
+    point: '4.15',
+    // ⭐ W30 (спек №1): the sixth section that stopped being a promise — the taxonomy is rows, not code.
+    href: '/admin/fields',
+  },
+  {
     key: 'macros',
     // ⭐ W29 (R46): ONE screen, three tabs — the operator's own composition («Автоматизации,
     // макросы и триггеры — всё это в одном окне»). The former separate `automations` card folded

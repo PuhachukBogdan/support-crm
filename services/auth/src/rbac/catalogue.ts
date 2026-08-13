@@ -95,6 +95,22 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // role's; `admin`/`super_admin` receive both through the computed ALL_KEYS (the 011 R-2 corollary).
   { category: 'crm', key: 'crm.conversation.shelf.view', label: 'View suspended & deleted buckets' },
   { category: 'crm', key: 'crm.conversation.shelf.manage', label: 'Suspend, delete & restore conversations' },
+  /**
+   * ⭐ Feature 037 (roadmap 4.15 — W30). Seeing ticket fields an admin flagged RESTRICTED
+   * (payment-shaped data: PSP, amounts, transaction references — the SEC-AP1 class on tickets).
+   *
+   * ⚠️ NOT a reuse of `crm.conversation.reply`: that key covers everyday work on a ticket; this one
+   * decides which FIELDS of it exist for you at all. The server withholds definition AND value from
+   * non-holders — absent, never blanked — and a write by key from a non-holder receives the same
+   * refusal an unknown key gets, so the key's absence is not an oracle either (the shelf.view
+   * no-oracle rule, one entry up).
+   *
+   * ⚠️ WHICH fields are restricted is per-account DATA (the admin flags them); at seed time NO field
+   * is restricted — Q15's answer stands: «по умолчанию ничего не ограничено». The key is the
+   * mechanism, not a policy. In `teamlead`'s defaults (supervision reads what its agents cannot) and
+   * in NO agent role's; `admin`/`super_admin` receive it through the computed ALL_KEYS.
+   */
+  { category: 'crm', key: 'crm.conversation.restricted_field.view', label: 'View restricted ticket fields' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -149,6 +165,16 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // inherit today's grant. Listed in NO operational role template: `admin`/`super_admin` receive it
   // through the computed ALL_KEYS, every agent role does not (the R-2 corollary).
   { category: 'platform', key: 'platform.group.manage', label: 'Manage groups & their members' },
+  /**
+   * ⭐ Feature 037 (roadmap 4.15 — W30). Authoring ticket FIELDS, OPTION SETS and FORMS — one
+   * configuration scope, one key (017's rule; the three surfaces are one act: shaping what agents
+   * record). Deliberately NOT a reuse of `platform.settings.manage` (a grab-bag grant would hand
+   * this to whoever holds settings today) and NOT of `crm.templates.manage` (macro authoring is a
+   * lead-level task; reshaping the data model of every ticket is not). Every write is audited
+   * (`field/option_set/form.config_changed`). Listed in NO operational role template:
+   * `admin`/`super_admin` receive it through the computed ALL_KEYS (the 011 R-2 corollary).
+   */
+  { category: 'platform', key: 'platform.field.manage', label: 'Manage ticket fields, forms & option sets' },
   // "view-as-role" preview (US5). Super-admin default only; the owner ("God") revokes it from any
   // other super-admin via the override mechanism to become the sole holder (design decision — 0034).
   { category: 'platform', key: 'platform.view_as', label: 'Preview the app as any role (read-only)' },
@@ -241,6 +267,9 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     // W27 (9.16): the shelf is a supervision surface — the same class of act as correcting a brand.
     'crm.conversation.shelf.view',
     'crm.conversation.shelf.manage',
+    // W30 (4.15): supervision reads the restricted fields its agents cannot. Which fields those
+    // are is per-account data; none is restricted at seed time (Q15: nothing limited by default).
+    'crm.conversation.restricted_field.view',
   ],
   // admin gets everything EXCEPT the two super-admin exclusives: role management (FR-018) and
   // the view-as preview (US5 — God/super-admin only).

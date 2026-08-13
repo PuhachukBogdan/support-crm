@@ -38,6 +38,11 @@ export * from './statuses';
 // logic may branch on; a CHANNEL is a per-account row with a key, an address and a brand.
 // `canSend` is an enforcement point called by the server, not a hint for the interface.
 export * from './channels';
+// Feature 037 (roadmap 4.15, W30): the closed ticket-field TYPE catalogue — types are code; field
+// definitions, option sets, forms and their values are per-account rows in chats_db. ⚠️ These are
+// TICKET fields on `Conversation`, never `Player.custom_attributes` (the customer's tiered
+// portfolio data) — "the roadmap-4.15 failure shape" was exactly that confusion.
+export * from './fields';
 // Feature 034 (roadmap 7.1, subpoint 2.2a — MVP block W4): the realtime event vocabulary and the ONE
 // account-channel builder. ⚠️ The payload is four identifiers and carries no content, deliberately: a
 // socket is a second read path, and the only way it cannot bypass the REST read rules is by not being

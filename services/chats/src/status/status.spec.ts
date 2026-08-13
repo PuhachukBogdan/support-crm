@@ -434,6 +434,8 @@ describe('SetConversationStatus — nine settable words instead of four', () => 
       fakeRealtime().publisher,
       noInboxUnseen(),
       noOperatorIdentity(),
+      // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+      { missingRequiredForSolve: async () => [] } as never,
     );
 
   it('⭐ accepts a status the flat enum could not express', async () => {

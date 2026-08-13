@@ -72,8 +72,20 @@ const isActionType = (t: unknown): t is MacroActionType =>
 /**
  * Validate + normalise a list of actions (used by DefineMacro on the inbound request).
  * Throws {@link MacroDefinitionError} on anything unrecognised — never drops or coerces an action.
+ *
+ * ── ⭐ W30: `categoryVocabulary` is REQUIRED, and `'unchecked'` is an explicit word ───────────────
+ * A SET_CATEGORY value used to pass as any non-empty text — which is how the seed already holds
+ * `Billing` beside `billing`. Forms now carry the account's category vocabulary, so DEFINE
+ * validates against it (spec FR-017). The APPLY path passes the literal `'unchecked'` instead of a
+ * list, deliberately: a macro stored before the vocabulary existed must keep applying (its writes
+ * still respect the U9 lock), and an optional parameter would let a call site validate nothing by
+ * accident — the module's own `statusKeys` rule, applied a second time.
  */
-export function parseActions(input: unknown, statusKeys: readonly string[]): MacroAction[] {
+export function parseActions(
+  input: unknown,
+  statusKeys: readonly string[],
+  categoryVocabulary: readonly string[] | 'unchecked',
+): MacroAction[] {
   if (!Array.isArray(input) || input.length === 0) {
     throw new MacroDefinitionError('a macro needs at least one action');
   }
@@ -94,6 +106,15 @@ export function parseActions(input: unknown, statusKeys: readonly string[]): Mac
     if (a.type === 'MACRO_ACTION_TYPE_SET_PRIORITY' && !isValidPriority(value)) {
       throw new MacroDefinitionError('SET_PRIORITY value is not a valid priority');
     }
+    // ⭐ W30 (FR-017): a category the account's forms do not carry is refused at define time —
+    // sub-category stays free text this block (D12: tightening it needs the operator's real sets).
+    if (
+      a.type === 'MACRO_ACTION_TYPE_SET_CATEGORY' &&
+      categoryVocabulary !== 'unchecked' &&
+      !categoryVocabulary.includes(value)
+    ) {
+      throw new MacroDefinitionError('SET_CATEGORY value is not a category any form carries');
+    }
     return { type: a.type, value };
   });
 }
@@ -102,9 +123,10 @@ export function parseActions(input: unknown, statusKeys: readonly string[]): Mac
 export function parseDefinition(
   definition: unknown,
   statusKeys: readonly string[],
+  categoryVocabulary: readonly string[] | 'unchecked',
 ): MacroAction[] {
   const d = (definition ?? {}) as { actions?: unknown };
-  return parseActions(d.actions, statusKeys);
+  return parseActions(d.actions, statusKeys, categoryVocabulary);
 }
 
 /** ⭐ W29 — the macro's reply TEXT and its availability, both OPTIONAL and both riding the same

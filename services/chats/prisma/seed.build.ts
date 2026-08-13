@@ -226,6 +226,94 @@ export function buildSeed() {
       { id: 'seed-label-zd-000000000000007', account_id: SEED_ACCOUNT_ID, name: 'payments' },
       { id: 'seed-label-zd-000000000000008', account_id: SEED_ACCOUNT_ID, name: 'kyc' },
     ],
+    /**
+     * ⭐ Feature 037 (roadmap 4.15 — W30): custom ticket fields, EXAMPLES not migration (D14).
+     *
+     * The capture's 12 form names, the frame-032 Deposits cascade with its observed values
+     * (Deposit status → Declined → Timeout, PSP Betterbro, Country Argentina), and the four shared
+     * dropdowns. ⚠️ The full option-value sets are ABSENT from the capture and come from the
+     * operator — the /admin/fields screen this block builds is where they land; these rows exist so
+     * the mechanism is provable live and the screen opens recognisable. NO field is `restricted`
+     * (Q15: nothing limited by default) and no conversation carries a form — agents choose one.
+     */
+    optionSets: [
+      { id: 'seed-oset-deposits-topics', account_id: SEED_ACCOUNT_ID, name: 'Deposits topics' },
+      { id: 'seed-oset-deposit-status', account_id: SEED_ACCOUNT_ID, name: 'Deposit status' },
+      { id: 'seed-oset-deposit-declined', account_id: SEED_ACCOUNT_ID, name: 'Deposit declined reasons' },
+      { id: 'seed-oset-countries', account_id: SEED_ACCOUNT_ID, name: 'Countries' },
+      { id: 'seed-oset-psp', account_id: SEED_ACCOUNT_ID, name: 'PSP' },
+      { id: 'seed-oset-contact-type', account_id: SEED_ACCOUNT_ID, name: 'Type of contact' },
+      { id: 'seed-oset-user-level', account_id: SEED_ACCOUNT_ID, name: 'User level' },
+    ],
+    optionValues: [
+      // Frame 032's observed value first in each set — the live check drives exactly this path.
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-dt-1', option_set_id: 'seed-oset-deposits-topics', value: 'Deposit status', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-dt-2', option_set_id: 'seed-oset-deposits-topics', value: 'Deposit not reflected', order: 10, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-dt-3', option_set_id: 'seed-oset-deposits-topics', value: 'Deposit delay', order: 20, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ds-1', option_set_id: 'seed-oset-deposit-status', value: 'Declined', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ds-2', option_set_id: 'seed-oset-deposit-status', value: 'Pending', order: 10, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ds-3', option_set_id: 'seed-oset-deposit-status', value: 'Approved', order: 20, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-dd-1', option_set_id: 'seed-oset-deposit-declined', value: 'Timeout', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-dd-2', option_set_id: 'seed-oset-deposit-declined', value: 'Insufficient funds', order: 10, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-dd-3', option_set_id: 'seed-oset-deposit-declined', value: 'Provider error', order: 20, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-co-1', option_set_id: 'seed-oset-countries', value: 'Argentina', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-co-2', option_set_id: 'seed-oset-countries', value: 'Brazil', order: 10, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-co-3', option_set_id: 'seed-oset-countries', value: 'Chile', order: 20, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ps-1', option_set_id: 'seed-oset-psp', value: 'Betterbro (Src H2H)', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ps-2', option_set_id: 'seed-oset-psp', value: 'PayCord', order: 10, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ps-3', option_set_id: 'seed-oset-psp', value: 'Directa24', order: 20, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ct-1', option_set_id: 'seed-oset-contact-type', value: 'Regular', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ct-2', option_set_id: 'seed-oset-contact-type', value: 'VIP', order: 10, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ul-1', option_set_id: 'seed-oset-user-level', value: 'Regular', order: 0, active: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-oval-ul-2', option_set_id: 'seed-oset-user-level', value: 'VIP', order: 10, active: true },
+    ],
+    fieldDefinitions: [
+      // The Deposits cascade (frame 032). Labels are the capture's own; keys are theirs normalised.
+      { id: 'seed-field-l1-deposits', account_id: SEED_ACCOUNT_ID, key: 'l1_deposits', label: 'Form L1 - Deposits', type: 'dropdown', required: true, restricted: false, option_set_id: 'seed-oset-deposits-topics' as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-l2-deposit-status', account_id: SEED_ACCOUNT_ID, key: 'l2_deposit_status', label: 'Form L2 - Deposit status', type: 'dropdown', required: true, restricted: false, option_set_id: 'seed-oset-deposit-status' as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-l3-deposit-declined', account_id: SEED_ACCOUNT_ID, key: 'l3_deposit_declined', label: 'Level 3 - Deposit/Declined', type: 'dropdown', required: false, restricted: false, option_set_id: 'seed-oset-deposit-declined' as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-country', account_id: SEED_ACCOUNT_ID, key: 'country', label: 'Country', type: 'dropdown', required: true, restricted: false, option_set_id: 'seed-oset-countries' as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-psp', account_id: SEED_ACCOUNT_ID, key: 'psp', label: 'PSP', type: 'dropdown', required: false, restricted: false, option_set_id: 'seed-oset-psp' as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-type-of-contact', account_id: SEED_ACCOUNT_ID, key: 'type_of_contact', label: 'Type of contact', type: 'dropdown', required: false, restricted: false, option_set_id: 'seed-oset-contact-type' as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-user-level', account_id: SEED_ACCOUNT_ID, key: 'user_level', label: 'User Level', type: 'dropdown', required: false, restricted: false, option_set_id: 'seed-oset-user-level' as string | null, brand_ids: [] as string[], active: true },
+      // One of each remaining TYPE, so every widget and validator is reachable from the seed alone.
+      { id: 'seed-field-deposit-amount', account_id: SEED_ACCOUNT_ID, key: 'deposit_amount', label: 'Deposit Amount', type: 'numeric', required: false, restricted: false, option_set_id: null as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-transaction-id', account_id: SEED_ACCOUNT_ID, key: 'transaction_id', label: 'Transaction ID', type: 'text', required: false, restricted: false, option_set_id: null as string | null, brand_ids: [] as string[], active: true },
+      { id: 'seed-field-comments', account_id: SEED_ACCOUNT_ID, key: 'comments', label: 'Comments', type: 'multiline', required: false, restricted: false, option_set_id: null as string | null, brand_ids: [] as string[], active: true },
+    ],
+    /**
+     * The capture's 12 forms (§17: drag-to-reorder, agent-only). Topic forms carry their topic as
+     * the CATEGORY (D2 — the form files the ticket; analytics reads the reserved column); Default
+     * and Ghost Contact are neutral. Only Deposits carries entries — the worked example.
+     */
+    forms: [
+      { id: 'seed-form-default', account_id: SEED_ACCOUNT_ID, key: 'default', name: 'Default', category: null as string | null, active: true, order: 0 },
+      { id: 'seed-form-ghost-contact', account_id: SEED_ACCOUNT_ID, key: 'ghost_contact', name: 'Ghost Contact', category: null as string | null, active: true, order: 10 },
+      { id: 'seed-form-general', account_id: SEED_ACCOUNT_ID, key: 'general', name: 'General', category: 'General' as string | null, active: true, order: 20 },
+      { id: 'seed-form-account', account_id: SEED_ACCOUNT_ID, key: 'account', name: 'Account', category: 'Account' as string | null, active: true, order: 30 },
+      { id: 'seed-form-issues', account_id: SEED_ACCOUNT_ID, key: 'issues', name: 'Issues', category: 'Issues' as string | null, active: true, order: 40 },
+      { id: 'seed-form-verification', account_id: SEED_ACCOUNT_ID, key: 'verification', name: 'Verification', category: 'Verification' as string | null, active: true, order: 50 },
+      { id: 'seed-form-product', account_id: SEED_ACCOUNT_ID, key: 'product', name: 'Product', category: 'Product' as string | null, active: true, order: 60 },
+      { id: 'seed-form-promotions', account_id: SEED_ACCOUNT_ID, key: 'promotions_and_bonus', name: 'Promotions and bonus', category: 'Promotions and bonus' as string | null, active: true, order: 70 },
+      { id: 'seed-form-withdrawal', account_id: SEED_ACCOUNT_ID, key: 'withdrawal', name: 'Withdrawal', category: 'Withdrawal' as string | null, active: true, order: 80 },
+      { id: 'seed-form-deposits', account_id: SEED_ACCOUNT_ID, key: 'deposits', name: 'Deposits', category: 'Deposits' as string | null, active: true, order: 90 },
+      { id: 'seed-form-sportsbooks', account_id: SEED_ACCOUNT_ID, key: 'sportsbooks', name: 'Sportsbooks', category: 'Sportsbooks' as string | null, active: true, order: 100 },
+      { id: 'seed-form-vip-topics', account_id: SEED_ACCOUNT_ID, key: 'vip_topics', name: 'VIP Topics', category: 'VIP Topics' as string | null, active: true, order: 110 },
+    ],
+    formFields: [
+      // The frame-032 column, top to bottom. L1 is the SUB-CATEGORY SOURCE (its value writes the
+      // reserved column); L2 appears under L1 = 'Deposit status'; L3 under L2 = 'Declined'.
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-l1', form_id: 'seed-form-deposits', field_id: 'seed-field-l1-deposits', order: 0, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: true },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-l2', form_id: 'seed-form-deposits', field_id: 'seed-field-l2-deposit-status', order: 10, condition_field_id: 'seed-field-l1-deposits' as string | null, condition_value: 'Deposit status' as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-l3', form_id: 'seed-form-deposits', field_id: 'seed-field-l3-deposit-declined', order: 20, condition_field_id: 'seed-field-l2-deposit-status' as string | null, condition_value: 'Declined' as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-country', form_id: 'seed-form-deposits', field_id: 'seed-field-country', order: 30, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-psp', form_id: 'seed-form-deposits', field_id: 'seed-field-psp', order: 40, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-contact', form_id: 'seed-form-deposits', field_id: 'seed-field-type-of-contact', order: 50, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-level', form_id: 'seed-form-deposits', field_id: 'seed-field-user-level', order: 60, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-amount', form_id: 'seed-form-deposits', field_id: 'seed-field-deposit-amount', order: 70, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-txn', form_id: 'seed-form-deposits', field_id: 'seed-field-transaction-id', order: 80, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+      { account_id: SEED_ACCOUNT_ID, id: 'seed-ff-dep-comments', form_id: 'seed-form-deposits', field_id: 'seed-field-comments', order: 90, condition_field_id: null as string | null, condition_value: null as string | null, is_subcategory_source: false },
+    ],
     conversations: [
       {
         id: SEED_CONVERSATION_OPEN_ID,

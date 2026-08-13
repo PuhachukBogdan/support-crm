@@ -66,6 +66,56 @@ async function run(): Promise<void> {
       });
     for (const label of seed.labels)
       await db.label.upsert({ where: { id: label.id }, create: label, update: label });
+    /**
+     * ⭐ Feature 037 (roadmap 4.15 — W30) — sets → values → fields → forms → entries, in FK order.
+     *
+     * ⚠️ Field/form `update` deliberately carries the LABELS and structure but NOT `active`, and
+     * option-value `update` NOT `active` either: archiving a field and deactivating a value are the
+     * operator's decisions on the /admin/fields screen, and a re-seed must not switch them back on
+     * (the statuses rule, third instance). Entries ARE reset wholesale — they are the fixture's
+     * structure, and the screen edits them atomically anyway.
+     */
+    for (const set of seed.optionSets)
+      await db.optionSet.upsert({
+        where: { id: set.id },
+        create: set,
+        update: { name: set.name },
+      });
+    for (const val of seed.optionValues)
+      await db.optionValue.upsert({
+        where: { id: val.id },
+        create: val,
+        update: { value: val.value, order: val.order },
+      });
+    for (const field of seed.fieldDefinitions)
+      await db.fieldDefinition.upsert({
+        where: { account_id_key: { account_id: field.account_id, key: field.key } },
+        create: field,
+        update: {
+          label: field.label,
+          required: field.required,
+          restricted: field.restricted,
+          option_set_id: field.option_set_id,
+          brand_ids: field.brand_ids,
+        },
+      });
+    for (const form of seed.forms)
+      await db.form.upsert({
+        where: { account_id_key: { account_id: form.account_id, key: form.key } },
+        create: form,
+        update: { name: form.name, category: form.category, order: form.order },
+      });
+    for (const entry of seed.formFields)
+      await db.formField.upsert({
+        where: { form_id_field_id: { form_id: entry.form_id, field_id: entry.field_id } },
+        create: entry,
+        update: {
+          order: entry.order,
+          condition_field_id: entry.condition_field_id,
+          condition_value: entry.condition_value,
+          is_subcategory_source: entry.is_subcategory_source,
+        },
+      });
     for (const conv of seed.conversations) {
       /**
        * ⚠️ **The contact stamps are written on CREATE only, never on UPDATE — found by Track B.**

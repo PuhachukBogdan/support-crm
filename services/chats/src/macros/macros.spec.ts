@@ -7,6 +7,7 @@ import { MacrosRepository } from './macros.repository';
 import { MacrosController } from './macros.grpc.controller';
 import {
   MACRO_ACTION_TYPES,
+  MacroDefinitionError,
   parseActions as parseActionsWith,
   requiredPermissions,
 } from './macro-definition';
@@ -19,7 +20,9 @@ import { StatusRepository } from '../status/status.repository';
  * pattern and for why `closed` is deliberately not in it.
  */
 const KEYS = ['new', 'open', 'pending', 'vip_pending', 'in_progress', 'solved'] as const;
-const parseActions = (input: unknown) => parseActionsWith(input, KEYS);
+// W30: the category vocabulary is a separate axis — these cases test the pre-existing rules, so
+// they state `'unchecked'` explicitly; the define-time vocabulary check has its own cases below.
+const parseActions = (input: unknown) => parseActionsWith(input, KEYS, 'unchecked');
 
 /**
  * T021 (feature 013, US2) — macros. The load-bearing assertion is **all-or-nothing** (FR-008 /
@@ -158,6 +161,9 @@ const build = (prisma: PrismaService, audit = fakeAudit().repo, authority = noAu
     new StatusRepository(prisma),
     authority,
     audit,
+    // W30 (FR-017): no forms in these fixtures — an empty vocabulary refuses every SET_CATEGORY at
+    // define; cases that need one stub it per-test.
+    { activeFormCategories: async () => [] } as never,
   );
 
 const ALL_PERMS = [
@@ -544,5 +550,75 @@ describe('W29 — define carries text + scope; delete is audited with the NAME',
     await expect(
       build(prisma).deleteMacro({ macroId: 'm-foreign' }, md(ALL_PERMS)),
     ).rejects.toMatchObject({ error: { code: GrpcStatus.NOT_FOUND } });
+  });
+});
+
+/**
+ * ⭐ W30 (feature 037, FR-017) — `parseActions` gained its third REQUIRED parameter: the category
+ * vocabulary the account's active forms carry. DEFINE validates against it; the APPLY path says
+ * the literal `'unchecked'` so a macro stored before the vocabulary existed keeps applying (its
+ * writes still respect the U9 lock).
+ */
+describe('W30 — SET_CATEGORY validates against the form-category vocabulary at define', () => {
+  const VOCAB = ['Deposits', 'General'] as const;
+
+  it('⭐ a category no form carries is refused; one in the vocabulary passes', () => {
+    expect(() =>
+      parseActionsWith([{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'Ghost' }], KEYS, VOCAB),
+    ).toThrow(MacroDefinitionError);
+    expect(
+      parseActionsWith([{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'Deposits' }], KEYS, VOCAB),
+    ).toEqual([{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'Deposits' }]);
+  });
+
+  it('sub-category stays free text this block (D12) — the vocabulary does not touch it', () => {
+    expect(
+      parseActionsWith([{ type: 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY', value: 'Anything' }], KEYS, VOCAB),
+    ).toEqual([{ type: 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY', value: 'Anything' }]);
+  });
+
+  it("'unchecked' (the APPLY path) lets any non-empty category through — a stored macro keeps applying", () => {
+    expect(
+      parseActionsWith(
+        [{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'Predates The Vocabulary' }],
+        KEYS,
+        'unchecked',
+      ),
+    ).toEqual([{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'Predates The Vocabulary' }]);
+    // Empty is still empty — 'unchecked' relaxes membership, never the non-empty rule.
+    expect(() =>
+      parseActionsWith([{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: '  ' }], KEYS, 'unchecked'),
+    ).toThrow(MacroDefinitionError);
+  });
+
+  it('⭐ DefineMacro consults the FORMS side for the vocabulary — the wiring, not only the pure rule', async () => {
+    const buildWithVocab = (prisma: PrismaService, cats: string[]) =>
+      new MacrosController(
+        new MacrosRepository(prisma, new TransitionRecorder(), new StatusRepository(prisma)),
+        new LabelsRepository(prisma),
+        new ConversationRepository(prisma, new TransitionRecorder()),
+        new StatusRepository(prisma),
+        noAuthority,
+        fakeAudit().repo,
+        { activeFormCategories: async () => cats } as never,
+      );
+    const request = {
+      name: 'classify',
+      actions: [{ type: 'MACRO_ACTION_TYPE_SET_CATEGORY', value: 'Deposits' }],
+    };
+
+    // No active form carries 'Deposits' → refused at define, nothing stored.
+    const empty = fakePrisma();
+    await expect(
+      buildWithVocab(empty.prisma, []).defineMacro(request, md(ALL_PERMS)),
+    ).rejects.toMatchObject({ error: { code: GrpcStatus.INVALID_ARGUMENT } });
+    expect(empty.macro.create).not.toHaveBeenCalled();
+
+    // The same request passes once a form carries the category.
+    const carrying = fakePrisma();
+    await expect(
+      buildWithVocab(carrying.prisma, ['Deposits']).defineMacro(request, md(ALL_PERMS)),
+    ).resolves.toMatchObject({ id: 'm9' });
+    expect(carrying.macro.create).toHaveBeenCalledTimes(1);
   });
 });

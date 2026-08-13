@@ -77,4 +77,17 @@ export const SCOPED_MODELS = [
   // ⭐ W29 (R46): one row per macro application — the weekly usage counter's raw fact. Scoped like
   // everything else; written inside the apply batch, so a failed macro counts nothing.
   'MacroApplication',
+  // ── ⭐ Feature 037 (roadmap 4.15 — W30): the six custom-field tables ────────────────────────────
+  //
+  // All six scoped, no method-level exception anywhere: every read and write happens for a caller
+  // in that caller's account. The two children (OptionValue, FormField) carry account_id THEMSELVES
+  // (the MessageAttachment reasoning): a value list must be unreachable across the boundary on its
+  // own terms, not only through its parent — and this list's coverage guard is what caught their
+  // first draft relying on the parent hop.
+  'FieldDefinition',
+  'OptionSet',
+  'OptionValue',
+  'Form',
+  'FormField',
+  'ConversationFieldValue',
 ] as const;

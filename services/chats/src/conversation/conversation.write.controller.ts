@@ -4,8 +4,9 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext } from '../security/actor-context';
+import { readActorContext, readActorPermissions } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
+import { isTerminalCategory } from '@crm/common';
 import { isValidPriority, toDetailWire } from '../shared/wire';
 import { assertNotShelved, isShelfState, shelfTransition, type ShelfState } from './shelf';
 import { MAX_SUBJECT_LENGTH } from '../subject/subject.derive';
@@ -17,6 +18,9 @@ import { AuditRepository } from '../audit/audit.repository';
 import { InboxUnseenRepository } from './inbox-unseen.repository';
 import { OperatorIdentityClient } from '../shared/operator-identity.client';
 import { ConversationRepository } from './conversation.repository';
+// ⭐ Feature 037 (W30): the solve gate — required fields of the conversation's form block a
+// terminal-category transition (FR-011).
+import { FieldsRepository } from '../fields/fields.repository';
 
 interface CreateConversationRequestWire {
   brandId: string;
@@ -77,6 +81,8 @@ export class ConversationWriteController {
     // ── ⭐ W25 (R23/9.12): the unread badge's reset act ────────────────────────────────────────────
     @Inject(InboxUnseenRepository) private readonly inboxUnseen: InboxUnseenRepository,
     @Inject(OperatorIdentityClient) private readonly operatorIdentity: OperatorIdentityClient,
+    // ⭐ Feature 037 (W30): consulted by the status write only — the solve gate (FR-011).
+    @Inject(FieldsRepository) private readonly fields: FieldsRepository,
   ) {}
 
   /**
@@ -144,6 +150,32 @@ export class ConversationWriteController {
     }
     // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
     assertNotShelved(existing);
+    /**
+     * ⭐ Feature 037 (roadmap 4.15 — W30, FR-011): the solve gate. Finishing a ticket whose form
+     * still has empty REQUIRED fields is refused, and the refusal names the field keys — the
+     * Zendesk semantic behind the capture's asterisks: required-to-SOLVE, never required-to-save.
+     *
+     * ⚠️ Gated on the category PROPERTY (`terminal`), not on a category name — `solved` is also a
+     * seeded status key and `no-status-key-branch.spec.ts` would rightly refuse the literal. Only
+     * fields THIS caller can currently see gate (condition holds, brand applies, not withheld):
+     * an invisible requirement would be an unfixable refusal.
+     *
+     * ⚠️ The message interpolates field KEYS — admin-authored configuration identifiers, the same
+     * class as a status key — never a stored value (the no-PII message rule is about values).
+     */
+    if (isTerminalCategory(target.category)) {
+      const missing = await this.fields.missingRequiredForSolve(
+        ctx.accountId,
+        req.conversationId,
+        readActorPermissions(metadata).includes('crm.conversation.restricted_field.view'),
+      );
+      if (missing.length) {
+        throw new RpcException({
+          code: GrpcStatus.FAILED_PRECONDITION,
+          message: `required fields are empty: ${missing.join(', ')}`,
+        });
+      }
+    }
     const newStatus = target.key;
     // Feature 023: the human who did it, and one correlation id for this act. Note the deliberate
     // ordering below — the durable TRANSITION is written inside `setStatus`'s own transaction, while

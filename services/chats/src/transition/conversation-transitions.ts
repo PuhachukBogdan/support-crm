@@ -59,6 +59,9 @@ export const TRANSITION_BEFORE_SELECT = {
   brand_id: true,
   channel: true,
   assignee_operator_id: true,
+  // ⭐ Feature 037 (W30): the `form` dimension the dims header reserved — read where every other
+  // dimension is read, so every recorder gains it at once and none can drift.
+  form_key: true,
 } as const;
 
 function base(

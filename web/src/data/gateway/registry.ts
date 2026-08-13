@@ -336,6 +336,46 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     singleton: true,
     ops: ['update'],
   },
+  /**
+   * ⭐ W30 (roadmap 4.15) — custom fields on the ticket. THREE rows, three questions:
+   * the resolved view (what does this conversation's form ask, per MY clearance — a child
+   * singleton read), the form choice (a child singleton write, `{formKey}`; '' clears), and one
+   * field's value (`update('conversation-field', fieldKey, {value}|{clear:true}, conversationId)`
+   * — the field KEY is the item id, the capture's own identity). Restricted fields are absent from
+   * the view by SERVER decision; the screen renders what arrives and invents nothing.
+   */
+  {
+    resource: 'conversation-field-view',
+    path: '/conversations/{within}/fields',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  {
+    resource: 'conversation-form',
+    path: '/conversations/{within}/form',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['update'],
+  },
+  {
+    resource: 'conversation-field',
+    path: '/conversations/{within}/fields',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['update'],
+  },
   {
     // Brand (feature 032 — R22). Its own permission server-side (`crm.conversation.set_brand`): an
     // agent may not change it, a supervisor corrects it, and the correction is audited.
@@ -620,6 +660,56 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
   {
     resource: 'admin-statuses',
     path: '/admin/statuses',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create', 'update'],
+  },
+  /**
+   * ⭐ W30 (roadmap 4.15) — the fields/forms authoring surface, the W15a shape one screen over:
+   * ONE read projection (a singleton — sets + fields + forms arrive together, so the three tabs
+   * cannot disagree about what exists), and per-entity writes where POST creates (the key derives
+   * from the label/name in the SERVICE — the screen never invents one) and PATCH-by-key edits,
+   * `active` in the body being the archive/restore. All four ride `platform.field.manage`.
+   */
+  {
+    resource: 'admin-field-config',
+    path: '/admin/field-config',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  {
+    resource: 'admin-field',
+    path: '/admin/field-config/fields',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create', 'update'],
+  },
+  {
+    // The ONLY hard delete in the family, and the server refuses it while any field references the
+    // set (409, worded) — the screen offers it, the service decides.
+    resource: 'admin-option-set',
+    path: '/admin/field-config/option-sets',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create', 'update', 'remove'],
+  },
+  {
+    resource: 'admin-form',
+    path: '/admin/field-config/forms',
     collection: '',
     params: {},
     required: [],

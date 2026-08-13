@@ -119,7 +119,8 @@ describe('buildTransitionDims — a snapshot, not a reference', () => {
   });
 
   it('OMITS a dimension that does not exist — never null, never empty string', () => {
-    // group (5.3) and form (4.15) are unbuilt; an empty channel is absence, not a value.
+    // group (5.3) stays unbuilt; form (4.15) is written since W30 — but only when the row HAS one
+    // (see the W30 describe below). An empty channel is absence, not a value.
     const dims = buildTransitionDims({ brand_id: 'brand-a', channel: null });
     expect(dims).toEqual({ brand: 'brand-a' });
     expect('channel' in dims).toBe(false);
@@ -139,5 +140,40 @@ describe('buildTransitionDims — a snapshot, not a reference', () => {
   it('is a plain value object — nothing in it can be re-resolved later', () => {
     const dims = buildTransitionDims({ brand_id: 'brand-a' });
     expect(JSON.parse(JSON.stringify(dims))).toEqual(dims);
+  });
+});
+
+/**
+ * ⭐ Feature 037 (roadmap 4.15 — W30) — the `form` dimension the header reserved, now written.
+ * Going forward only: a row with a `form_key` snapshots it; a row without one stays ABSENT in
+ * `dims_json` (never `null` — old rows need no backfill and no reinterpretation).
+ */
+describe('W30 — the form dimension in dims_json', () => {
+  it('⭐ a row with a form_key carries `form` all the way into the written dims_json', async () => {
+    const rows: Record<string, unknown>[] = [];
+    await new TransitionRecorder().record(txWith(rows), {
+      ...base,
+      type: 'conversation.status_changed',
+      payload: { from: 'open', to: 'resolved' },
+      dims: buildTransitionDims({ brand_id: 'brand-a', form_key: 'deposits' }),
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.dims_json).toEqual({ brand: 'brand-a', form: 'deposits' });
+  });
+
+  it('a NULL form_key writes NO form key at all — absent in dims_json, not null', async () => {
+    const dims = buildTransitionDims({ brand_id: 'brand-a', form_key: null });
+    expect('form' in dims).toBe(false);
+
+    const rows: Record<string, unknown>[] = [];
+    await new TransitionRecorder().record(txWith(rows), {
+      ...base,
+      type: 'conversation.status_changed',
+      payload: { from: 'open', to: 'resolved' },
+      dims,
+    });
+    const written = rows[0]!.dims_json as Record<string, unknown>;
+    expect('form' in written).toBe(false);
+    expect(written).toEqual({ brand: 'brand-a' });
   });
 });

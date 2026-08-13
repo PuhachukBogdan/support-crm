@@ -95,6 +95,8 @@ function fixture(shelved: string | null = null, exists = true) {
     realtime.publisher,
     noInboxUnseen(),
     noOperatorIdentity(),
+    // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+    { missingRequiredForSolve: async () => [] } as never,
   );
   return { controller, row, updates, transactions, auditCalls, realtime, prisma };
 }

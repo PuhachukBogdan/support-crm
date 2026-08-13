@@ -158,7 +158,10 @@ fi
 #     services do not join (ADR 0029). The check would have been red for a reason it does not name.
 check users_db  "select count(*) >= 1 from \"Player\" where player_id='seed-player-001';"      t "users: the seeded player exists (one row per brand by design)"
 check users_db  "select count(*) >= 1 from \"Operator\";"                                      t "users: at least one operator exists (a live host accumulates more)"
-check brands_db "select count(*) from \"Brand\";"                                              1 "brands: the seeded brand exists"
+# ⚠️ W30: `count(*) = 1` broke on crm-next the way the users comment above predicts — a live host
+# accumulates (BOW2 arrived through the product in an earlier round), and the check went red for a
+# reason it does not name. The assertion now asks what its NAME always claimed: the SEEDED brand exists.
+check brands_db "select count(*) >= 1 from \"Brand\" where id='seed-brand-0000-0000-000000000001';" t "brands: the seeded brand exists"
 check chats_db  "select count(*) > 0 from \"Conversation\";"                                    t "chats: seeded conversations exist"
 
 step "clearing the gateway's effective-permission cache"

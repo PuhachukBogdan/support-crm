@@ -5,6 +5,7 @@ import type { Metadata } from '@grpc/grpc-js';
 import { hasPermission } from '@crm/common';
 import { ChatsAccessGuard, readActorPermissions } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
+import { FieldsRepository } from '../fields/fields.repository';
 import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
@@ -67,6 +68,9 @@ export class MacrosController {
     // ⭐ W29: availability needs the caller's memberships; deletion needs its audit entry.
     @Inject(AuthorAuthorityClient) private readonly authority: AuthorAuthorityClient,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
+    // ⭐ W30 (FR-017): a SET_CATEGORY value is validated at DEFINE time against the category
+    // vocabulary the account's active forms carry.
+    @Inject(FieldsRepository) private readonly fields: FieldsRepository,
   ) {}
 
   @GrpcMethod('ChatsReadService', 'ListMacros')
@@ -110,8 +114,13 @@ export class MacrosController {
     let extras;
     try {
       // Unknown action types are rejected HERE, at define time (research R4) — and, since feature 032,
-      // so is a status this account has not configured or has retired.
-      actions = parseActions(req.actions, await this.statuses.activeKeys(ctx.accountId));
+      // so is a status this account has not configured or has retired; since W30, so is a category
+      // no active form carries (FR-017 — the vocabulary now exists, so free text stopped being one).
+      actions = parseActions(
+        req.actions,
+        await this.statuses.activeKeys(ctx.accountId),
+        await this.fields.activeFormCategories(ctx.accountId),
+      );
       // ⭐ W29: the reply text (capped) and «кому доступен». Group ids arrive from the authoring
       // screen's own picker (the groups list) — an id no group carries hides the macro from every
       // non-author, which the author sees at once because their own list shows everything.
@@ -185,7 +194,13 @@ export class MacrosController {
     try {
       // Feature 032: re-validated against the CURRENT catalogue, which is what makes retiring a status
       // stop the macros that used it rather than leaving them to write a word nothing resolves.
-      actions = parseDefinition(macro.definition, await this.statuses.activeKeys(ctx.accountId));
+      // ⚠️ W30: the category vocabulary is EXPLICITLY unchecked here — a macro defined before the
+      // vocabulary existed keeps applying (its write still respects the U9 lock); only DEFINE tightened.
+      actions = parseDefinition(
+        macro.definition,
+        await this.statuses.activeKeys(ctx.accountId),
+        'unchecked',
+      );
     } catch {
       throw new RpcException({
         code: GrpcStatus.FAILED_PRECONDITION,

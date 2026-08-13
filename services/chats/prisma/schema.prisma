@@ -62,6 +62,12 @@ model Conversation {
   category             String?
   sub_category         String?
   classified_by        String? // "ai" | operator id | null
+  /// ⭐ Feature 037 (roadmap 4.15 — W30): the FORM this conversation is filed under — a row in
+  /// `Form`, chosen by an agent (or nobody: NULL is the valid unfiled state, like the columns
+  /// above). A human's choice of a category-bearing form writes `category` + `classified_by` in the
+  /// same act (U9). The composite FK below is the `status` shape: forms are per-account
+  /// configuration, so a bare reference would let one tenant's ticket stand on another's vocabulary.
+  form_key             String?
   /// Feature 031: when this conversation started waiting for capacity. NULL = not waiting.
   /// See the `@@index([account_id, backlog_at])` note below for why the drain never rewrites it.
   backlog_at           DateTime?
@@ -188,6 +194,12 @@ model Conversation {
   /// statuses are per-account configuration, so a bare `status` reference would let one tenant's ticket
   /// stand on another tenant's vocabulary.
   status_def ConversationStatus @relation(fields: [account_id, status], references: [account_id, key])
+  /// Feature 037: `(account_id, form_key)` → `Form(account_id, key)` — optional, same composite
+  /// reasoning as `status_def` one line up. Deliberately UNINDEXED beyond the FK's own needs: no
+  /// list filters by form this block (research D13 — the index arrives with its first reader).
+  form_def Form? @relation(fields: [account_id, form_key], references: [account_id, key])
+  /// Feature 037: the values this conversation holds for custom fields (one row per field).
+  field_values ConversationFieldValue[]
 
   // ⭐ W24: two tickets of one account can never share a number — a claim the UI makes in every
   // list row, so it is a constraint rather than a convention. (Postgres permits multiple NULLs,
@@ -918,4 +930,164 @@ model ConversationReadMark {
   @@unique([account_id, conversation_id, operator_id])
   /// The rail's own lookup: "which conversations has THIS operator opened".
   @@index([account_id, operator_id])
+}
+
+// ── ⭐ Feature 037 (roadmap 4.15 — W30): custom ticket fields, forms & option sets ─────────────────
+//
+// The two-level discipline (statuses/channels): the field TYPE vocabulary is code
+// (`libs/common/src/fields/field-types.ts`, four closed values); everything below is per-account
+// CONFIGURATION — the operator's ~65 captured Zendesk fields become rows here, never code, and
+// `tests/fields/no-field-key-branch.spec.ts` scans that nothing branches on a field or form key.
+//
+// ⚠️ These are TICKET fields on `Conversation` — never `Player.custom_attributes` (the customer's
+// tiered portfolio data in users_db, "the roadmap-4.15 failure shape").
+//
+// ⚠️ ARCHIVE OVER DELETE everywhere (criterion ① — values already live on conversations): fields
+// and forms carry `active`; option values deactivate once used; the only hard delete is an option
+// set no field references.
+
+/// One custom ticket field definition. `key` is the per-account authoring identity (the wire name,
+/// the value row's target, the thing the admin edits BY). `type` is validated against the closed
+/// catalogue in the service — never an enum here, so adding a type is a catalogue row, not a
+/// migration.
+model FieldDefinition {
+  id            String   @id @default(uuid())
+  account_id    String
+  key           String
+  label         String
+  type          String
+  /// Gates the transition into a solved-category status (D4: required-to-solve), never editing.
+  required      Boolean  @default(false)
+  /// Withheld — definition AND value — from callers without `crm.conversation.restricted_field.view`.
+  /// ⚠️ At seed time NO field is restricted (Q15: nothing limited by default); this is mechanism.
+  restricted    Boolean  @default(false)
+  /// Present ⟺ `type = 'dropdown'` — a biconditional the SERVICE enforces (Prisma cannot express it).
+  option_set_id String?
+  /// Empty = applicable to all brands. Opaque ids from brands_db (soft refs — Principle VIII, no
+  /// cross-service FK), data per Principle VI: no code branches on a brand.
+  brand_ids     String[] @default([])
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  option_set   OptionSet?               @relation(fields: [option_set_id], references: [id])
+  form_entries FormField[]
+  values       ConversationFieldValue[]
+
+  @@unique([account_id, key])
+  @@index([account_id, active])
+  /// The "may this set be deleted / this value deactivated" checks walk from the set to its fields.
+  @@index([option_set_id])
+}
+
+/// A reusable, ordered value list for dropdown fields. Deletable ONLY while no field references it
+/// (the service refuses with the field's name — 409, worded).
+model OptionSet {
+  id         String   @id @default(uuid())
+  account_id String
+  name       String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  values OptionValue[]
+  fields FieldDefinition[]
+
+  @@unique([account_id, name])
+  @@index([account_id])
+}
+
+/// One value of one set. `active = false` is the fate of a value conversations already hold: it
+/// keeps rendering where stored and is refused for NEW writes — history is never rewritten by an
+/// authoring act. Cascade with the set: an unreferenced set's hard delete takes its values along.
+/// ⚠️ `account_id` directly on the row, not only via the set: Principle I's guard exempts only pure
+/// join edges (composite @@id), and a child reachable through one query hop is exactly the row a
+/// future direct read would forget to scope.
+model OptionValue {
+  id            String  @id @default(uuid())
+  account_id    String
+  option_set_id String
+  value         String
+  order         Int
+  active        Boolean @default(true)
+
+  option_set OptionSet @relation(fields: [option_set_id], references: [id], onDelete: Cascade)
+
+  @@unique([option_set_id, value])
+  @@index([option_set_id, order])
+  @@index([account_id])
+}
+
+/// A named, ordered composition of fields — AND the analytics anchor: `category` is the topic a
+/// human's form choice files the conversation under (writes the reserved `Conversation.category`
+/// with the U9 lock; NULL = a neutral form like Default). The capture's 12 forms seed this table.
+model Form {
+  id         String   @id @default(uuid())
+  account_id String
+  key        String
+  name       String
+  category   String?
+  active     Boolean  @default(true)
+  order      Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  entries       FormField[]
+  conversations Conversation[]
+
+  @@unique([account_id, key])
+  @@unique([account_id, name])
+  @@index([account_id, active, order])
+}
+
+/// One field's place on one form. The optional condition pair is the capture's L1→L2→L3 cascade as
+/// data: the entry renders (and accepts writes) only while the parent dropdown holds exactly
+/// `condition_value` — both columns set together or neither (service-enforced).
+///
+/// ⚠️ `is_subcategory_source`: at most ONE per form. Prisma cannot express a conditional unique, so
+/// the shipped migration adds a PARTIAL UNIQUE INDEX (`WHERE is_subcategory_source`) — the
+/// feature-026 precedent; a structural test reads the migration SQL rather than this comment.
+model FormField {
+  id                    String  @id @default(uuid())
+  /// Principle I, the OptionValue reasoning: not a pure join edge (it carries payload and its own
+  /// id), so it carries the scope column itself.
+  account_id            String
+  form_id               String
+  field_id              String
+  order                 Int
+  condition_field_id    String?
+  condition_value       String?
+  is_subcategory_source Boolean @default(false)
+
+  form  Form            @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  field FieldDefinition @relation(fields: [field_id], references: [id])
+
+  @@unique([form_id, field_id])
+  @@index([form_id, order])
+  @@index([account_id])
+}
+
+/// The value one conversation holds for one field — one row per pair (the upsert key below), which
+/// is what makes a re-write idempotent and a partial write impossible (the OperatorUiPreference
+/// argument: a blob defers modelling; rows validate per key). `value` stores the TEXT form for
+/// every type; the validator, not the column, refuses a non-number in a numeric field.
+///
+/// ⚠️ The sub-category source's value is NOT here — it lives in `Conversation.sub_category` (single
+/// store, D2). ⚠️ `account_id` directly on the row (Principle I: every tenant-owned table carries
+/// it), not only via the conversation join.
+model ConversationFieldValue {
+  id              String   @id @default(uuid())
+  account_id      String
+  conversation_id String
+  field_id        String
+  value           String
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  conversation Conversation    @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  field        FieldDefinition @relation(fields: [field_id], references: [id])
+
+  @@unique([conversation_id, field_id])
+  /// The "is this option value in use" check walks from the field to its values.
+  @@index([field_id])
+  @@index([account_id])
 }

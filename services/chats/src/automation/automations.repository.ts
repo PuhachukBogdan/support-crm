@@ -13,6 +13,8 @@ import {
   TRANSITION_BEFORE_SELECT,
   type ConversationBefore,
 } from '../transition/conversation-transitions';
+// ⭐ W30 (US4): the U9 lock as a predicate — an automated category write matches only unlocked rows.
+import { classificationLock, classifiedByOf } from '../fields/classification-write';
 
 export interface AutomationRow {
   id: string;
@@ -347,6 +349,26 @@ export class AutomationsRepository {
             },
             create: { conversation_id: conversationId, label_id: a.value },
             update: {},
+          });
+        /**
+         * ⭐ W30 fixed a LATENT defect here — the W29 class, second instance: SET_CATEGORY and
+         * SET_SUB_CATEGORY had been in the shared vocabulary since feature 014, `rule-definition`
+         * accepted them at define, and this switch had no case — the map yielded `undefined` and
+         * the WHOLE batch died on apply. Pinned by a test that fails on the old code.
+         *
+         * An automation is an AUTOMATED writer (U9): the lock predicate rides the WHERE, so a
+         * human-classified conversation matches zero rows and the rule's write is a structural
+         * no-op — never an overwrite, and never an error that kills its own batch.
+         */
+        case 'MACRO_ACTION_TYPE_SET_CATEGORY':
+          return db.conversation.updateMany({
+            where: { id: conversationId, ...classificationLock(actor) },
+            data: { category: a.value, classified_by: classifiedByOf(actor) },
+          });
+        case 'MACRO_ACTION_TYPE_SET_SUB_CATEGORY':
+          return db.conversation.updateMany({
+            where: { id: conversationId, ...classificationLock(actor) },
+            data: { sub_category: a.value, classified_by: classifiedByOf(actor) },
           });
       }
     });

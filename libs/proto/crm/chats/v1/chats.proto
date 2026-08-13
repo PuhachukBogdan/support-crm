@@ -340,6 +340,26 @@ service ChatsReadService {
   // reconstructed is the JOURNAL, and it exists — 4.8a). Gated `analytics.dashboard.view`.
   // Aggregates only: no conversation content, no customer field rides this wire.
   rpc GetAnalyticsSnapshot(AnalyticsSnapshotRequest) returns (AnalyticsSnapshot);
+
+  // ── ⭐ Feature 037 (roadmap 4.15 — W30) — custom ticket fields, forms & option sets ─────────────
+  //
+  // TWO reads, one per screen (the one-projection rule the statuses screen set):
+  //
+  // The authoring projection — the whole configuration (sets + fields + forms) in one answer. Gated
+  // `platform.field.manage` at both tiers: the screen exists to CHANGE these rows, and a caller the
+  // writes would refuse has no business enumerating restricted definitions either (holding the
+  // authoring key implies clearance — the reverse of granting readers authoring).
+  rpc GetFieldConfiguration(Empty) returns (FieldConfiguration);
+  //
+  // The agent projection — ONE conversation's form, its entries applicable to that conversation's
+  // brand, their option lists, and current values. Gated `crm.inbox.view` like the detail read it
+  // accompanies; the conversation must be the caller's account's (404 otherwise, same as detail).
+  // ⚠️ RESTRICTED entries are withheld HERE, definition and value both, for callers without
+  // `crm.conversation.restricted_field.view` — absent, never blanked, so a reader cannot tell a
+  // withheld field from one that does not exist (no oracle — the shelf.view precedent).
+  // ⚠️ Option lists carry ACTIVE values plus the value this conversation already holds even if
+  // deactivated — a stored historical value must render, not vanish (spec edge case).
+  rpc GetConversationFieldView(ConversationIdRequest) returns (ConversationFieldView);
 }
 
 // W20 — the dashboard's one read. `days` bounds the volume series (server-capped at 90: the MVP
@@ -753,6 +773,34 @@ service ChatsWriteService {
   // (`status/status-admin.grpc.controller.ts`).
   rpc CreateConversationStatus(CreateConversationStatusRequest) returns (ConversationStatusDef);
   rpc UpdateConversationStatus(UpdateConversationStatusRequest) returns (ConversationStatusDef);
+
+  // ── ⭐ Feature 037 (roadmap 4.15 — W30) — the fields/forms authoring writes + the two ticket
+  // writes. Authoring is gated `platform.field.manage` at both tiers and audited
+  // (`field/option_set/form.config_changed`) inside each write's own transaction; the ticket writes
+  // reuse `crm.conversation.reply` (the SetPriority reasoning — working this conversation is
+  // already that key's authority). Declared WITH their handlers (`fields/…controller.ts`), per the
+  // standing rule above.
+  //
+  // Upserts are BY KEY (the statuses precedent: authoring identity is the per-account key). The two
+  // composite writes are ATOMIC: an option set arrives WITH its ordered values (the service diffs —
+  // new inserted, missing-but-used deactivated with a worded refusal if hard removal was asked,
+  // unused deleted); a form arrives WITH its ordered entries (all-or-nothing, ≤1 sub-category
+  // source, condition parents must be dropdowns of the same form).
+  rpc UpsertFieldDefinition(UpsertFieldDefinitionRequest) returns (FieldDef);
+  rpc UpsertOptionSet(UpsertOptionSetRequest) returns (OptionSetDef);
+  // Hard delete exists ONLY while unreferenced — a set any field stands on answers 409 with the
+  // field's name (spec FR-003); archived data everywhere else (criterion ①: never destroy values).
+  rpc DeleteOptionSet(OptionSetIdRequest) returns (Ack);
+  rpc UpsertForm(UpsertFormRequest) returns (FormDef);
+  // The form choice on a ticket. A HUMAN selecting a category-bearing form writes the conversation's
+  // `category` and locks it (`classified_by` = operator id — U9); a category-less form leaves
+  // category untouched; empty form_key clears the choice (values remain stored — spec edge case).
+  rpc SetConversationForm(SetConversationFormRequest) returns (Ack);
+  // One field value. Validated fail-closed in THIS service (type shape, option-set membership,
+  // on-form, condition holds, brand applies); the designated sub-category source routes to the
+  // reserved `sub_category` column instead of a value row; a parent change clears dependents in the
+  // same transaction; identical value = idempotent no-op.
+  rpc SetConversationFieldValue(SetConversationFieldValueRequest) returns (Ack);
 }
 
 // ── ⭐ W17 (subpoint 4.6) — write first, by email ───────────────────────────────────────────────────
@@ -1542,4 +1590,159 @@ message GetExportRequest {
 message ExportArtefactRef {
   string upload_id = 1;         // an id for UploadsService.ReadUpload — never a URL, never signed
   string display_name = 2;      // sanitized, for Content-Disposition; never logged (SEC-26)
+}
+
+// ── ⭐ Feature 037 (roadmap 4.15 — W30): custom ticket fields, forms & option sets ──────────────────
+//
+// ⚠️ `type` is a PLAIN STRING validated against the closed catalogue in
+// `libs/common/src/fields/field-types.ts` at both ends (fail-closed), not a proto enum: adding a
+// type is one catalogue row and no contract change, and there is no UNSPECIFIED ambiguity to guard
+// — an empty type is simply refused. (The statuses precedent used an enum because UNSPECIFIED
+// carried meaning there; here it would not.)
+//
+// ⚠️ These describe TICKET fields on Conversation — never `Player.custom_attributes` (the
+// customer's tiered portfolio data in users_db).
+
+message FieldDef {
+  string id = 1;
+  string key = 2;               // per-account authoring identity (unique within the account)
+  string label = 3;
+  string type = 4;              // FieldTypeName — dropdown | text | numeric | multiline
+  bool required = 5;            // gates the transition into a solved-category status, never editing
+  bool restricted = 6;          // withheld (definition AND value) without restricted_field.view
+  string option_set_id = 7;     // present ⟺ type = dropdown (the service enforces the biconditional)
+  repeated string brand_ids = 8; // empty = applicable to all brands; ids are opaque data
+  bool active = 9;              // false = archived (no hard delete exists)
+}
+
+message OptionValueDef {
+  string value = 1;
+  int32 order = 2;
+  bool active = 3;              // false = deactivated: renders where already held, refused for new writes
+}
+
+message OptionSetDef {
+  string id = 1;
+  string name = 2;              // unique within the account
+  repeated OptionValueDef values = 3; // in authoring order
+}
+
+message FormEntryDef {
+  string field_key = 1;
+  int32 order = 2;
+  // Both set together or neither: the entry renders (and accepts writes) only while the parent
+  // dropdown holds exactly this value — the capture's L1→L2→L3 pattern as data.
+  string condition_field_key = 3;
+  string condition_value = 4;
+  // At most ONE per form (a partial unique index enforces it): this dropdown's value writes the
+  // conversation's reserved `sub_category` column instead of a stored field value (single store —
+  // analytics reads the column with no second transformation).
+  bool is_subcategory_source = 5;
+}
+
+message FormDef {
+  string id = 1;
+  string key = 2;               // per-account authoring identity; the Conversation FK target
+  string name = 3;
+  // The topic a human's form choice files the conversation under (writes `category` + the U9 lock).
+  // Empty = a neutral form (Default / Ghost Contact): category stays untouched.
+  string category = 4;
+  bool active = 5;
+  int32 order = 6;              // display order among forms
+  repeated FormEntryDef entries = 7;
+}
+
+message FieldConfiguration {
+  repeated OptionSetDef option_sets = 1;
+  repeated FieldDef fields = 2;
+  repeated FormDef forms = 3;
+}
+
+// The agent projection for one conversation (see the rpc comment for the withholding rules).
+message ConversationFieldEntry {
+  FieldDef field = 1;
+  int32 order = 2;
+  string condition_field_key = 3;
+  string condition_value = 4;
+  bool is_subcategory_source = 5;
+  // Active values in order, PLUS the value this conversation currently holds even if deactivated.
+  repeated OptionValueDef options = 6;
+}
+
+message ConversationFieldValue {
+  string field_key = 1;
+  string value = 2;
+}
+
+// The form selector's choices — key + name only. Part of the VIEW because the agent has no route
+// to GetFieldConfiguration (that read rides the authoring key), and a selector with no options
+// would make the form choice an admin-only act, which it is not.
+message FormOption {
+  string key = 1;
+  string name = 2;
+}
+
+message ConversationFieldView {
+  string form_key = 1;          // "" = no form chosen (a valid, ungated state)
+  repeated ConversationFieldEntry entries = 2;
+  repeated ConversationFieldValue values = 3;
+  // The classification echo, so the fields block renders category rows from the same read.
+  string category = 4;
+  string sub_category = 5;
+  string classified_by = 6;
+  repeated FormOption available_forms = 7;
+}
+
+message UpsertFieldDefinitionRequest {
+  string key = 1;
+  string label = 2;
+  string type = 3;
+  bool required = 4;
+  bool restricted = 5;
+  string option_set_id = 6;
+  repeated string brand_ids = 7;
+  bool active = 8;
+}
+
+message UpsertOptionSetRequest {
+  string id = 1;                // "" = create; the whole value list arrives with replace_values (atomic diff)
+  string name = 2;
+  repeated OptionValueDef values = 3;
+  // TRUE = `values` IS the whole list (the diff runs: insert/update, refuse-or-delete the missing).
+  // FALSE on an update = a rename-only edit: the stored values are NOT touched. proto3 cannot tell
+  // an absent list from an empty one, and a wiped composition must be an act, never an omission —
+  // the same rule SetConversationFieldValue's `clear` states (found by W30's own test pass: a bare
+  // rename PATCH was silently deleting unused values).
+  bool replace_values = 4;
+}
+
+message OptionSetIdRequest {
+  string id = 1;
+}
+
+message UpsertFormRequest {
+  string key = 1;
+  string name = 2;
+  string category = 3;
+  bool active = 4;
+  int32 order = 5;
+  repeated FormEntryDef entries = 6; // the whole composition, when replace_entries says so (atomic)
+  // TRUE = `entries` IS the composition (wholesale replace). FALSE on an update = the stored
+  // entries stay — an archive/rename PATCH must not destroy a form's structure (criterion ①;
+  // the replace_values reasoning above, second instance).
+  bool replace_entries = 7;
+}
+
+message SetConversationFormRequest {
+  string conversation_id = 1;
+  string form_key = 2;          // "" = clear the choice (stored values remain)
+}
+
+message SetConversationFieldValueRequest {
+  string conversation_id = 1;
+  string field_key = 2;
+  string value = 3;
+  // TRUE = explicit clear (allowed even for required fields — required gates solve, not editing).
+  // An empty `value` with `clear` unset is refused: absence must be an act, never an accident.
+  bool clear = 4;
 }

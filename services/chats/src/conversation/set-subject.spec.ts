@@ -94,6 +94,8 @@ const controller = (prisma: PrismaService) =>
     fakeRealtime().publisher,
     noInboxUnseen(),
     noOperatorIdentity(),
+    // W30: the solve gate is not this spec's subject — an empty answer means no gate.
+    { missingRequiredForSolve: async () => [] } as never,
   );
 
 const TITLE = 'выплата задерживается уже вторые сутки';

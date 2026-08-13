@@ -5,6 +5,19 @@ import { Settings } from './settings';
 import { resetThemeSyncForTests } from './use-theme-mode';
 import { getDataAccess, setDataAccess } from '@/data/provider';
 import type { DataAccess } from '@/data/data-access';
+import { SessionProvider, GatewaySession } from '@/session';
+import type { HttpPort } from '@/data/gateway/http-port';
+
+/**
+ * ⚠️ W22: `Settings` now NAVIGATES (sign-out sends you to /login), so its tests need a router where
+ * they previously needed none. Mocked here rather than in each test, because the requirement is a
+ * property of the screen, not of one case.
+ */
+const routerPush = jest.fn();
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPush, replace: jest.fn(), back: jest.fn() }),
+  usePathname: () => '/settings',
+}));
 
 /**
  * W18 — the personal settings shell + the persisted theme (5.2 + 5.3). Shape claims: the stored
@@ -133,5 +146,50 @@ describe('W19 — the Profile section (5.4 avatar + 5.5 presence)', () => {
       patch: { state: 'away' },
     });
     expect(await screen.findByTestId('presence-note')).toHaveTextContent('not routed to you');
+  });
+});
+
+/**
+ * ⭐ W22 (R40) — THE SIGN-OUT GUARANTEE, MOVED HERE WITH ITS BUTTON.
+ *
+ * This assertion lived in `shell.test.tsx` while the control lived in the top bar. The operator moved
+ * the control — *«я думаю, logout сделать именно в настройках аккаунта, потому что в той всплывающей
+ * панели… это как-то слишком легко»* — and the check moved in the same change, deliberately.
+ *
+ * What it protects has not changed and is the whole reason it exists: the ORIGINAL handler flipped a
+ * local flag and navigated, which is not a sign-out at all — the cookie kept working everywhere it
+ * had already been sent, and nothing on the server knew. So the claim is asserted **on the wire**,
+ * because "we called logout" is exactly what was false before.
+ *
+ * ⚠️ A check that stays behind when its subject moves is how a guarantee evaporates while every file
+ * still looks correct. Third time this project has had to say it (W8, W16, now).
+ */
+describe('W22 — account: signing out', () => {
+  it('⭐ ends the session ON THE SERVER, not by flipping a local flag', async () => {
+    /**
+     * Asserted ON THE WIRE, and that is deliberate: the original handler flipped a local flag and
+     * navigated, so a test that only proved "we called signOut" would have passed against the very
+     * bug this exists to catch. The request is the evidence.
+     */
+    const sent: string[] = [];
+    const port: HttpPort = async (req) => {
+      sent.push(req.path);
+      return { status: 200, body: { status: 'logged_out' } };
+    };
+
+    routerPush.mockClear();
+    setDataAccess(stub());
+    render(
+      <ThemeProvider attribute="class" defaultTheme="light">
+        <SessionProvider impl={new GatewaySession(port)} seed={{ kind: 'authenticated', permissionKeys: [] } as never}>
+          <Settings />
+        </SessionProvider>
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('sign-out'));
+
+    await waitFor(() => expect(sent).toContain('/auth/logout'));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/login'));
   });
 });

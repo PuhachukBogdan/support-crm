@@ -27,6 +27,9 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
   setStatus: (status: string) => void;
   setPriority: (priority: string) => void;
   setBrand: (brandId: string) => void;
+  /** 2026-08-10 — `operatorId: ''` unassigns (a real state, so it must be reachable). */
+  setAssignee: (operatorId: string) => void;
+  setPlayerId: (playerId: string) => void;
 } {
   const dispatch = useDispatch<AppDispatch>();
   const state = useSelector((s: RootState) => s.ticket);
@@ -78,6 +81,14 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     (brandId: string) => dispatch(ticketActions.setBrand({ id, brandId })),
     [dispatch, id],
   );
+  const setAssignee = useCallback(
+    (operatorId: string) => dispatch(ticketActions.setAssignee({ id, operatorId })),
+    [dispatch, id],
+  );
+  const setPlayerId = useCallback(
+    (playerId: string) => dispatch(ticketActions.setPlayerId({ id, playerId })),
+    [dispatch, id],
+  );
 
   const { send: sendState, ...rest } = state;
   return {
@@ -93,5 +104,7 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     setStatus,
     setPriority,
     setBrand,
+    setAssignee,
+    setPlayerId,
   };
 }

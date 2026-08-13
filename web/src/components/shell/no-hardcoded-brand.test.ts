@@ -89,9 +89,30 @@ describe('*** the shell hardcodes no brand (FR-023) ***', () => {
     expect(PRODUCT_WORDMARK).toBe('Support CRM');
     expect(BRAND_WORDS.test(PRODUCT_WORDMARK)).toBe(false);
 
-    const sidebar = readFileSync(join(SHELL_DIR, 'sidebar.tsx'), 'utf8');
-    // The component renders the configured value; it does not contain the string itself.
-    expect(sidebar).toContain('PRODUCT_WORDMARK');
-    expect(sidebar).not.toContain('Support CRM');
+    /**
+     * ⚠️ **This assertion changed shape in W22, and the reason matters more than the change.**
+     * It used to read: `sidebar.tsx` must CONTAIN `PRODUCT_WORDMARK`. That encoded a design where the
+     * rail displayed the product's name beside its icons. R41 removed the expanded rail entirely —
+     * *«какой смысл её разворачивать… она же только место занимает на экране»* — so no chrome
+     * component renders a wordmark any more, and the old form could only be satisfied by keeping a
+     * dead import.
+     *
+     * The property it was PROTECTING is untouched and is now asserted directly, over every shell
+     * file rather than one: **the literal never appears in a component.** Whoever renders the name
+     * next must reach for the constant, because typing it fails here. That is strictly wider than
+     * what it replaced — deleting the test, the other tempting answer, would have narrowed it to
+     * nothing at the exact moment the design moved.
+     */
+    // ⚠️ Exactly ONE file may contain it: the one that DEFINES it. Exempted by name and the
+    // exemption is measured, the same shape `swap-point.test.ts` uses for its composition root —
+    // an exemption nobody counts is how a scan quietly stops scanning.
+    const consumers = files.filter((f) => !f.endsWith('branding.ts'));
+    expect(files.length - consumers.length).toBe(1);
+
+    const offenders = consumers.filter((f) => readFileSync(f, 'utf8').includes(PRODUCT_WORDMARK));
+    expect(offenders).toEqual([]);
+
+    // …and the scan can find it, so a pass means "absent", not "never looked".
+    expect(`const x = '${PRODUCT_WORDMARK}';`.includes(PRODUCT_WORDMARK)).toBe(true);
   });
 });

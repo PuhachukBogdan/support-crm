@@ -172,6 +172,8 @@ export function TicketWindow({ id }: { id: string }) {
             onSetStatus={t.setStatus}
             onSetPriority={t.setPriority}
             onSetBrand={t.setBrand}
+            onSetAssignee={t.setAssignee}
+            onSetPlayerId={t.setPlayerId}
           />
         </div>
         <PanelDivider target={fields} />

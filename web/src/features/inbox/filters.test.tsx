@@ -91,6 +91,39 @@ describe('*** each filter lives in ITS OWN column header ***', () => {
     expect(screen.getByTestId('sort-lastActivityAt').closest('th')).not.toBeNull();
   });
 
+  /**
+   * ⭐⭐ 2026-08-10 — the operator's report: *«я нажимаю на воронку, и я вижу маленькую часть этого
+   * элемента… она скрыта… за окном перечисления самих тикетов»*.
+   *
+   * ⚠️ It was a CLIP, not a stacking order — which is why the popup carried `z-popover` all along and
+   * was still invisible. `DataTable` renders every header cell as `<TableHead className="truncate">`
+   * (= `overflow: hidden`), and no z-index escapes an ancestor's clip. So the assertion is about the
+   * popup's PARENTAGE, not about a computed layer: it must not be inside the header cell, and it must
+   * not be inside the scroll container either (that clips too, one level out).
+   *
+   * ⓘ Asserting the DOM position rather than a style is deliberate: a later edit that reverted the
+   * portal while keeping `z-popover` would pass any style-based check and reproduce the bug exactly.
+   */
+  it('⭐⭐ the funnel’s list escapes the header cell that CLIPS it (overflow, not z-index)', async () => {
+    setDataAccess(stubConversations({ count: 3 }));
+    renderInbox();
+    await screen.findByText('Conversation 1');
+    await openPending();
+
+    const trigger = screen.getByTestId('filter-channel');
+    // The trigger does live in the clipping cell — that is the constraint, restated so the test says
+    // what it is escaping from.
+    expect(trigger.closest('th')).not.toBeNull();
+
+    fireEvent.click(trigger);
+    const list = screen.getByTestId('filter-channel-list');
+
+    expect(list.closest('th')).toBeNull();
+    expect(list.closest('table')).toBeNull();
+    expect(list.closest('[data-testid="dt-scroll"]')).toBeNull();
+    expect(list.parentElement).toBe(document.body);
+  });
+
   it('a column with no filter of its own gets no funnel', async () => {
     setDataAccess(stubConversations({ count: 3 }));
     renderInbox();

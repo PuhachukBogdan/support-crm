@@ -32,7 +32,38 @@ export interface TicketStubOptions {
   /** W9 — what the lookup answers, and its refusal (403 without the key, 429 over the cap). */
   lookupAnswer?: { matched: boolean; ambiguous: boolean; playerId: string; brandId: string };
   failLookupWith?: DataError;
+  /** The account's brands, for the Brand chooser. Defaults to two — a chooser needs a choice. */
+  brands?: { brandId: string; name: string }[];
+  /**
+   * ⭐ 2026-08-10 — the Assignee chooser's two reads (`use-assignable-operators.ts`).
+   *
+   * `staff` is the AUTH list (names); `resolvedOperators` is the users translation to the
+   * `Operator.id` an assignment actually points at. They are separate on purpose: the default has a
+   * person present in `staff` and ABSENT from the translation, so every test runs against the
+   * fail-closed case the rpc's contract describes — an inactive profile is simply not assignable.
+   */
+  staff?: { userId: string; email: string; displayName: string; status: string }[];
+  resolvedOperators?: { operatorId: string; authUserId: string; state: string }[];
+  /** The staff list fails — the chooser degrades to the read-only name, never to a broken menu. */
+  failStaffWith?: DataError;
 }
+
+/** Two colleagues and a disabled one — the disabled row must never reach the chooser. */
+const DEFAULT_STAFF = [
+  { userId: 'u-nina', email: 'nina@example.test', displayName: 'Nina Petrova', status: 'active' },
+  { userId: 'u-oleg', email: 'oleg@example.test', displayName: '', status: 'active' },
+  { userId: 'u-gone', email: 'gone@example.test', displayName: 'Left Us', status: 'disabled' },
+];
+
+/**
+ * ⚠️ `u-oleg` resolves and `u-nina` does too, but `u-ghost` in `staff` would not — and the reverse
+ * case is covered here: `u-nina` is ACTIVE in auth while her operator profile is missing from this
+ * list in the "absent ⇒ not assignable" test. The default resolves both active people.
+ */
+const DEFAULT_RESOLVED = [
+  { operatorId: 'op-nina', authUserId: 'u-nina', state: 'online' },
+  { operatorId: 'op-oleg', authUserId: 'u-oleg', state: 'away' },
+];
 
 export interface WriteRecord {
   op: 'create' | 'update' | 'remove';
@@ -50,6 +81,12 @@ export interface TicketStub extends DataAccess {
   listCalls: Query[];
   /** W10: how many times the player record was read — 0 proves "asks nothing when unidentified". */
   playerReads: number;
+  /**
+   * 2026-08-10: the `authUserIds` each translation call asked for, in order. The chooser must ask for
+   * the ids it got from the staff list and nothing else — an unbounded or invented request here would
+   * be a client inventing an "all operators" question the contract does not have.
+   */
+  operatorLookups: string[][];
   emit(event: RealtimeEvent): void;
 }
 
@@ -111,6 +148,7 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
     detailReads: 0,
     listCalls: [],
     playerReads: 0,
+    operatorLookups: [],
     async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
       stub.listCalls.push(query);
       // W10: the agent's own rail — assigned to me ∧ opened by me ∧ non-terminal.
@@ -130,9 +168,34 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
       if (resource === 'labels') return page(accountLabels as unknown as T[]);
       if (resource === 'macros') return page((opts.macros ?? []) as unknown as T[]);
       if (resource === 'canned-responses') return page((opts.canned ?? []) as unknown as T[]);
+      if (resource === 'brands')
+        return page(
+          (opts.brands ?? [
+            { brandId: 'brand-a', name: 'Brand A' },
+            { brandId: 'brand-b', name: 'Brand B' },
+          ]) as unknown as T[],
+        );
+      if (resource === 'staff') {
+        if (opts.failStaffWith) throw opts.failStaffWith;
+        return page((opts.staff ?? DEFAULT_STAFF) as unknown as T[]);
+      }
       throw new Error(`unexpected list: ${resource}`);
     },
-    async get<T = unknown>(resource: ResourceName, id: string, within?: string): Promise<T> {
+    async get<T = unknown>(
+      resource: ResourceName,
+      id: string,
+      within?: string,
+      filters?: Record<string, unknown>,
+    ): Promise<T> {
+      if (resource === 'assignable-operators') {
+        const asked = String(filters?.authUserIds ?? '')
+          .split(',')
+          .filter(Boolean);
+        stub.operatorLookups.push(asked);
+        // Only what was ASKED FOR comes back — the real rpc translates a list, it does not enumerate.
+        const all = opts.resolvedOperators ?? DEFAULT_RESOLVED;
+        return { operators: all.filter((o) => asked.includes(o.authUserId)) } as unknown as T;
+      }
       if (resource === 'conversation-detach-preview') {
         writes.push({ op: 'update', resource, id: 'preview', within });
         return { detachedPlayerId: 'p1', publicReplies: 2, privateNotes: 1 } as unknown as T;

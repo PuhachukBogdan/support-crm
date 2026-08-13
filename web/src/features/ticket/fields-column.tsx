@@ -11,7 +11,9 @@ import {
 import { relativeTime } from '@/features/inbox/wire-labels';
 import { useStatuses } from '@/features/inbox/use-statuses';
 import { PRIORITY_OPTIONS } from '@/data/priorities';
-import { EditableChoice, ReadOnlyValue } from './editable';
+import { presenceLabel } from '@/data/presence';
+import { EditableChoice, EditableText, ReadOnlyValue } from './editable';
+import { useAssignableOperators } from './use-assignable-operators';
 import { IdentityPanel } from './identity-panel';
 import type { AsyncState } from '@/data/types';
 import type { TicketState } from '@/store/ticket/ticket.slice';
@@ -26,6 +28,20 @@ import type { ConversationDetail, LabelWire } from './types';
  * их должны иметь возможность редактировать в случае чего»*). Every property that HAS a write is one
  * now, in place and without a frame around it — see `editable.tsx` for the shape and why.
  *
+ * ⭐⭐ **2026-08-10, second pass — the two the operator still could not change.** Reading the shipped
+ * screen: *«я всё ещё не вижу возможности менять поля типа бренд, ассайни»*, and on Player ID, *«не
+ * вижу ни одной причины, почему нельзя сделать placeholder, чтобы его можно было заполнять»*.
+ *
+ *  · **Assignee** was genuinely read-only — one «take it» button that can only name the caller. It is
+ *    a chooser over the account's staff now (`use-assignable-operators.ts`), with «take it» kept
+ *    beside it because that control needs neither of the chooser's two permissions.
+ *  · **Player ID** is editable, and the refusal recorded here on the morning of the same day is
+ *    OVERRULED by the operator's own instruction. What the old note got right stays true — a typed id
+ *    is not a verified one — so it is written down where it belongs now, on the field itself.
+ *  · **Brand** was already a chooser and he still could not see it. That was not a permission and not
+ *    a missing write: an editable field and a read-only one rendered IDENTICALLY at rest. Fixed in
+ *    `editable.tsx`, which is where the mistake was.
+ *
  * ── What stayed read-only, and why each one did ─────────────────────────────────────────────────
  * Recorded rather than left to look like an oversight, because "this cannot be edited" and "nobody
  * built the editor" are indistinguishable from the screen — the exact confusion `Priority` caused
@@ -34,8 +50,6 @@ import type { ConversationDetail, LabelWire } from './types';
  *    tier, and there should not be: editing it would make a mail thread claim to be a chat, and the
  *    reply path follows the channel.
  *  · **Created / Updated** — the clock's, not a person's.
- *  · **Player ID** — changed by ATTACHING a customer, not by typing an id. Typing one would let a
- *    ticket point at a player nobody verified; the attach flow exists because that check matters.
  */
 export function FieldsColumn({
   detail,
@@ -53,6 +67,8 @@ export function FieldsColumn({
   onSetStatus,
   onSetPriority,
   onSetBrand,
+  onSetAssignee,
+  onSetPlayerId,
 }: {
   detail: AsyncState<ConversationDetail>;
   labels: AsyncState<LabelWire[]>;
@@ -74,9 +90,15 @@ export function FieldsColumn({
   onSetStatus: (statusKey: string) => void;
   onSetPriority: (priority: string) => void;
   onSetBrand: (brandId: string) => void;
+  /** `''` unassigns — a real state, so the chooser offers it (see the slice's note). */
+  onSetAssignee: (operatorId: string) => void;
+  onSetPlayerId: (playerId: string) => void;
 }) {
   const { statuses } = useStatuses();
   const busy = mutation.status === 'busy';
+  // ⓘ Empty for anybody without BOTH `users.list.view` and `crm.conversation.assign` — the hook says
+  // why, and the field falls back to the read-only name plus «take it» rather than to a broken menu.
+  const { operators: assignable } = useAssignableOperators();
 
   // ⭐ From the ACCOUNT's catalogue, active only: a retired status renders on an old ticket (see
   // `EditableChoice`) but cannot be chosen again — the unbuildable-contradiction rule the Inbox
@@ -85,6 +107,16 @@ export function FieldsColumn({
     .filter((s) => s.active)
     .map((s) => ({ value: s.key, label: s.agentName }));
   const brandOptions = brands.map((b) => ({ value: b.brandId, label: b.name || b.brandId }));
+  /**
+   * The staff, by name, with their presence in the label — *«Ivan — On shift»*. Handing a ticket to
+   * somebody on a break is a legitimate act (it is how work is queued for a returning shift), so the
+   * state is stated rather than used to hide the option: this control routes work, and hiding a
+   * colleague from it would hide the reason the ticket then sits still.
+   */
+  const assigneeOptions = assignable.map((o) => {
+    const state = presenceLabel(o.state);
+    return { value: o.operatorId, label: state ? `${o.displayName} — ${state}` : o.displayName };
+  });
 
   return (
     <aside
@@ -137,7 +169,9 @@ export function FieldsColumn({
               <div className="text-xs font-medium text-muted-foreground">Assignee</div>
               {/* «take it» (frame 031): PUT with the caller's OWN id — there is no way to name
                   anyone else here, mirroring 5.11. Hidden while identity is unresolved, and when
-                  the ticket is already mine (taking what I hold would be a no-op button). */}
+                  the ticket is already mine (taking what I hold would be a no-op button).
+                  ⭐ Kept beside the chooser on purpose: it needs NEITHER of the chooser's two
+                  permissions, so for a line agent it remains the only assignment control there is. */}
               {myOperatorId !== '' && detail.data.assigneeOperatorId !== myOperatorId && (
                 <button
                   type="button"
@@ -150,12 +184,35 @@ export function FieldsColumn({
                 </button>
               )}
             </div>
-            <div
-              className={`truncate text-sm ${detail.data.assigneeOperatorId ? 'font-mono' : ''}`}
-              title={detail.data.assigneeOperatorId || undefined}
-            >
-              {detail.data.assigneeOperatorId || 'Unassigned'}
-            </div>
+            {assigneeOptions.length > 0 ? (
+              /* ⭐ 2026-08-10 — the chooser the operator asked for. `allowClear` because Unassigned is
+                 a real state (the one every new ticket is in) and a field that cannot return to it is
+                 a one-way door — `setPriority`'s lesson, applied before it could be repeated. */
+              <EditableChoice
+                value={detail.data.assigneeOperatorId}
+                options={assigneeOptions}
+                placeholder="Unassigned"
+                onCommit={onSetAssignee}
+                disabled={busy}
+                ariaLabel="Assignee"
+                testId="field-assignee"
+                allowClear
+                clearLabel="Unassigned"
+              />
+            ) : (
+              /* ⚠️ The raw id, when the staff list is unreadable to this caller — NOT a dash and not a
+                 blank. "Somebody holds this and I cannot resolve who" and "nobody holds this" are
+                 opposite facts, and the id is the only honest way to say the first. */
+              <ReadOnlyValue
+                value={detail.data.assigneeOperatorId || 'Unassigned'}
+                mono={detail.data.assigneeOperatorId !== ''}
+                hint={
+                  detail.data.assigneeOperatorId
+                    ? 'Assigned. Naming a colleague needs the staff directory.'
+                    : 'Nobody holds this ticket yet.'
+                }
+              />
+            )}
           </div>
           <Labelled label="Status">
             <EditableChoice
@@ -190,7 +247,42 @@ export function FieldsColumn({
             />
           </Labelled>
           <Labelled label="Player ID">
-            <ReadOnlyValue value={detail.data.playerId} mono hint="Changed by attaching a customer." />
+            {/**
+             * ⭐⭐ 2026-08-10 — fillable, on the operator's instruction: *«не вижу ни одной причины,
+             * почему нельзя сделать placeholder, чтобы его можно было заполнять»*.
+             *
+             * ⚠️ **This OVERRULES the note this file carried the same morning** — *"changed by
+             * ATTACHING a customer, not by typing an id"*. The reasoning behind it was not wrong and is
+             * not discarded: a typed id is not a verified one, and the search-and-attach flow above
+             * exists because that verification matters. What was wrong was making it the ONLY way in.
+             * Both live here now, and the server refuses an id that names no player in this account
+             * either way — the check that actually protects the record was never this control's.
+             *
+             * ⓘ It is the identity pair's own route (`PUT /conversations/:id/player`), so it needs
+             * `crm.contact.lookup` — the same key the attach flow needs, which is why the render gate
+             * is the same `canLookUp`. Without it the field reads, and says why it cannot be changed.
+             *
+             * ⛔ CLEARING is deliberately not reachable here: detaching carries a warning that must be
+             * read first (ADR 0044 §5) and that flow lives in `IdentityPanel`. `EditableText` refuses
+             * an empty commit, so this cannot become a silent detach.
+             */}
+            {canLookUp ? (
+              <EditableText
+                value={detail.data.playerId}
+                placeholder="Add a player ID"
+                onCommit={onSetPlayerId}
+                disabled={busy}
+                ariaLabel="Player ID"
+                testId="field-player-id"
+                className="font-mono"
+              />
+            ) : (
+              <ReadOnlyValue
+                value={detail.data.playerId}
+                mono
+                hint="Changed by attaching a customer."
+              />
+            )}
           </Labelled>
           <Labelled label="Created">
             <ReadOnlyValue value={relativeTime(detail.data.createdAt)} />

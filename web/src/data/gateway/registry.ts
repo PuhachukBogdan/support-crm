@@ -612,6 +612,27 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['get'],
   },
   /**
+   * ⭐ 2026-08-10 — the ticket window's Assignee chooser (operator: *«не вижу возможности менять поля
+   * типа бренд, ассайни»*). AUTH user ids → operator ids + presence, under
+   * `crm.conversation.assign`.
+   *
+   * ⚠️ **`authUserIds` is REQUIRED and the server refuses an absent one with a 400** — there is no
+   * "all operators" question in the contract. The browser gets the ids (and the NAMES) from the
+   * staff list and asks this only to translate them; a screen that hoped for a default here would be
+   * asking for a list nothing promised to return.
+   */
+  {
+    resource: 'assignable-operators',
+    path: '/operators',
+    collection: 'operators',
+    params: { authUserIds: 'authUserIds' },
+    required: ['authUserIds'],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  /**
    * ⭐ W17 (subpoint 4.4) — the caller's OWN portfolio (`GET /me/players`, feature 026's read). The
    * subject is the session — there is nobody else this path can name, which is what makes it safe
    * for every role: a non-AM simply owns an empty portfolio.

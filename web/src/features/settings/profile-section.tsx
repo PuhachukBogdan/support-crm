@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useDataAccess } from '@/data/provider';
 import { toDataError } from '@/data/errors';
-import { API_PREFIX } from '@/data/gateway/http-port';
+import { uploadThumbUrl } from '@/data/asset-url';
 import type { DataError } from '@/data/types';
 
 interface OperatorWire {
@@ -104,7 +104,7 @@ export function ProfileSection() {
         {avatarId ? (
           // The 256px derivative the ingest always makes — never the original on a profile row.
           <img
-            src={`${API_PREFIX}/uploads/${encodeURIComponent(avatarId)}/thumb`}
+            src={uploadThumbUrl(avatarId)}
             alt="Your avatar"
             className="h-12 w-12 rounded-full object-cover"
             data-testid="avatar-image"

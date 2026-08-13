@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from 'next-themes';
 import { ContextPanelProvider } from './context-panel';
@@ -44,7 +44,7 @@ function renderShell(ui: ReactNode) {
 }
 
 describe('S3 app shell', () => {
-  it('renders sidebar nav, content, and the theme toggle', () => {
+  it('renders the icon rail and the content', () => {
     renderShell(
       <AppShell>
         <div>Page body</div>
@@ -52,9 +52,22 @@ describe('S3 app shell', () => {
     );
 
     expect(screen.getByRole('link', { name: /inbox/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /toggle theme/i })).toBeInTheDocument();
+    expect(screen.getByTestId('rail-settings')).toBeInTheDocument();
     expect(screen.getByText('Page body')).toBeInTheDocument();
+  });
+
+  /**
+   * ⭐ W22 (R40): the chrome LOST two controls, and their absence is asserted rather than assumed.
+   * The theme switch and sign-out both moved into settings on the operator's instruction — *«в
+   * главном меню её быть не должно»* / *«это как-то слишком легко»*. Without this test the move
+   * would be invisible: a duplicate left behind in the top bar looks exactly like a working product.
+   * ⚠️ Sign-out's own guarantee (it ends the session ON THE SERVER) did not stay here — it moved to
+   * `settings.test.tsx`, in this same change.
+   */
+  it('⭐ neither the theme switch nor sign-out is anywhere in the chrome any more (R40)', () => {
+    renderShell(<AppShell>x</AppShell>);
+    expect(screen.queryByRole('button', { name: /toggle theme/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /log ?out|sign ?out/i })).toBeNull();
   });
 
   it('marks the active route in the nav', () => {
@@ -64,43 +77,27 @@ describe('S3 app shell', () => {
     expect(screen.getByRole('link', { name: /settings/i })).not.toHaveAttribute('aria-current');
   });
 
-  it('collapses and expands the sidebar', () => {
+  /**
+   * ⭐ W22 (R41). This test used to prove the rail collapses and expands. It now proves the opposite,
+   * and the inversion is the requirement: *«всегда эта боковая панель должна быть свёрнута»*, and
+   * then *«какой смысл её разворачивать, если… можно просто полное название впихнуть в эти
+   * всплывающие окошки»*. So there is ONE width and NO control — and the name a person needs arrives
+   * on hover instead, which is asserted by its presence in the accessible name of each link.
+   */
+  it('⭐ the rail is icons-only and has no expand control (R41)', () => {
     renderShell(<AppShell>x</AppShell>);
     const sidebar = screen.getByTestId('sidebar');
-    expect(sidebar.className).toMatch(/w-60/);
-
-    fireEvent.click(screen.getByRole('button', { name: /toggle sidebar/i }));
     expect(sidebar.className).toMatch(/w-16/);
+    expect(sidebar.className).not.toMatch(/w-60/);
+    expect(screen.queryByRole('button', { name: /toggle sidebar/i })).toBeNull();
+    // The label did not disappear with the width — it moved to the hover tip and the accessible name.
+    expect(screen.getByRole('link', { name: /inbox/i })).toHaveAttribute('aria-label', 'Inbox');
   });
 
   it('opens the command palette on Cmd/Ctrl+K', () => {
     renderShell(<AppShell>x</AppShell>);
     fireEvent.keyDown(document, { key: 'k', metaKey: true });
     expect(screen.getByPlaceholderText(/type a command or search/i)).toBeInTheDocument();
-  });
-
-  it('⭐ signing out ends the session ON THE SERVER (T027, FR-005)', async () => {
-    // The old handler flipped a local flag and navigated. That is not a sign-out: the cookie kept
-    // working everywhere it had already been sent, and nothing on the server knew anything had
-    // happened. Asserted on the wire, because "we called logout" is exactly what was false before.
-    const sent: string[] = [];
-    const port: HttpPort = async (req) => {
-      sent.push(req.path);
-      return { status: 200, body: { status: 'logged_out' } };
-    };
-    render(
-      <ThemeProvider attribute="class" defaultTheme="light">
-        <SessionProvider impl={new GatewaySession(port)} seed={SIGNED_IN}>
-          <ContextPanelProvider>
-            <AppShell>x</AppShell>
-          </ContextPanelProvider>
-        </SessionProvider>
-      </ThemeProvider>,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /log out/i }));
-
-    await waitFor(() => expect(sent).toContain('/auth/logout'));
   });
 
   it('hardcodes no hex colors (white-label)', () => {

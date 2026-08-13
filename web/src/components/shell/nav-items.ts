@@ -47,6 +47,15 @@ export interface NavModule {
   readonly permission?: string;
   /** The default state, overridable by configuration without touching this file. */
   readonly state: ModuleState;
+  /**
+   * ⭐ W22 (R40): WHERE in the rail this entry is drawn. `footer` is for the "about me" cluster the
+   * operator put at the bottom left beside the avatar; everything else is the main nav.
+   *
+   * ⚠️ It is a placement, NOT a second catalogue. The command palette resolves the same list and
+   * offers footer entries too — a destination reachable by icon but not by search would be a second
+   * navigation nobody audits, which is the exact failure `command-menu.tsx` was written to avoid.
+   */
+  readonly slot?: 'nav' | 'footer';
 }
 
 /**
@@ -166,6 +175,15 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
      * asserted the wrong claim in R26's name.
      */
     state: 'active',
+    /**
+     * ⭐ W22 (R40): drawn in the rail's FOOTER, beside the user menu — *«снизу слева и там же
+     * отдельно вынести кнопку настроек»*. It stayed in this catalogue rather than being hardcoded
+     * into the footer, because the day it needs a permission (it does not today — R26 puts a
+     * person's own settings on every rail) the gate must already be in the place gates live.
+     * ⚠️ Rendering it in BOTH places is what the first cut of W22 did: two links named "Settings",
+     * one rail. Caught by the shell tests, which is what they are for.
+     */
+    slot: 'footer',
   },
 ];
 

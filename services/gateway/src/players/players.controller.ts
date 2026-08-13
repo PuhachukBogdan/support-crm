@@ -1,4 +1,13 @@
-import { Controller, Get, Inject, OnModuleInit, Param, Query, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Inject,
+  OnModuleInit,
+  Param,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { type ClientGrpc } from '@nestjs/microservices';
 import { type Observable } from 'rxjs';
 import type { Request } from 'express';
@@ -31,11 +40,44 @@ interface OperatorWire {
   displayName: string;
   active: boolean;
 }
+/** What `ListOperatorsByAuthUsers` answers: the translation, plus the availability that rides it. */
+interface ResolvedOperatorWire {
+  operatorId?: string;
+  authUserId?: string;
+  /** The proto enum as a number — decoded to a word here, the same closed set the presence edge uses. */
+  state?: number | string;
+  blockedChannels?: string[];
+}
+interface ResolvedOperatorsWire {
+  operators?: ResolvedOperatorWire[];
+}
 interface UsersReadGrpc {
   getPlayer(d: Record<string, unknown>, md?: unknown): Observable<PlayerWire>;
   listPlayersByBrand(d: Record<string, unknown>, md?: unknown): Observable<PlayerPageWire>;
   getOperator(d: Record<string, unknown>, md?: unknown): Observable<OperatorWire>;
+  listOperatorsByAuthUsers(
+    d: Record<string, unknown>,
+    md?: unknown,
+  ): Observable<ResolvedOperatorsWire>;
 }
+
+/**
+ * The proto's `PresenceState` as words. Mirrors the presence edge's own decoder — the closed set is
+ * `online · transfers_only · away · offline`, and an unrecognised number decodes to `offline`
+ * (fail-closed: an unknown state must never read as "available to take work").
+ */
+const PRESENCE_STATE_WORD: Readonly<Record<string, string>> = {
+  '0': 'offline',
+  '1': 'online',
+  '2': 'transfers_only',
+  '3': 'away',
+  '4': 'offline',
+  PRESENCE_STATE_UNSPECIFIED: 'offline',
+  PRESENCE_STATE_ONLINE: 'online',
+  PRESENCE_STATE_TRANSFERS_ONLY: 'transfers_only',
+  PRESENCE_STATE_AWAY: 'away',
+  PRESENCE_STATE_OFFLINE: 'offline',
+};
 
 type PlayerReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
 
@@ -150,5 +192,62 @@ export class PlayersController implements OnModuleInit {
     @Req() req: PlayerReq,
   ): Promise<OperatorWire> {
     return callUploads(this.users.getOperator({ operatorId }, this.meta(req)));
+  }
+
+  /**
+   * ⭐ 2026-08-10 — AUTH user ids → assignable operator profiles, for the ticket window's Assignee
+   * chooser. The operator, on the shipped screen: *«я всё ещё не вижу возможности менять поля типа
+   * бренд, ассайни»* — Assignee rendered a raw `Operator.id` and offered only «take it», so
+   * reassigning to a named colleague had no control at all.
+   *
+   * ── Why an EDGE and not a new rpc ────────────────────────────────────────────────────────────────
+   * `UsersReadService.ListOperatorsByAuthUsers` has answered exactly this since feature 024 and was
+   * reachable from nowhere outside the cluster — the same shape as the `groupId` field the assignment
+   * route forgot to forward, and the same conclusion: *a contract with no caller is indistinguishable
+   * from an unbuilt one.* Nothing new is invented here; a path is put in front of what exists.
+   *
+   * ── The gate is the rpc's OWN key, deliberately unchanged ────────────────────────────────────────
+   * `crm.conversation.assign`. The rpc's comment states the rule this route must not break: *"the
+   * caller forwards its own credentials unchanged; calling as a system actor would launder the
+   * permission."* Matching the key exactly means the edge cannot widen the answer — and the owning
+   * service re-checks regardless, so this is the door, not the lock.
+   *
+   * ⓘ Staffing facts only: an operator id, a display-name-less profile reference, presence and the
+   * channels switched off. **No customer data exists in this answer to mask** (the rpc's own words),
+   * which is why there is no projection step here as there is on every player route above. NAMES are
+   * not here either — the browser already holds them from the staff list it joined this against.
+   *
+   * ⚠️ `authUserIds` is REQUIRED and capped. Absent, the honest answer is a 400, not "everyone": the
+   * rpc takes a list and there is no "all operators" question in the contract, so defaulting would
+   * mean inventing one here — in the tier that is forbidden to hold business logic.
+   */
+  @Get('operators')
+  @RequiresPermission('crm.conversation.assign')
+  async listOperators(
+    @Query('authUserIds') authUserIds: string | undefined,
+    @Req() req: PlayerReq,
+  ): Promise<{ operators: { operatorId: string; authUserId: string; state: string; blockedChannels: string[] }[] }> {
+    const asked = (authUserIds ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (asked.length === 0) throw new BadRequestException('authUserIds is required');
+    // The staff list this is joined against is itself capped at 100 by its caller; the same bound is
+    // restated here so a hand-made request cannot turn one translation into an unbounded one.
+    if (asked.length > 200) throw new BadRequestException('authUserIds: at most 200 per request');
+
+    const res = await callUploads(
+      this.users.listOperatorsByAuthUsers({ authUserIds: asked }, this.meta(req)),
+    );
+    // The wire is RESTATED rather than spread — a field added to the rpc does not silently reach the
+    // browser (the rule `me/operator` states one file over).
+    return {
+      operators: (res?.operators ?? []).map((o) => ({
+        operatorId: o.operatorId ?? '',
+        authUserId: o.authUserId ?? '',
+        state: PRESENCE_STATE_WORD[String(o.state ?? '')] ?? 'offline',
+        blockedChannels: o.blockedChannels ?? [],
+      })),
+    };
   }
 }

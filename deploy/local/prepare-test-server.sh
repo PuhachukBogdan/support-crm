@@ -38,7 +38,14 @@ psqlq(){ docker compose exec -T postgres psql -qtAX -U postgres -d "$1" -c "$2" 
 # anything real. Satisfies the password policy (min 6 + upper + digit + symbol).
 TRACKB_PASSWORD='TrackB-017-Passw0rd!'
 SEED_EMAIL='admin@example.test'
-GW='http://localhost:3000'
+# ⭐ Overridable since 2026-08-07 (Шаг 0): there are now TWO stands on this host — the frozen public
+# one and the verification one — and they publish on different loopback addresses so their ports do
+# not collide. The script must be able to address either.
+#   frozen:        GW unset            → http://localhost:3000
+#   verification:  GW=http://127.0.0.2:3000
+# ⚠️ Pair it with the compose selectors, or this prepares the WRONG stand:
+#   COMPOSE_PROJECT_NAME=crm-next COMPOSE_FILE=compose.yaml:compose.next.yaml
+GW="${GW:-http://localhost:3000}"
 
 step "1/6  docker compose up (build if needed)"
 if docker compose up -d --build >/dev/null 2>&1; then ok "stack is up"; else bad "compose up failed — stopping"; exit 1; fi
@@ -132,8 +139,25 @@ if [ -n "$EXTRA" ]; then
   echo "         Leftover from an earlier live run, not a product defect and not fail-closed-unsafe."
   echo "         Remove only after checking \"UserRole\" does not reference it."
 fi
-check users_db  "select count(*) from \"Player\" where player_id='seed-player-001';"           1 "users: the seeded player exists"
-check users_db  "select count(*) from \"Operator\";"                                           1 "users: the seeded operator exists"
+# ⚠️ Both of these asserted `= 1` until 2026-08-07 and both were WRONG, in the two different ways this
+# file already warns about elsewhere. Caught while preparing the second stand (Шаг 0); the frozen
+# public stand — which passed W21's live round 16/16 twice — reports the same numbers, which is what
+# proves the assertions were stale rather than the hosts broken.
+#
+#   * Player: `seed-player-001` legitimately has **one row per brand**. ADR 0038 §3 is explicit —
+#     the same player id under another brand is ANOTHER HUMAN, and the seed creates two brands' worth.
+#     So `= 1` encoded a single-brand world that stopped existing. Asserting per-brand presence is the
+#     honest form; the count alone cannot say it.
+#   * Operator: a live host ACCUMULATES operators — role logins, invites completed during live rounds,
+#     registrations. `= 1` described a host that had only ever been seeded, i.e. a host on its first
+#     day. The property wanted here is "seeding produced the operator a live run needs", not "nobody
+#     has ever used this host".
+#     ⚠️ And the first attempt at THIS fix was wrong too, recorded so it is not retried: comparing the
+#     player's distinct brand ids against `count(*)` from `Brand` fails on a healthy host, because
+#     `brands_db` holds one Brand row while `users_db` stores brand ids as VALUES across two — the
+#     services do not join (ADR 0029). The check would have been red for a reason it does not name.
+check users_db  "select count(*) >= 1 from \"Player\" where player_id='seed-player-001';"      t "users: the seeded player exists (one row per brand by design)"
+check users_db  "select count(*) >= 1 from \"Operator\";"                                      t "users: at least one operator exists (a live host accumulates more)"
 check brands_db "select count(*) from \"Brand\";"                                              1 "brands: the seeded brand exists"
 check chats_db  "select count(*) > 0 from \"Conversation\";"                                    t "chats: seeded conversations exist"
 

@@ -185,6 +185,34 @@ export const ticketSlice = createSlice({
       prepare: (payload: { id: string; brandId: string }) => ({ payload }),
     },
     /**
+     * ⭐ 2026-08-10 — the two fields the operator could still not change («не вижу возможности менять
+     * поля типа бренд, ассайни… player ID… не вижу ни одной причины, почему нельзя сделать
+     * placeholder, чтобы его можно было заполнять»).
+     *
+     * ⚠️ **`setAssignee` with `operatorId: ''` UNASSIGNS**, and the saga sends a DELETE for it rather
+     * than a PUT with an empty body. "Nobody holds this" is a real, reachable state — the one every
+     * new ticket is in — so a field that could be filled and never emptied would be a one-way door,
+     * the exact defect `setPriority` was built to avoid one property over.
+     *
+     * ⚠️ **`setPlayerId` is a PLACEMENT, not a rename.** It attaches this ticket to a player id, which
+     * is why it goes to the identity pair's own route (`PUT /conversations/:id/player`) under
+     * `crm.contact.lookup` and not to a field patch. DETACHING is deliberately NOT here: it carries a
+     * warning that must be read first (ADR 0044 §5), and that flow already exists in
+     * `IdentityPanel`. A blank commit therefore does nothing — `EditableText` refuses an empty value.
+     */
+    setAssignee: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; operatorId: string }) => ({ payload }),
+    },
+    setPlayerId: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; playerId: string }) => ({ payload }),
+    },
+    /**
      * W8 — apply a macro. All-or-nothing SERVER-side (FR-008): a refused bundle leaves zero
      * changes, so the re-read after either outcome shows the truth. The service re-checks the
      * permission of every action inside, so this can never widen what the caller may do.

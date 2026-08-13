@@ -4,18 +4,31 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { MODULE_CATALOGUE, parseModuleOverrides, resolveModules } from './nav-items';
-import { PRODUCT_WORDMARK } from './branding';
+import { UserMenu } from './user-menu';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSession } from '@/session';
 
 /**
- * Collapsible left navigation. Colors/spacing come only from tokens (white-label).
+ * The left rail. Colors/spacing come only from tokens (white-label).
  *
- * ── Feature 029 (roadmap 9.1's missing criteria) ─────────────────────────────────────────────────
- * The rail is now **assembled from the caller's server-resolved permissions** (FR-020) and each entry
- * carries one of three module states (FR-021). ⛔ It is rendering only: a module absent here must
- * also have no route and no API answer, which is server-side and completed by 9.14.
+ * ── W22 (R41): icons only, ALWAYS. The expand control is gone. ───────────────────────────────────
+ * The operator, looking at the shipped product: *«всегда эта боковая панель должна быть свёрнута, а у
+ * нас она при старте развёрнута»*, and then the stronger half — *«какой смысл её разворачивать, если,
+ * по сути, можно просто полное название впихнуть в эти всплывающие окошки. Она же только место
+ * занимает на экране»*. So there is no `collapsed` prop any more and no button to press: the rail is
+ * one width, and the name arrives on hover after ~0.5 s.
+ *
+ * ⓘ The label is the module's own `label` from the catalogue — not a second list. A rail that keeps
+ * its own copy of the names is a rail that eventually disagrees with itself.
+ *
+ * ── The footer is new, and it is the reason this file grew (R40) ─────────────────────────────────
+ * `UserMenu` (avatar + presence + profile) and a separate settings icon live at the bottom, on every
+ * screen and for every role. That is where the operator put them when asked.
+ *
+ * ⛔ Still rendering, not enforcement: a module absent here must also have no route and no API
+ * answer, which is server-side (roadmap 9.14).
  */
-export function Sidebar({ collapsed }: { collapsed: boolean }) {
+export function Sidebar() {
   const pathname = usePathname();
   const { state } = useSession();
   // Deny-by-default: anything other than a resolved, authenticated session has no permissions, so the
@@ -26,56 +39,89 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
     parseModuleOverrides(process.env.NEXT_PUBLIC_MODULE_STATES),
     MODULE_CATALOGUE,
   );
+  // ⭐ One catalogue, two places (R40). Splitting here rather than keeping a second list is what
+  // stops the footer and the nav from disagreeing about what exists.
+  const navModules = modules.filter((m) => m.slot !== 'footer');
+  const footerModules = modules.filter((m) => m.slot === 'footer');
 
   return (
     <aside
       data-testid="sidebar"
-      className={cn(
-        'flex h-full flex-col border-r border-border bg-card transition-[width] duration-base ease-standard',
-        collapsed ? 'w-16' : 'w-60',
-      )}
+      className="flex h-full w-16 shrink-0 flex-col border-r border-border bg-card"
     >
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
-        {/* Neutral mark and wordmark — both configuration, no brand identity committed (0028). */}
-        <div className="h-6 w-6 shrink-0 rounded bg-primary" aria-hidden />
-        {!collapsed && <span className="truncate text-sm font-semibold">{PRODUCT_WORDMARK}</span>}
+      <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
+        {/* Neutral mark — configuration, no brand identity committed (0028). */}
+        <div className="h-6 w-6 rounded bg-primary" aria-hidden />
       </div>
 
-      <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto p-2">
-        {modules.map((item) => {
-          const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
-          const Icon = item.icon;
-          const comingSoon = item.state === 'coming_soon';
-          return (
-            <Link
-              key={item.key}
-              href={item.href}
-              aria-current={active ? 'page' : undefined}
-              data-module={item.key}
-              data-state={item.state}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                active
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                  <span className="truncate">{item.label}</span>
+      {/* One provider for the whole rail; 500 ms is the operator's own number («например, 0,5 секунды»). */}
+      <TooltipProvider delayDuration={500}>
+        <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto p-2">
+          {navModules.map((item) => {
+            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            const Icon = item.icon;
+            const comingSoon = item.state === 'coming_soon';
+            return (
+              <Tooltip key={item.key}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={item.href}
+                    aria-current={active ? 'page' : undefined}
+                    aria-label={item.label}
+                    data-module={item.key}
+                    data-state={item.state}
+                    className={cn(
+                      'flex h-10 w-10 items-center justify-center rounded-md transition-colors',
+                      active
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                  </Link>
+                </TooltipTrigger>
+                {/* The name lives here now — that is the whole trade the operator asked for. */}
+                <TooltipContent side="right" data-testid={`nav-tip-${item.key}`}>
+                  {item.label}
                   {/* Says plainly that the module is reserved rather than broken (R13). */}
-                  {comingSoon && (
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-                      soon
-                    </span>
-                  )}
-                </span>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
+                  {comingSoon && <span className="ml-2 text-xs opacity-70">soon</span>}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+
+        <div className="flex shrink-0 flex-col items-center gap-1 border-t border-border p-2">
+          {footerModules.map((item) => {
+            const active = pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Tooltip key={item.key}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={item.href}
+                    aria-label={item.label}
+                    data-module={item.key}
+                    data-state={item.state}
+                    data-testid={`rail-${item.key}`}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+                      active
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+          <UserMenu />
+        </div>
+      </TooltipProvider>
     </aside>
   );
 }

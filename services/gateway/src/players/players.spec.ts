@@ -52,6 +52,18 @@ function harness(opts: { usersRefuses?: boolean } = {}) {
       recorded.meta = md;
       return of({ operatorId: 'op-1', accountId: 'acc-1', displayName: 'Ann', active: true });
     }),
+    // ⭐ 2026-08-10 — answers with the proto's ENUM NUMBER, as the real rpc does. A stub that
+    // returned the word would hide the decode this edge exists to perform.
+    listOperatorsByAuthUsers: jest.fn((d: Record<string, unknown>, md: unknown) => {
+      recorded.args = d;
+      recorded.meta = md;
+      return of({
+        operators: [
+          { operatorId: 'op-1', authUserId: 'u-1', state: 1, blockedChannels: [] },
+          { operatorId: 'op-2', authUserId: 'u-2', state: 3, blockedChannels: ['email'] },
+        ],
+      });
+    }),
   };
   const ctl = new PlayersController({ getService: () => svc } as never);
   ctl.onModuleInit();
@@ -65,7 +77,7 @@ describe('*** every route carries permission metadata *** (the 016 wire defect, 
   );
 
   it('the scan sees the real routes (guards against a vacuous pass)', () => {
-    expect(ROUTES.sort()).toEqual(['getOperator', 'getPlayer', 'listPlayers']);
+    expect(ROUTES.sort()).toEqual(['getOperator', 'getPlayer', 'listOperators', 'listPlayers']);
   });
 
   it.each(ROUTES)('%s enforces a permission key', (name) => {
@@ -91,6 +103,18 @@ describe('*** every route carries permission metadata *** (the 016 wire defect, 
     expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.listPlayers!)).toBe('crm.customers.browse');
     // A STAFF read is not a customer-card read. Reusing the contact key would make one key mean two things.
     expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.getOperator!)).toBe('crm.inbox.view');
+    /**
+     * ⭐⭐ 2026-08-10 — and the LIST carries the rpc's OWN key, not the read-one key beside it.
+     *
+     * ⚠️ This is the assertion that keeps the edge from laundering a permission. The rpc is gated on
+     * `crm.conversation.assign` and its comment states the rule outright: *"the caller forwards its
+     * own credentials unchanged; calling as a system actor would launder the permission."* Putting
+     * `crm.inbox.view` here — the key its neighbour uses — would hand every inbox reader the staffing
+     * answer, through a route that looks like a sibling of one that was reviewed.
+     */
+    expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.listOperators!)).toBe(
+      'crm.conversation.assign',
+    );
   });
 
   it('no route uses the scope-parameter form — the key here is not parameter-dependent', () => {
@@ -130,6 +154,86 @@ describe('*** the two new headers reach the owning service ***', () => {
     await h.ctl.getPlayer('ply-1', { brandId: 'brand-a' }, h.req);
     const md = h.recorded.meta as { get(k: string): unknown[] };
     expect(String(md.get('x-actor-permissions')[0] ?? '')).not.toBe('');
+  });
+});
+
+/**
+ * ⭐⭐ 2026-08-10 — `GET /operators?authUserIds=…`, the ticket window's Assignee chooser.
+ *
+ * The operator, on the shipped screen: *«я всё ещё не вижу возможности менять поля типа бренд,
+ * ассайни»*. Assignee had no editor because the browser had no way to learn who is assignable: the
+ * rpc that answers it has existed since feature 024 and was reachable from nowhere outside the
+ * cluster — *a contract with no caller is indistinguishable from an unbuilt one*.
+ */
+describe('*** the assignable-operator translation ***', () => {
+  it('forwards exactly the ids asked for, trimmed, and nothing else', async () => {
+    const h = harness();
+    await h.ctl.listOperators(' u-1 , u-2 ,', h.req);
+    expect(h.recorded.args).toEqual({ authUserIds: ['u-1', 'u-2'] });
+    // The caller's own credentials, unchanged — the rule the rpc's comment states. A system-actor
+    // call here would launder the permission the route just enforced.
+    const md = h.recorded.meta as { get(k: string): unknown[] };
+    expect(md.get('x-actor-user-id')[0]).toBe('user-1');
+  });
+
+  it('decodes the presence ENUM to the closed set of words', async () => {
+    const h = harness();
+    const res = await h.ctl.listOperators('u-1,u-2', h.req);
+    expect(res.operators).toEqual([
+      { operatorId: 'op-1', authUserId: 'u-1', state: 'online', blockedChannels: [] },
+      { operatorId: 'op-2', authUserId: 'u-2', state: 'away', blockedChannels: ['email'] },
+    ]);
+  });
+
+  it('⚠️ an UNRECOGNISED state decodes to `offline` — fail-closed, never "available"', async () => {
+    const h = harness();
+    (h.svc.listOperatorsByAuthUsers as jest.Mock).mockReturnValueOnce(
+      of({ operators: [{ operatorId: 'op-9', authUserId: 'u-9', state: 99 }] }),
+    );
+    const res = await h.ctl.listOperators('u-9', h.req);
+    /**
+     * A state this product has not heard of must read as *not taking work*. Defaulting to `online`
+     * would put a colleague forward as available on the strength of a number nobody recognised —
+     * the same fail-closed rule the rpc applies to a missing operator profile.
+     */
+    expect(res.operators[0]!.state).toBe('offline');
+    expect(res.operators[0]!.blockedChannels).toEqual([]);
+  });
+
+  it('⛔ an ABSENT list is a 400 — never "everyone"', async () => {
+    const h = harness();
+    // The rpc translates a list; there is no "all operators" question in the contract, so a default
+    // here would mean inventing one in the tier forbidden to hold business logic (Principle VIII).
+    await expect(h.ctl.listOperators(undefined, h.req)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(h.ctl.listOperators('  ,  ', h.req)).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.svc.listOperatorsByAuthUsers).not.toHaveBeenCalled();
+  });
+
+  it('⛔ and an unbounded one is a 400 too — the bound is restated, not assumed from the caller', async () => {
+    const h = harness();
+    const many = Array.from({ length: 201 }, (_, i) => `u-${i}`).join(',');
+    await expect(h.ctl.listOperators(many, h.req)).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.svc.listOperatorsByAuthUsers).not.toHaveBeenCalled();
+  });
+
+  it('⚠️ the response is RESTATED field by field — a new rpc field cannot reach the browser', async () => {
+    const h = harness();
+    (h.svc.listOperatorsByAuthUsers as jest.Mock).mockReturnValueOnce(
+      of({
+        operators: [
+          // A field a future feature adds to the rpc. It must not travel by accident: this edge is
+          // one hop from the browser, and `me/operator` states the same rule one file over.
+          { operatorId: 'op-1', authUserId: 'u-1', state: 1, secretStaffingNote: 'do not send' },
+        ],
+      }),
+    );
+    const res = await h.ctl.listOperators('u-1', h.req);
+    expect(Object.keys(res.operators[0]!).sort()).toEqual([
+      'authUserId',
+      'blockedChannels',
+      'operatorId',
+      'state',
+    ]);
   });
 });
 

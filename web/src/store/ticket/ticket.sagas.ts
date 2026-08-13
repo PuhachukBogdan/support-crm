@@ -212,6 +212,50 @@ function* setBrand(action: ReturnType<typeof ticketActions.setBrand>) {
 }
 
 /**
+ * ⭐ 2026-08-10 — assign to a NAMED colleague, or to nobody.
+ *
+ * ⚠️ **Unassigning is a DELETE, not a PUT with an empty operator.** The gateway offers both verbs on
+ * `/conversations/:id/assignee` and its own comment says which is which; `PUT {operatorId: ''}`
+ * happens to reach the same rpc today, so relying on it would be relying on an implementation detail
+ * of the edge rather than on the route it publishes. Both are idempotent, so a retry after an error is
+ * safe either way.
+ *
+ * ⓘ «take it» keeps its own action and saga: it carries the CALLER's id from `/me/operator` and has no
+ * field to name anyone else (5.11's guarantee). Folding it into this one would quietly delete that.
+ */
+function* setAssignee(action: ReturnType<typeof ticketActions.setAssignee>) {
+  const { id, operatorId } = action.payload;
+  try {
+    const da = getDataAccess();
+    if (operatorId === '') yield call([da, da.remove], 'conversation-assignee', '', id);
+    else yield call([da, da.update], 'conversation-assignee', '', { operatorId }, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield call(loadDetail, id);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
+/**
+ * ⭐ 2026-08-10 — attach this ticket to a player id by typing it (the operator's placeholder).
+ *
+ * ⚠️ The re-read is the DETAIL, and it matters more here than on any other field: this write changes
+ * `identityState` as well as `playerId`, and the right rail's player card is keyed off both. Merging
+ * locally would leave a ticket rendering as identified while the server still called it unidentified.
+ */
+function* setPlayerId(action: ReturnType<typeof ticketActions.setPlayerId>) {
+  const { id, playerId } = action.payload;
+  try {
+    const da = getDataAccess();
+    yield call([da, da.update], 'conversation-player', '', { playerId }, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield call(loadDetail, id);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
+/**
  * W8 — apply a macro: POST to the macro's path under the conversation, then re-read what a macro
  * can touch (status/priority/assignee → detail; add_label → labels). The thread is untouched by
  * every action type in the catalogue, so it is deliberately not re-read.
@@ -263,5 +307,11 @@ export function* ticketSaga() {
   });
   yield fork(function* () {
     yield takeLeading(ticketActions.setBrand.type, setBrand);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.setAssignee.type, setAssignee);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.setPlayerId.type, setPlayerId);
   });
 }

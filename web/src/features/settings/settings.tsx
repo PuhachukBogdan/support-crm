@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/composites/page-header/page-header';
+import { useSession } from '@/session';
 import { useThemeMode } from './use-theme-mode';
 import { ProfileSection } from './profile-section';
 
@@ -71,6 +73,58 @@ export function Settings() {
 
       {/* ⭐ W19: the Profile slot stopped being a promise — avatar (5.4) + presence (5.5). */}
       <ProfileSection />
+
+      {/* ⭐ W22: the Account slot, and the only reason it exists yet is where sign-out went (R40). */}
+      <AccountSection />
     </div>
+  );
+}
+
+/**
+ * W22 — account actions (R40).
+ *
+ * Sign-out lives here now, on the operator's instruction: *«я думаю, logout сделать именно в
+ * настройках аккаунта, потому что в той всплывающей панели, где можно выставить себе статус и так
+ * далее, это как-то слишком легко. Разлогиниться можно, но в этом особого смысла нет, потому что
+ * никто logout часто делать не будет»*.
+ *
+ * ⚠️⚠️ **The guarantee moved with the button, and that is the point of this note.** Signing out ends
+ * the session **on the server** and then re-asks the gateway rather than assuming the answer — the
+ * browser does not decide when a session is over. The original handler flipped a local flag, which
+ * is not a sign-out at all: the cookie would have kept working everywhere it had been sent. That
+ * property was asserted in `shell.test.tsx` while the control lived in the top bar; the assertion
+ * moved to `settings.test.tsx` in the same commit. A check that stays behind when its subject moves
+ * is how a guarantee evaporates while every file still looks correct.
+ */
+function AccountSection() {
+  const router = useRouter();
+  const { session, refresh } = useSession();
+  const [busy, setBusy] = useState(false);
+
+  const signOut = async () => {
+    setBusy(true);
+    try {
+      await session.signOut();
+      await refresh();
+      router.push('/login');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="space-y-2 rounded-md border border-border p-3" data-testid="settings-account">
+      <h2 className="text-sm font-semibold">Account</h2>
+      <p className="text-xs text-muted-foreground">
+        Signing out ends this session on the server, on every device it was used from.
+      </p>
+      <Button size="sm" variant="outline" disabled={busy} data-testid="sign-out" onClick={() => void signOut()}>
+        Sign out
+      </Button>
+      {/* ⏳ Password change lands here with W36 — the surface does not exist anywhere yet. */}
+      <p className="text-xs text-muted-foreground">
+        Changing your password arrives with point 3.18 — reserved, not missing.
+      </p>
+    </section>
   );
 }

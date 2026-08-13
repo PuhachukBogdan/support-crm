@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, Pencil } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,14 +17,30 @@ import { cn } from '@/lib/utils';
  * placeholder без явных рамочек. Это будет симпатично.»*
  *
  * ── The shape, and why it is this one ────────────────────────────────────────────────────────────
- * A field reads as TEXT until you touch it. No box, no border, no control affordance sitting there
- * competing with the words — the hover state is the whole invitation, and the editor appears only
- * once you have said you want it. That is the "placeholder without frames" he asked for.
+ * A field reads as TEXT until you touch it. No box, no border — the editor appears only once you have
+ * said you want it. That is the "placeholder without frames" he asked for.
  *
  * ⚠️ **A value that is merely unset must still be reachable.** The tempting version renders an empty
  * string for a missing value, which gives a person nothing to click and makes an editable field
  * indistinguishable from a read-only one. So an unset value renders its `placeholder` in muted text
  * — a target, and a statement that the field is empty rather than broken.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⭐⭐ **2026-08-10, second pass — "hover is the whole invitation" was WRONG, and the operator's own
+ * report is the evidence.** Reading the finished screen: *«я всё ещё не вижу возможности менять поля
+ * типа бренд, ассайни»* — while Brand had been an `EditableChoice` since that morning and Assignee was
+ * genuinely read-only. He could not tell the two apart, because **at rest they rendered identically**:
+ * `EditableChoice` and `ReadOnlyValue` were both bare text in the same slot, and the only difference
+ * lived in a hover state you have to already suspect is there to go looking for it.
+ *
+ * ⇒ An editable field now carries a QUIET, PERMANENT mark: a chevron on a chooser, a pencil on a text
+ * field, muted at rest and full-strength on hover/focus. `ReadOnlyValue` carries none — so the
+ * distinction is visible without touching anything, which is the property that was missing.
+ *
+ * ⓘ This is not the "explicit frame" he rejected (*«без явных рамочек»*): no box, no border, no filled
+ * control — the words still read as words. It is the smallest possible statement that a field answers
+ * to a click, and it is what every chooser in ui.shadcn.com does for exactly this reason (rule 11).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════
  *
  * ⚠️ **Nothing here is optimistic.** Both editors report the value they were GIVEN, and the caller
  * re-reads after the write (`ticket.sagas`). A local echo would show a change the server refused —
@@ -34,6 +51,19 @@ import { cn } from '@/lib/utils';
 /** Shared skin: text that becomes a control on hover, never a box that sits there being one. */
 const SLOT =
   'w-full truncate rounded-sm px-1 -mx-1 py-0.5 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60';
+
+/**
+ * The at-rest layout of an editable field: the value takes the room, the mark sits at the end.
+ * `group` is what lets the mark brighten with the whole row rather than only under the cursor.
+ */
+const SLOT_ROW = `${SLOT} group flex items-center gap-1`;
+
+/**
+ * The mark itself. Visible at rest (`opacity-60`) — that is the entire point, see the note above — and
+ * full strength once the field is hovered or focused. `shrink-0` so it survives a truncated value:
+ * losing the affordance is exactly the failure this is fixing.
+ */
+const MARK = 'h-3.5 w-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100';
 
 /**
  * A one-line text value edited in place. Enter commits, Escape abandons, blur commits — because a
@@ -94,10 +124,11 @@ export function EditableText({
         disabled={disabled}
         aria-label={ariaLabel}
         onClick={() => setEditing(true)}
-        className={cn(SLOT, value === '' && 'text-muted-foreground', className)}
+        className={cn(SLOT_ROW, value === '' && 'text-muted-foreground', className)}
         title={value || placeholder}
       >
-        {value || placeholder}
+        <span className="min-w-0 flex-1 truncate">{value || placeholder}</span>
+        <Pencil className={MARK} aria-hidden />
       </button>
     );
   }
@@ -174,10 +205,13 @@ export function EditableChoice({
           data-testid={testId}
           disabled={disabled || options.length === 0}
           aria-label={ariaLabel}
-          className={cn(SLOT, shown === '' && 'text-muted-foreground')}
+          className={cn(SLOT_ROW, shown === '' && 'text-muted-foreground')}
           title={shown || placeholder}
         >
-          {shown || placeholder}
+          <span className="min-w-0 flex-1 truncate">{shown || placeholder}</span>
+          {/* ⓘ Dropped when there is nothing to choose (the button is `disabled` then too) — a chevron
+              on a control that cannot open is the same lie in the other direction. */}
+          {options.length > 0 && <ChevronDown className={MARK} aria-hidden />}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
@@ -204,7 +238,14 @@ export function EditableChoice({
   );
 }
 
-/** A field that cannot be changed here, rendered so it does not pretend to be one that can. */
+/**
+ * A field that cannot be changed here, rendered so it does not pretend to be one that can.
+ *
+ * ⚠️ **It carries NO mark, and that absence is now load-bearing** (2026-08-10): the chevron and the
+ * pencil above are what say "this answers to a click", so their absence is what says the opposite.
+ * Adding either here would re-create the confusion the operator reported — and adding a hover
+ * background would too, since that was the old, unreadable signal.
+ */
 export function ReadOnlyValue({
   value,
   mono = false,

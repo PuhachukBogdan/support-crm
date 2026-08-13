@@ -282,7 +282,44 @@ try {
     pass(`the panel drags and REMEMBERS (${Math.round(widthBefore)} → ${expected}px, stored) — synthetic pointer, limit stated`);
   else fail('panel resize', `${widthBefore} → ${widthAfter} (expected ${expected}), stored=${stored}`);
 
-  // ── 8. the way back ─────────────────────────────────────────────────────────────────────────────
+  // ── 8. W10 — the consolidated right rail, in the shell's own slot ───────────────────────────────
+  const panel = await p.$('[data-testid="context-panel"]');
+  if (panel) pass('the shell renders its context-panel slot — the rail is a REGION, not a page widget');
+  else fail('context panel present');
+
+  const railButtons = await p.$$eval('[aria-label="Context panels"] button', (bs) => bs.length);
+  if (railButtons === 2) pass('⛔ exactly TWO rail buttons — Zendesk 3/4/5 are not built (R27)');
+  else fail('two rail buttons', `found ${railButtons}`);
+
+  // ⭐⭐ The standing anti-storm rule on W10's own key interaction: switching the panel. The slot
+  // stores a NODE and the window pushes into it from an effect — the exact shape that looped in
+  // jsdom before `setPanel`/`clear` were stabilised, so this is the assertion that would catch it
+  // coming back in a browser, where a loop is a freeze rather than a hanging test.
+  await assertNoRenderStorm({ page: p, selector: '[data-testid="panel-tab-active"]', pass, fail });
+
+  const active = await p.$('[data-testid="active-tickets"]');
+  const activeEmpty = await p.$('[data-testid="active-tickets-empty"]');
+  if (active || activeEmpty)
+    pass(`the Active tickets tab answers (${active ? 'has rows' : 'says it is empty, in words'})`);
+  else fail('active tickets tab', 'neither a list nor its empty state');
+
+  await p.$eval('[data-testid="rail-player"]', (el) => el.click());
+  const card = (await p.$('[data-testid="player-card"]')) ?? (await p.$('[data-testid="player-card-unidentified"]'));
+  if (card) pass('the player card renders (identity, or the honest "no player attached")');
+  else fail('player card');
+  const gr8 = await p.$eval('[data-testid="gr8-placeholder"]', (el) => el.textContent ?? '').catch(() => '');
+  if (/GR8/.test(gr8) && /not hold this data yet|coming soon/i.test(gr8))
+    pass('⭐ the GR8 block SAYS it is empty — a reserved slot, never a broken-looking blank');
+  else if (await p.$('[data-testid="player-card-unidentified"]'))
+    note('no GR8 block: this ticket has no player attached, so the card is in its other state');
+  else fail('gr8 placeholder', gr8.slice(0, 60));
+
+  await p.$eval('[data-testid="rail-kb"]', (el) => el.click());
+  const kb = await p.$eval('[data-testid="kb-placeholder"]', (el) => el.textContent ?? '').catch(() => '');
+  if (/not built yet/.test(kb)) pass('the Knowledge Base button admits the engine is not built (R19)');
+  else fail('kb placeholder', kb.slice(0, 60));
+
+  // ── 9. the way back ─────────────────────────────────────────────────────────────────────────────
   await p.$eval('[data-testid="ticket-back"]', (el) => el.click());
   await p.waitForSelector('[data-testid="bucket-rail"]', { timeout: 15000 });
   pass('← Inbox returns to the queue');

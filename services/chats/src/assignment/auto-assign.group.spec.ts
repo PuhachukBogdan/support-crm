@@ -149,15 +149,18 @@ describe('AutoAssignConversation — the pool comes from a group', () => {
 
   it('rotates fairly over the group, exactly as it does over a supplied list (FR-023)', async () => {
     const picks: string[] = [];
+    // The cursor names the person served last and is fed forward, exactly as the database does it.
+    let last: string | null = null;
     for (let i = 0; i < 6; i++) {
       const { prisma, roundRobinState } = fakePrisma();
-      roundRobinState.findFirst.mockResolvedValue({ id: 'rr1', cursor: i - 1 });
+      roundRobinState.findFirst.mockResolvedValue({ id: 'rr1', last_operator_id: last });
       const { controller } = build(prisma, [cand('op-a'), cand('op-b'), cand('op-c')]);
       const res = await controller.autoAssignConversation(
         { conversationId: 'c1', groupId: 'g-1' },
         md(),
       );
       picks.push(res.operatorId);
+      last = res.operatorId;
     }
     // Even within one over six assignments across three people — the property feature 013 proved,
     // now over a pool this feature built rather than one the caller typed.

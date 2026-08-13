@@ -142,15 +142,17 @@ describe('AutoAssignConversation — happy path', () => {
       where: { id: 'c1', assignee_operator_id: null },
       data: { assignee_operator_id: 'op-a' },
     });
-    // First run for this group → the state row is created with the chosen index.
+    // First run for this group → the state row is created naming WHO was served (2026-08-13: a
+    // person, not an index — the pool changes size as people log on and off, so a position means a
+    // different colleague every time it does).
     expect(roundRobinState.create.mock.calls[0][0]).toMatchObject({
-      data: { account_id: 'acc-1', group_key: 'team-a', cursor: 0 },
+      data: { account_id: 'acc-1', group_key: 'team-a', last_operator_id: 'op-a' },
     });
   });
 
   it('resumes from the stored cursor and updates it in place', async () => {
     const { prisma, conversation, roundRobinState } = fakePrisma({
-      rrFindFirst: jest.fn().mockResolvedValue({ id: 'rr1', cursor: 0 }),
+      rrFindFirst: jest.fn().mockResolvedValue({ id: 'rr1', last_operator_id: 'op-a' }),
     });
     const res = await build(prisma).autoAssignConversation(
       { conversationId: 'c1', groupKey: 'team-a', candidates: [cand('op-a'), cand('op-b')] },
@@ -166,7 +168,7 @@ describe('AutoAssignConversation — happy path', () => {
     });
     expect(roundRobinState.updateMany.mock.calls[0][0]).toMatchObject({
       where: { id: 'rr1' },
-      data: { cursor: 1 },
+      data: { last_operator_id: 'op-b' },
     });
     expect(roundRobinState.create).not.toHaveBeenCalled();
   });

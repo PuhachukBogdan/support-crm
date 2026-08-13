@@ -31,7 +31,7 @@ export interface AutoAssignOutcome {
  */
 interface WorkflowTx {
   roundRobinState: {
-    findFirst(args: unknown): Promise<{ id: string; cursor: number } | null>;
+    findFirst(args: unknown): Promise<{ id: string; last_operator_id: string | null } | null>;
     updateMany(args: unknown): Promise<unknown>;
     create(args: unknown): Promise<unknown>;
   };
@@ -85,13 +85,19 @@ export class RoundRobinStateRepository {
     @Inject(StatusRepository) private readonly statuses: StatusRepository,
   ) {}
 
-  /** The stored cursor for a group, or -1 when the rotation has never run. */
-  async readCursor(accountId: string, groupKey: string): Promise<number> {
+  /**
+   * Who this desk served last, or `null` when the rotation has never run.
+   *
+   * ⚠️ A PERSON, not a position — see `round-robin.ts`. The previous index-based cursor meant a
+   * different colleague after every log-on and log-off, which is unfairness no error message
+   * describes.
+   */
+  async readCursor(accountId: string, groupKey: string): Promise<string | null> {
     const row = (await this.prisma.forAccount(accountId).roundRobinState.findFirst({
       where: { group_key: groupKey },
-      select: { cursor: true },
-    })) as { cursor: number } | null;
-    return row ? row.cursor : -1;
+      select: { last_operator_id: true },
+    })) as { last_operator_id: string | null } | null;
+    return row?.last_operator_id ?? null;
   }
 
   /**
@@ -123,10 +129,10 @@ export class RoundRobinStateRepository {
     return db.$transaction(async (tx) => {
       const existing = await tx.roundRobinState.findFirst({
         where: { group_key: groupKey },
-        select: { id: true, cursor: true },
+        select: { id: true, last_operator_id: true },
       });
 
-      const { operatorId, nextCursor } = selectRoundRobin(candidates, existing?.cursor ?? -1);
+      const { operatorId, nextOperatorId } = selectRoundRobin(candidates, existing?.last_operator_id ?? null);
       if (operatorId === null) return { operatorId: null };
 
       /**
@@ -202,11 +208,11 @@ export class RoundRobinStateRepository {
       if (existing) {
         await tx.roundRobinState.updateMany({
           where: { id: existing.id },
-          data: { cursor: nextCursor },
+          data: { last_operator_id: nextOperatorId },
         });
       } else {
         await tx.roundRobinState.create({
-          data: { account_id: accountId, group_key: groupKey, cursor: nextCursor },
+          data: { account_id: accountId, group_key: groupKey, last_operator_id: nextOperatorId },
         });
       }
       return { operatorId };

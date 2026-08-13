@@ -613,7 +613,17 @@ model RoundRobinState {
   id         String   @id @default(uuid())
   account_id String
   group_key  String
-  cursor     Int      @default(-1)
+
+  /// ⭐ WHO was served last — NOT a position in the pool (corrected 2026-08-13).
+  ///
+  /// ⚠️ It used to be `cursor Int`, an index into the candidate list. That list holds only the
+  /// people available RIGHT NOW, so it changes length whenever somebody logs on or off, and an
+  /// index into it silently means a different person after every such change: one colleague gets
+  /// skipped, another receives two in a row, and nothing anywhere reports an error. An operator id
+  /// is a position in the rotation that exists independently of who is present — «continue after
+  /// Dan» survives Ann logging off, and survives Dan himself leaving (the rotation resumes at the
+  /// first id that sorts after his). See `round-robin.ts` for the worked example.
+  last_operator_id String? 
   updated_at DateTime @updatedAt
 
   @@unique([account_id, group_key])

@@ -79,8 +79,9 @@ describe('GroupPoolService — assembling the pool', () => {
     });
     const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
 
-    // Sorted, deliberately: the rotation cursor is an INDEX into this list, so an unstable order
-    // would point it at a different person between calls and quietly break the fairness property.
+    // Sorted, deliberately. The rotation walks this list in id order — its cursor names the person
+    // served last, so the order IS the cycle. `round-robin.ts` sorts defensively too; keeping the
+    // pool sorted here means the two agree and the order a reader sees is the order that runs.
     expect(candidates.map((c) => c.operatorId)).toEqual(['op-a', 'op-b', 'op-c']);
     expect(candidates.every((c) => c.capacity === 6)).toBe(true);
     expect(candidates.every((c) => c.currentLoad === 0)).toBe(true);

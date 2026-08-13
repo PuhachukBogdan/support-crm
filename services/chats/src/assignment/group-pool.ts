@@ -216,9 +216,10 @@ export class GroupPoolService {
     // administrator's change applies to the next routing decision with no restart.
     const budget = capacityForBrand(brandId ?? null);
 
-    // Sorted by operator id, deliberately: the rotation cursor is an INDEX into this list, so an
-    // unstable order would make the cursor point at a different person between calls and quietly
-    // break the fairness property feature 013 proved.
+    // Sorted by operator id, deliberately: the order IS the rotation. Since 2026-08-13 the cursor
+    // names the PERSON served last rather than a position, so a changing pool no longer moves
+    // anybody's turn — and `round-robin.ts` sorts defensively as well. Kept sorted here anyway, so
+    // the order a reader sees in the pool is the order the rotation actually walks.
     return {
       reason: null,
       candidates: operators

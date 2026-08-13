@@ -27,16 +27,25 @@ describe('chats_db schema — feature 013 (conversation workflow)', () => {
     expect(cr.fields.some((f) => f.isRelation)).toBe(false);
   });
 
-  it('adds RoundRobinState keyed per (account, group) with a fresh -1 cursor', () => {
+  it('adds RoundRobinState keyed per (account, group), the cursor naming a PERSON', () => {
     const rr = byName('RoundRobinState');
     expect(rr).toBeDefined();
     expect(hasField(rr, 'account_id')).toBe(true);
     expect(hasField(rr, 'group_key')).toBe(true);
     expect(uniqueOn('RoundRobinState', ['account_id', 'group_key'])).toBe(true);
 
-    const cursor = getField(rr, 'cursor')!;
-    expect(cursor.baseType).toBe('Int');
-    expect(cursor.attributes).toContain('@default(-1)'); // -1 = rotation never used yet (R3)
+    /**
+     * ⭐ Corrected 2026-08-13: `last_operator_id`, not `cursor Int`.
+     *
+     * ⚠️ An index only means something against the list it was taken from, and that list is the pool
+     * of operators available RIGHT NOW — it changes length every time somebody logs on or off. So the
+     * stored number silently came to mean a different colleague, skipping one and double-serving
+     * another, with no error anywhere. Nullable rather than `-1`: «this desk has never routed» is an
+     * absence, and a sentinel value is a second thing to remember. See `round-robin.ts`.
+     */
+    expect(hasField(rr, 'cursor')).toBe(false);
+    const cursor = getField(rr, 'last_operator_id')!;
+    expect(cursor.baseType).toBe('String');
   });
 
   it('both new tables are enrolled in SCOPED_MODELS (Principle I / fail-closed scoping)', () => {

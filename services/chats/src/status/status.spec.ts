@@ -68,13 +68,28 @@ function fakePrisma(conversationRows: Array<Record<string, unknown>> = []) {
             return true;
           });
         },
-        findFirst: async (args?: { where?: { key?: string; active?: boolean } }) => {
+        findFirst: async (args?: {
+          where?: { key?: string; category?: string; active?: boolean };
+          orderBy?: unknown;
+        }) => {
           const w = args?.where ?? {};
-          return (
-            rows.find(
-              (r) => r.key === w.key && (w.active === undefined || r.active === w.active),
-            ) ?? null
-          );
+          const active = (r: Record<string, unknown>) =>
+            w.active === undefined || r.active === w.active;
+          // Feature 033's `defaultKeyOfCategory` asks by CATEGORY and relies on the order, so the fake
+          // has to honour both — a fake that ignored `orderBy` would let "the lowest order wins" pass
+          // by accident, which is the one thing that assertion is for.
+          if (w.category !== undefined) {
+            return (
+              [...rows]
+                .filter((r) => r.category === w.category && active(r))
+                .sort(
+                  (a, b) =>
+                    (a.order as number) - (b.order as number) ||
+                    String(a.key).localeCompare(String(b.key)),
+                )[0] ?? null
+            );
+          }
+          return rows.find((r) => r.key === w.key && active(r)) ?? null;
         },
       },
       conversation: {
@@ -211,6 +226,41 @@ describe('resolveActive / activeKeys / nonTerminalKeys', () => {
       expect(keys).toContain(held);
     }
     expect(keys).not.toContain('solved');
+  });
+});
+
+// ── T017 (feature 033): the status an automated writer picks ──────────────────────────────────────
+
+describe('defaultKeyOfCategory — what an arriving ticket is given', () => {
+  it('returns the account’s lowest-order active key in the category', async () => {
+    const { prisma } = fakePrisma();
+    const repo = repoOf(prisma);
+    // Intake asks for `new`; the reopen rule asks for `open`.
+    expect(await repo.defaultKeyOfCategory(A, 'new')).toBe('new');
+    expect(await repo.defaultKeyOfCategory(A, 'open')).toBe('open');
+  });
+
+  it('never returns a RETIRED status, even when it is the only one in the category', async () => {
+    // `auto_ended_chat` is inactive in this fixture. A supervisor retiring a status means "not settable",
+    // and an automated writer is the caller most likely to ignore that — nobody is looking when it writes.
+    const { prisma } = fakePrisma();
+    const key = await repoOf(prisma).defaultKeyOfCategory(A, 'closed');
+    expect(key).not.toBe('auto_ended_chat');
+  });
+
+  it('⭐ returns NULL rather than inventing a word when the account has configured none', async () => {
+    // The caller must refuse loudly on this. Falling back to the literal 'new' would write a key the
+    // catalogue cannot resolve — the drift feature 032 removed — and the composite FK would reject it
+    // anyway, on a customer's conversation, at a moment nobody is watching.
+    const { prisma } = fakePrisma();
+    expect(await repoOf(prisma).defaultKeyOfCategory(B, 'new')).toBeNull();
+  });
+
+  it('stays inside the account: B’s only status does not answer for A', async () => {
+    const { prisma } = fakePrisma();
+    const repo = repoOf(prisma);
+    expect(await repo.defaultKeyOfCategory(B, 'open')).toBe('b_only');
+    expect(await repo.defaultKeyOfCategory(A, 'open')).toBe('open');
   });
 });
 

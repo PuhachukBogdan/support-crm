@@ -129,6 +129,13 @@ const DETAIL_SELECT = {
   // Feature 024 (roadmap 5.3): WHICH DESK took the work. Detail-only for the same reason — it is an
   // automation-scope input and a card fact, not a column the inbox list renders.
   routed_group_id: true,
+  // ── Feature 033 (roadmap 6.1) — detail-only, like the two above ─────────────────────────────────
+  //
+  // ⚠️ `identity_state` is a CARD fact, not a list column: the Inbox shows a player name or a dash, and
+  // W9's unidentified queue narrows by the indexed predicate rather than by reading this on every row of
+  // the widest-fanout query in the product.
+  identity_state: true,
+  continues_conversation_id: true,
 } as const;
 
 export interface ListFilters {
@@ -201,6 +208,23 @@ export interface CreateInput {
   priority?: string;
   channel?: string;
   assigneeOperatorId?: string;
+  // ── Feature 033 (roadmap 6.1) — additive, all optional so every existing caller is unchanged ─────
+  /**
+   * The status key this conversation starts in.
+   *
+   * ⚠️ **Absent means the column default (`open`), which is right for a seed and WRONG for an intake.**
+   * FR-016 requires an arriving ticket to take a key from the account's own catalogue in the `new`
+   * category — the intake service resolves it and passes it here. The default is left in place rather
+   * than removed because the seed and the test fixtures legitimately rely on it, and because a required
+   * argument would make every existing caller state a status it does not care about.
+   */
+  status?: string;
+  /** `identified` | `unidentified`. Stored, never derived from an empty `playerId` (ADR 0044 §1). */
+  identityState?: string;
+  /** Opaque handle to the users-side envelope. chats never holds an address (FR-021b). */
+  channelParticipantId?: string;
+  /** Set when a reply on a CLOSED thread produced this ticket (FR-029b). */
+  continuesConversationId?: string;
 }
 
 /**
@@ -315,6 +339,14 @@ export class ConversationRepository {
         ...priorityWrite(input.priority),
         channel: input.channel ?? null,
         assignee_operator_id: input.assigneeOperatorId ?? null,
+        // Feature 033. `status` is spread conditionally so an absent value keeps the column DEFAULT
+        // rather than writing `undefined` — Prisma treats an explicit `undefined` as "no value", but
+        // spelling it out here would invite a future edit to pass `null`, which the composite foreign
+        // key would then refuse at the moment a customer's message arrived.
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        identity_state: input.identityState ?? null,
+        channel_participant_id: input.channelParticipantId ?? null,
+        continues_conversation_id: input.continuesConversationId ?? null,
       },
       select: DETAIL_SELECT,
     })) as ConversationDetailRow;

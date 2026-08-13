@@ -45,4 +45,19 @@ export const SCOPED_MODELS = [
   // and with NO method-level exception at all — every read of it happens for a caller, in that caller's
   // account, so there is nothing here that resembles the three sweeps above.
   'ConversationStatus',
+  // ── Feature 033 (roadmap 6.1/6.4/6.5): the three channel tables ────────────────────────────────
+  //
+  // ⚠️ `Channel` is the sharpest of the three, and it is not merely tenant data — it is an ACCESS INPUT,
+  // the same category `PlayerAssignment` is in one service over. The intake path derives an arriving
+  // ticket's account and brand FROM THIS ROW rather than from the payload, so a read that crossed the
+  // tenancy wall would not show the wrong data, it would file a stranger's conversation into the wrong
+  // tenant. It is the only new way a party outside the system can aim at a tenant.
+  'Channel',
+  // The at-most-once ledger. Scoped for the ordinary reason and one extra: its rows record WHAT WAS
+  // REFUSED, which is diagnostic material about one tenant's integrations.
+  'ChannelIntake',
+  // The outbox. Scoped with no method-level exception, deliberately: the send path claims rows for a
+  // conversation that belongs to an account, so there is nothing here resembling the unscoped sweeps
+  // above. A cross-account claim would send one tenant's reply through another tenant's channel.
+  'OutboundMessage',
 ] as const;

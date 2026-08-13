@@ -56,6 +56,13 @@ import { ExportRepository } from './export/export.repository';
 import { ExportService } from './export/export.service';
 import { AuditReadController } from './audit/audit.grpc.controller';
 import { StatusRepository } from './status/status.repository';
+// Feature 033 (roadmap 6.1/6.5): the channel ingress and the intake path behind it.
+import { ChannelIngressController } from './channel/channel.grpc.controller';
+import { ChannelRepository } from './channel/channel.repository';
+import { IntakeLedger } from './channel/intake.ledger';
+import { ChannelIntakeService } from './channel/intake.service';
+import { ApiChannelAdapter } from './channel/adapters/api.adapter';
+import { CHANNEL_CONFIG, loadChannelConfig } from './config';
 import { StatusReadController } from './status/status.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
 // Feature 016 (roadmap 4.9): attachments. chats holds a SOFT upload_id and validates it over the
@@ -101,6 +108,10 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // ⭐ Feature 032 (roadmap 4.16): the account's status catalogue — one read, no write counterpart
     // until the authoring screen (roadmap 3.14) brings its own.
     StatusReadController,
+    // ⭐ Feature 033 (roadmap 6.1): the channel ingress. ⚠️ The ONLY write controller in this service
+    // with no actor context to read — its caller holds no session, and its authentication is the
+    // signature the intake service verifies against the channel's own secret.
+    ChannelIngressController,
   ],
   providers: [
     PrismaService,
@@ -109,6 +120,16 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // the two load counters. Everything that used to know four status words now asks this.
     StatusRepository,
     MessageRepository,
+    // ── ⭐ Feature 033 (roadmap 6.1/6.5) — channel intake ─────────────────────────────────────────
+    //
+    // `CHANNEL_CONFIG` is a value provider rather than a class: the secrets and the replay window are
+    // read from the environment once at boot, like every other config in this service, and an absent
+    // secret map means every delivery is refused as unverifiable rather than accepted.
+    { provide: CHANNEL_CONFIG, useFactory: () => loadChannelConfig() },
+    ChannelRepository,
+    IntakeLedger,
+    ApiChannelAdapter,
+    ChannelIntakeService,
     ChatsAccessGuard,
     // Feature 023 (roadmap 4.8a). The recorder is injected into the repositories that own the write
     // paths — it is never reached from a controller, which is where the automation dispatcher is

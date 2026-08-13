@@ -66,6 +66,22 @@ export const FIELD_TIERS: Readonly<Record<string, FieldTier>> = {
   portfolio: 'am_only',
   // masked_pii — the opaque GR8 snapshot carries contact PII (surname/phone/email/address).
   gr8_snapshot: 'masked_pii',
+  //
+  // ⚠️ **`users.ChannelParticipant.address` (feature 033) IS DELIBERATELY ABSENT FROM THIS MAP, and its
+  // absence is not an oversight — it was tried and removed.**
+  //
+  // It is a clear-text contact value, so classifying it looked obviously right. `tier-agreement.spec.ts`
+  // refused it, and the refusal is correct: this map governs the **`Player` read path**, and its keys must
+  // be fields of that DTO. `ChannelParticipant.address` is on another model and is served through no
+  // player projection at all — it leaves `users` only via `GetChannelEnvelope`, a system-actor rpc with no
+  // gateway route, called by the outbound delivery path.
+  //
+  // Putting it here would have claimed a protection it does not have: the fail-closed guarantee above
+  // ("an unclassified field is served to nobody") applies to fields served THROUGH this map, so an entry
+  // for a field nothing here serves protects nothing while reading as though it does. Its actual
+  // protection is threefold and stated where it lives (`users/prisma/schema.prisma`): it is in the service
+  // that owns contact values, it is reachable by exactly one rpc that no route exposes, and it is never
+  // logged. If a card field ever surfaces it to a person, THAT field belongs in this map.
 } as const;
 
 /**

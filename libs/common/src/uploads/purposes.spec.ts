@@ -33,6 +33,12 @@ describe('the upload-purpose catalogue is closed (FR-002)', () => {
   it('every registered name resolves, and the set is exactly what the module exports', () => {
     expect(UPLOAD_PURPOSE_NAMES.sort()).toEqual([
       'avatar',
+      // Feature 033 (roadmap 6.1/6.4): a file that arrived on a channel. Its own row rather than
+      // reusing `message_attachment`, because the writer is the intake path rather than a person —
+      // reusing that row would hand a stranger's upload an agent's caps and an agent's permission
+      // story. Tighter caps for the same reason: it is the one upload path an unauthenticated party
+      // can reach.
+      'channel_inbound_attachment',
       // Feature 017 (roadmap 4.10): the export artefact enters storage through the EXISTING
       // CreateUpload, so it is a row here rather than a second ingest path. That is the whole reason
       // the feature-016 structural test still passes with its `bytes`-message set unchanged.

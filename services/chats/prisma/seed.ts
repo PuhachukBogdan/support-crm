@@ -35,6 +35,25 @@ async function run(): Promise<void> {
           order: st.order,
         },
       });
+    /**
+     * ⭐ Feature 033 (roadmap 6.5, subpoint 2.1h) — the configured channels.
+     *
+     * Keyed on `(account_id, key)` for the same reason the statuses above are: the key is the identity a
+     * delivery names, and a re-seed must leave one channel rather than two competing for the same inbound
+     * mail — which the `(account_id, brand_id, kind)` unique would refuse anyway, loudly.
+     *
+     * ⚠️ `update` deliberately omits `enabled`. Disabling a channel is the operator's stop button before
+     * the admin screen exists (roadmap 3.10 / W15), and a re-seed that switched a retired key back on would
+     * silently undo the one act available to somebody trying to stop a misbehaving integration. Same rule
+     * the statuses follow one block above: a fixture may declare a starting state and may not overwrite
+     * what a person has since decided.
+     */
+    for (const ch of seed.channels)
+      await db.channel.upsert({
+        where: { account_id_key: { account_id: ch.account_id, key: ch.key } },
+        create: ch,
+        update: { brand_id: ch.brand_id, kind: ch.kind, address: ch.address },
+      });
     for (const label of seed.labels)
       await db.label.upsert({ where: { id: label.id }, create: label, update: label });
     for (const conv of seed.conversations) {

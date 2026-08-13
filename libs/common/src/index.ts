@@ -33,6 +33,16 @@ export * from './presence';
 // Feature 032 (roadmap 4.16, ADR 0040): the closed status-CATEGORY catalogue + the seeded status set.
 // ⚠️ Categories are code; STATUSES are per-account rows in chats_db. Nothing branches on a status key.
 export * from './statuses';
+// Feature 033 (roadmap 6.1/6.4/6.6, subpoint 2.1e): the closed channel-KIND vocabulary + the
+// capability matrix. ⚠️ Same two-level discipline as statuses — a KIND is code and the only thing
+// logic may branch on; a CHANNEL is a per-account row with a key, an address and a brand.
+// `canSend` is an enforcement point called by the server, not a hint for the interface.
+export * from './channels';
+// Feature 028's mail transport, MOVED here by feature 033 (research R7): the port, the SMTP sender and
+// the two egress guards, so the boundary Principle III depends on is one place rather than one per
+// sender. ⚠️ Carries the `nodemailer` dependency — safe because nothing in `web/` imports this package;
+// were that to change, this barrel would be the wrong door for it.
+export * from './mail';
 // Feature 018 (roadmap 5.1): keyset paging primitives. ⚠️ `services/chats/src/shared/cursor.ts` is a
 // second, service-local copy of the same shape that predates this one and was deliberately not
 // migrated (research R6) — a pointer sits in both files.

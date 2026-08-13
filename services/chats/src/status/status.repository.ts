@@ -121,6 +121,35 @@ export class StatusRepository {
   }
 
   /**
+   * The status an automated writer should use for a category (feature 033, FR-016).
+   *
+   * The account's **lowest-`order` ACTIVE** key in that category. Order is the supervisor's own display
+   * sequence, so "the first one they listed" is the closest thing to an intention the data carries — and
+   * it needs no second column that could disagree with the ordering they already chose.
+   *
+   * ── ⚠️ NULL is a real answer and the caller must refuse on it ────────────────────────────────────
+   * An account with no active status in the category it needs is **misconfigured**, and the caller's job
+   * is to fail loudly. It must NOT fall back to the literal `'new'`: that word is a seeded default, not a
+   * guarantee, and a supervisor may legitimately have retired it. Writing a key the catalogue cannot
+   * resolve is exactly the drift feature 032 removed — and the composite foreign key would reject it
+   * anyway, on a customer's conversation, at a moment nobody is watching.
+   *
+   * Two callers today: intake choosing a `new` status for an arriving ticket, and the reopen rule
+   * choosing an `open` one for a solved ticket a customer answered.
+   */
+  async defaultKeyOfCategory(
+    accountId: string,
+    category: StatusCategory,
+  ): Promise<string | null> {
+    const row = await this.prisma.forAccount(accountId).conversationStatus.findFirst({
+      where: { category, active: true },
+      orderBy: [{ order: 'asc' }, { key: 'asc' }],
+      select: { key: true },
+    });
+    return (row as { key: string } | null)?.key ?? null;
+  }
+
+  /**
    * Every key whose category is NOT terminal — i.e. work that still occupies somebody.
    *
    * ⚠️ This replaces a hard-coded `['open','pending']` in two load counters, and that was not a tidy-up:

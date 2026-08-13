@@ -152,6 +152,12 @@ services:
       # Empty = unrestricted. Set it on anything that is not production: an accidental send to a
       # real customer address from a synthetic stand is an incident, not a typo (FR-018).
       MAIL_ALLOWED_RECIPIENT_DOMAINS: ${MAIL_ALLOWED_RECIPIENT_DOMAINS:-}
+      # Feature 033 (Principle III): the same host allow-list that governs the channel relay and the
+      # channel mailbox also governs THIS relay. Auth did not ask for it — feature 028 recorded the
+      # egress allow-list as "a later, isolated change" and this is that change, applied at the one
+      # shared transport boundary rather than per sender. Absent = unrestricted, so no existing
+      # deployment changes behaviour until somebody sets it.
+      MAIL_ALLOWED_HOSTS: ${MAIL_ALLOWED_HOSTS:-}
       MAIL_MAX_ATTEMPTS: ${MAIL_MAX_ATTEMPTS:-5}
       # Session lifetimes. The DEFAULTS here are the product's (15 min / 1 day / 7 days) — a
       # deployment that sets nothing behaves exactly as before.
@@ -242,6 +248,21 @@ services:
       # every brand uses ROUTING_DEFAULT_CAPACITY above — which stays the fallback rather than being
       # replaced, so an upgrade cannot make a deployment's budget vanish.
       ROUTING_CAPACITY_BY_BRAND: ${ROUTING_CAPACITY_BY_BRAND:-}
+      # ── Feature 033 (roadmap 6.1/6.5) — channel intake ──
+      #
+      # ⚠️ Listed here because compose hands the container ONLY what this block names — the failure
+      # feature 009's first live run hit, with the key correctly set in `.env` and never reaching the
+      # process. These three are tunables, not refuse-to-start keys, so the service boots without them
+      # and simply verifies nothing: an empty secret map means every delivery is refused as an unknown
+      # channel, which is the fail-closed direction.
+      #
+      # `<channel key>:<secret>` pairs. The SECRET cannot be a hash — verifying an HMAC needs the key
+      # material — so it lives in configuration and nowhere else, never in a database column.
+      CHANNEL_SECRETS: ${CHANNEL_SECRETS:-}
+      # Bounds forgery (a captured body must not replay forever), NOT duplication — that is the unique
+      # constraint on (channel, external event id).
+      CHANNEL_INTAKE_REPLAY_WINDOW_S: ${CHANNEL_INTAKE_REPLAY_WINDOW_S:-300}
+      CHANNEL_EMAIL_ADDRESS: ${CHANNEL_EMAIL_ADDRESS:-}
 
   brands:
     <<: *service-base
@@ -284,6 +305,28 @@ services:
       # Shorten this on a test box to watch a purge happen instead of waiting five minutes.
       ARTEFACT_PURGE_INTERVAL_MS: ${ARTEFACT_PURGE_INTERVAL_MS:-300000}
       ARTEFACT_PURGE_BATCH: ${ARTEFACT_PURGE_BATCH:-100}
+      # ── Feature 033 (roadmap 6.4) — the channel mailbox, and the egress guard on both mail hosts ──
+      #
+      # This service holds the only long-lived CONNECTION in the product: an IMAP session kept open so
+      # the mailbox can tell us a message arrived (IDLE). `greenmail` serves it — mailpit speaks no
+      # IMAP at all, which is why a second mail server exists (research R16).
+      #
+      # An absent host means the reader never starts, which is correct for every deployment with no
+      # email channel; it is deliberately NOT refuse-to-start config for that reason.
+      CHANNEL_IMAP_HOST: ${CHANNEL_IMAP_HOST:-greenmail}
+      CHANNEL_IMAP_PORT: ${CHANNEL_IMAP_PORT:-3143}
+      CHANNEL_IMAP_SECURE: ${CHANNEL_IMAP_SECURE:-false}
+      CHANNEL_IMAP_USER: ${CHANNEL_IMAP_USER:-}
+      CHANNEL_IMAP_PASSWORD: ${CHANNEL_IMAP_PASSWORD:-}
+      # ⚠️ The SAFETY NET, not the delivery path — delivery is push. If this interval ever starts to
+      # determine how fast mail appears, the IDLE connection is broken and this is hiding it.
+      CHANNEL_MAIL_SWEEP_INTERVAL_MS: ${CHANNEL_MAIL_SWEEP_INTERVAL_MS:-60000}
+      CHANNEL_MAIL_MAX_ATTEMPTS: ${CHANNEL_MAIL_MAX_ATTEMPTS:-5}
+      # Egress allow-list for every outbound mail connection the product opens (Principle III) — one
+      # list for one boundary, so auth's relay and this service's mailbox cannot disagree. Empty =
+      # unrestricted, the same reading feature 028 chose for recipient domains: reversed, it would
+      # silently stop all mail in production, where empty is the legitimate setting.
+      MAIL_ALLOWED_HOSTS: ${MAIL_ALLOWED_HOSTS:-}
 
   # The mail catcher (feature 028). ⚠️ NOT scaffolding — this is the transport for local
   # development and for every live test round, because mail must not leave a developer's machine
@@ -305,6 +348,43 @@ services:
     networks:
       - default
       - edge
+
+  # ── The CHANNEL mailbox (feature 033, research R16) ─────────────────────────────────────────────
+  #
+  # ⚠️ **Why a second mail server rather than reusing mailpit.** Mailpit speaks SMTP, POP3 and its own
+  # REST API — and NOT IMAP (verified on v1.30.6: `--pop3` exists, no `--imap` flag does). Feature 033
+  # takes mail in over IMAP with **IDLE**, because the operator asked for real time and POP3 has no
+  # push. So the stand would have had nothing to prove the real transport against.
+  #
+  # The alternative — a Mailpit-REST inbound adapter for the stand and IMAP for production — was
+  # rejected: it puts a code path in the product that only the stand ever runs, and leaves the path
+  # customers depend on proven by unit tests alone. This repository has shipped that exact gap twice
+  # (roadmap 4.9, 5.1), which is why a live round is required at all.
+  #
+  # ── One server, two roles ───────────────────────────────────────────────────────────────────────
+  # It is BOTH our support mailbox and, in a live round, the "customer's" mailbox — the addresses tell
+  # the two apart, the server does not need to. That is what lets `live-w3.sh` read the agent's reply
+  # out of the customer's inbox and then answer it, proving the threading leg end to end.
+  #
+  # ⚠️ Authentication is disabled: it is a synthetic mailbox on a synthetic stand, and it holds no
+  # login codes (those stay in mailpit). Like mailpit, it must be gone before real data (SEC-42).
+  greenmail:
+    image: greenmail/standalone:2.1.10
+    restart: unless-stopped
+    environment:
+      # `auth.disabled` creates a user on first login, so no provisioning step exists to forget.
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp
+        -Dgreenmail.setup.test.imap
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.auth.disabled
+        -Dgreenmail.verbose
+    ports:
+      # Loopback by default, exactly like mailpit and the gateway (SEC-40).
+      - '${GREENMAIL_BIND:-127.0.0.1}:${GREENMAIL_SMTP_PORT:-3025}:3025'
+      - '${GREENMAIL_BIND:-127.0.0.1}:${GREENMAIL_IMAP_PORT:-3143}:3143'
+    networks:
+      - default
 
   # The Next.js front end (roadmap 8.6 hosted; the containerisation itself belongs to Phase 13 and
   # is done early here so the product can be opened in a browser).

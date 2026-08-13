@@ -1,46 +1,20 @@
 /**
- * The mail transport seam (feature 028, contracts §2).
+ * ⚠️ **THE PORT MOVED** to `libs/common/src/mail/mail-transport.ts` (feature 033, research R7).
  *
- * ── One rule, and everything here follows from it ───────────────────────────────────────────────
- * **What reaches the transport is text somebody already decided to send.** No purpose, no code, no
- * token, no account. A transport that could tell a login code from an invitation would eventually
- * branch on it, and then the thing that knows *how* would start knowing *why*.
- */
-
-export interface MailMessage {
-  to: string;
-  subject: string;
-  /** Plain text. There is deliberately no HTML alternative (FR-007). */
-  text: string;
-}
-
-/**
- * ⚠️ A CLASS, never the relay's own sentence.
+ * Feature 033 added a second sender — conversation replies, owned by chats — and this file argued for
+ * itself that the egress check belongs at one boundary *"impossible to bypass by adding a caller"*. So
+ * the definition now lives in shared code and this file re-exports it.
  *
- * SMTP rejections quote the envelope as a matter of course — `550 5.1.1 <someone@example.test>
- * recipient rejected` — and an envelope carries a recipient, sometimes more. Everything downstream
- * records and logs this enum; the original text is dropped at the boundary, the same way the front
- * end's `HttpPort` drops an unparseable body rather than carrying it somewhere it might be shown.
+ * It is kept rather than deleted because the DI binding in `auth.module.ts` and feature 028's tests
+ * import from this path, and those tests are the regression proof that the move changed no behaviour:
+ * they must pass **unmodified**. Deleting the file would have meant editing them, which would have
+ * removed the only evidence that nothing broke.
  */
-export type MailErrorClass =
-  | 'unreachable' // no connection, or the conversation died — worth retrying
-  | 'auth_failed' // the relay refused OUR credentials — retrying will not help, but it is not the message's fault
-  | 'refused' // the relay rejected the message — permanent
-  | 'recipient_blocked' // our own guard refused it, before any connection
-  | 'expired'; // what it carries died before we could send it
-
-/** Carries the class and nothing else. Its `message` is the class name, on purpose. */
-export class MailSendError extends Error {
-  constructor(readonly errorClass: MailErrorClass) {
-    super(errorClass);
-    this.name = 'MailSendError';
-  }
-}
-
-export interface MailTransport {
-  /** Resolves when a mail host ACCEPTED the message. Throws {@link MailSendError} otherwise. */
-  send(message: MailMessage): Promise<void>;
-}
-
-/** Nest DI token — interfaces have no runtime token. */
-export const MAIL_TRANSPORT = Symbol('MAIL_TRANSPORT');
+export {
+  MAIL_TRANSPORT,
+  MailSendError,
+  type MailAttachment,
+  type MailErrorClass,
+  type MailMessage,
+  type MailTransport,
+} from '@crm/common';

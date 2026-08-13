@@ -142,6 +142,21 @@ export const SEED_MESSAGE_LINKED_B_REPLY_ID = 'seed-msg-0000-0000-000000000007';
 export const SEED_CHANNEL_EMAIL = 'email';
 export const SEED_CHANNEL_API = 'api';
 
+// ── ⭐ Feature 033 (roadmap 6.1/6.5, subpoint 2.1h) — the two configured channels ──────────────────
+//
+// One API key and one mail address, provisioned by the seed rather than by an authoring screen (that is
+// roadmap 3.10 / block W15). The seed is what knows the brand ids, which is why the brand↔channel mapping
+// lives here and configuration carries only the secret.
+//
+// ⚠️ `SEED_CHANNEL_API_KEY` must match a key in the deployment's `CHANNEL_SECRETS`, or every delivery to
+// this channel is refused as unverifiable. That is the fail-closed direction and it is the right one — but
+// it also means the stand's `.env` and this constant are a pair, and `live-w3.sh` checks them together
+// rather than leaving a mismatch to present as "the webhook does not work".
+export const SEED_CHANNEL_API_ID = 'seed-channel-api-0000-000000001';
+export const SEED_CHANNEL_EMAIL_ID = 'seed-channel-email-0000-00000001';
+export const SEED_CHANNEL_API_KEY = 'stand-api-brand1';
+export const SEED_CHANNEL_EMAIL_ADDRESS = 'support-brand1@stand.test';
+
 // feature 014 (automations + first-reply SLA, roadmap 4.6/4.7) fixtures.
 /** Keyword rule: inbound message + unassigned + text contains the keyword → label + status. */
 export const SEED_AUTOMATION_KEYWORD_ID = 'seed-auto-0000-0000-000000000001';

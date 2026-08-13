@@ -378,6 +378,60 @@ service UsersMaintenanceService {
   // The ACCOUNT is in the request because a machine has none of its own; the handler refuses an absent
   // one rather than defaulting. Staffing facts only — no customer data exists in this answer to mask.
   rpc ResolveRoutingOperators(ResolveRoutingOperatorsRequest) returns (ListOperatorsByAuthUsersResponse);
+
+  // ── ⭐ Feature 033 (roadmap 6.1/6.4) — the envelope, and who wrote ────────────────────────────────
+  //
+  // Both live on the MAINTENANCE service for the reason its header states: system actor only, no gateway
+  // route, and a caller that is a machine with no credentials to forward. Intake is not a person, and a
+  // tick is not a person.
+  //
+  // ⚠️ **`ResolveChannelParticipant` takes the VALUE and returns a HANDLE.** The hash salt
+  // (`CONTACT_HASH_SALT`) lives in this service and does not travel: copying it into chats so chats could
+  // hash locally would put a secret in a second service purely to avoid one in-cluster hop of a value this
+  // service already owns. Sending the value to its owner is strictly better than distributing the key that
+  // protects it. The value is never logged on either side.
+  // ⚠️ The rpc line is declared by US2 beside its handler (`every-rpc-is-served.spec.ts`).
+
+  // ⚠️ **THE ONE RPC IN THE PRODUCT THAT RETURNS AN UNMASKED CONTACT VALUE.** Its terms, all firm:
+  // callable only by the outbound delivery path, reachable from no gateway route, never logged, and
+  // account-scoped like everything else. It exists because replying to an email needs the address the
+  // customer wrote FROM — which a hash cannot give and the player's registered address must not, since
+  // they may differ and answering the wrong one sends a stranger's conversation to them.
+  // ⚠️ The rpc line is declared by US4 beside its handler (`every-rpc-is-served.spec.ts`).
+}
+
+// Feature 033 — resolve who wrote, and remember where to answer, in one call.
+//
+// One rpc for two jobs on purpose: intake performs both at the same moment and for the same message, and
+// two calls would let the envelope be recorded for a thread whose identity lookup failed, or the reverse.
+message ResolveChannelParticipantRequest {
+  string account_id = 1;            // required: the system caller has no account of its own
+  string brand_id = 2;              // identity is BRAND-SCOPED (ADR 0038) — the same address under two
+                                    // brands is two people until a Person link says otherwise
+  string channel_kind = 3;          // `api | email | messenger`
+  // The identifier CLASS, stated separately from the value because the class is what may be RECORDED and
+  // the value is not (ADR 0044 §4). A caller that sent only a string would force this service to guess
+  // which kind it was looking at, and a guess about identity is how a phone gets matched to email hashes.
+  string kind = 4;                  // `email | phone | player_id`
+  string value = 5;                 // ⚠️ hashed HERE; never logged, never returned, never stored in chats
+}
+
+message ChannelParticipant {
+  string participant_id = 1;        // the opaque handle chats stores on the conversation
+  string player_id = 2;             // empty = UNIDENTIFIED (FR-022/FR-023) — intake still succeeds
+  // More than one candidate matched. The ticket is left unidentified rather than attached to either: a
+  // wrong attachment puts one customer's words on another customer's record, and anything written while
+  // it was wrong stays where it was written (ADR 0044 §5).
+  bool ambiguous = 3;
+}
+
+message GetChannelEnvelopeRequest {
+  string account_id = 1;
+  string participant_id = 2;
+}
+
+message ChannelEnvelope {
+  string address = 1;               // ⚠️ unmasked. See the rpc's terms above before adding a caller.
 }
 
 message ResolveRoutingOperatorsRequest {

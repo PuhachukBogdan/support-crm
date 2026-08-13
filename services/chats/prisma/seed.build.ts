@@ -49,6 +49,12 @@ import {
   SEED_PLAYER_LINKED_B,
   SEED_CHANNEL_EMAIL,
   SEED_CHANNEL_API,
+  // Feature 033 (roadmap 6.5, 2.1h): the two configured channels. The KEY must also appear in the
+  // deployment's `CHANNEL_SECRETS` — the row holds no secret and cannot.
+  SEED_CHANNEL_API_ID,
+  SEED_CHANNEL_EMAIL_ID,
+  SEED_CHANNEL_API_KEY,
+  SEED_CHANNEL_EMAIL_ADDRESS,
   // Feature 032 (roadmap 4.16): the nine configured statuses — the SAME constant the SQL migration's
   // backfill is written from, so a fresh database and a migrated one cannot disagree.
   SEEDED_STATUSES,
@@ -155,6 +161,42 @@ export function buildSeed() {
       active: true,
       order: st.order,
     })),
+    /**
+     * ⭐ Feature 033 (roadmap 6.5, subpoint 2.1h) — the two configured channels.
+     *
+     * One API key and one mail address, both for brand 1. Provisioned here rather than through a screen:
+     * the authoring surface is roadmap 3.10 / block W15, and this seed is what knows the brand ids.
+     *
+     * ⚠️ **No secret is stored on the row, and none can be.** Verifying an HMAC needs the key material, so
+     * unlike feature 028's invite token a channel secret cannot be a hash — and a recoverable secret at
+     * rest needs encryption plus key management that one MVP channel does not justify. The secret lives in
+     * `CHANNEL_SECRETS`, keyed by `key`, and `SEED_CHANNEL_API_KEY` must appear there or every delivery is
+     * refused as unverifiable.
+     *
+     * Only brand 1 gets channels, deliberately: brand 2 exists in the fixtures precisely so that
+     * "a delivery signed for brand 1 cannot create a ticket under brand 2" is a falsifiable claim, and
+     * giving brand 2 its own channel would make the isolation test pass for the wrong reason.
+     */
+    channels: [
+      {
+        id: SEED_CHANNEL_API_ID,
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        kind: SEED_CHANNEL_API,
+        key: SEED_CHANNEL_API_KEY,
+        address: null as string | null,
+        enabled: true,
+      },
+      {
+        id: SEED_CHANNEL_EMAIL_ID,
+        account_id: SEED_ACCOUNT_ID,
+        brand_id: SEED_BRAND_ID,
+        kind: SEED_CHANNEL_EMAIL,
+        key: 'stand-email-brand1',
+        address: SEED_CHANNEL_EMAIL_ADDRESS as string | null,
+        enabled: true,
+      },
+    ],
     labels: [
       { id: SEED_LABEL_ID, account_id: SEED_ACCOUNT_ID, name: 'seed-demo' },
       // feature 013 (US2): a second label so attach/detach has a target that is NOT already linked.
@@ -204,7 +246,11 @@ export function buildSeed() {
         player_id: SEED_PLAYER_ID,
         status: 'open',
         priority: 'high',
-        channel: 'chat',
+        // ⚠️ Feature 033: was `'chat'`. The 033 migration folds that value into `api` — the widget chat IS
+        // the API channel (roadmap 6.1) — so a fixture still writing it would seed a fresh database into
+        // the pre-migration vocabulary while a migrated one held the new. A seed is the quietest place a
+        // retired vocabulary grows back, which is why `seed.build.spec.ts` now scans for it.
+        channel: SEED_CHANNEL_API,
         assignee_operator_id: SEED_OPERATOR_ID,
         subject: 'Card payment declined twice' as string | null,
         subject_source: 'manual' as string | null,
@@ -226,13 +272,24 @@ export function buildSeed() {
         classified_by: null as string | null,
       },
       {
+        // ⚠️ Feature 033: this fixture's channel became NULL, and it is a better fixture for it.
+        //
+        // Before 033 the three judging conversations carried `chat`, `email` and `api` — three words. The
+        // migration folds `chat` into `api`, so two of the three would now be identical and the Inbox
+        // filter would have less to do, not more.
+        //
+        // NULL is the third case that actually exists in the data: about one in six conversations have no
+        // arrival channel, `conversation.repository.ts` warns that a `channel: null` predicate must never
+        // be introduced, and the filter's own comment records that there is deliberately no "no channel"
+        // option. So the screen now has a row the filter CANNOT narrow to — which is the case most worth
+        // seeing with your own eyes, and the one a fixture of three tidy words was hiding.
         id: SEED_CONVERSATION_ACCESS_ID,
         account_id: SEED_ACCOUNT_ID,
         brand_id: SEED_BRAND_ID,
         player_id: SEED_PLAYER_ID,
         status: 'solved',
         priority: 'low',
-        channel: 'api',
+        channel: null as string | null,
         assignee_operator_id: SEED_OPERATOR_ID,
         subject: 'Cannot sign in after password reset' as string | null,
         subject_source: 'manual' as string | null,

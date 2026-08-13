@@ -1,4 +1,4 @@
-import { loadConfig, z } from '@crm/common';
+import { loadConfig, parseHostAllowList, z } from '@crm/common';
 
 /**
  * Required config for the worker service (spec 003, US2). Validated at boot — refuse to
@@ -48,6 +48,52 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env) {
     // this ticks slowly and in larger batches.
     ARTEFACT_PURGE_INTERVAL_MS: clampInt(env.ARTEFACT_PURGE_INTERVAL_MS, 300_000, 1_000, 3_600_000),
     ARTEFACT_PURGE_BATCH: clampInt(env.ARTEFACT_PURGE_BATCH, 100, 1, 1_000),
+
+    // ── Feature 033 (roadmap 6.4) — the channel mailbox and the mail egress guard ─────────────────
+    //
+    // ⚠️ `CHANNEL_MAIL_SWEEP_INTERVAL_MS` is NOT the delivery latency, and that is the whole design.
+    // Mail arrives because the mailbox TELLS us (IMAP IDLE, `channels/imap-reader.service.ts`); this
+    // interval only governs the safety net for a dropped connection, a process that died mid-batch, or
+    // a message that landed during a restart. The same division feature 028 recorded for outbound
+    // identity mail. If this number ever starts to matter for how fast mail appears, the push path is
+    // broken and the sweep is hiding it.
+    CHANNEL_MAIL_SWEEP_INTERVAL_MS: clampInt(
+      env.CHANNEL_MAIL_SWEEP_INTERVAL_MS,
+      60_000,
+      5_000,
+      3_600_000,
+    ),
+    CHANNEL_MAIL_MAX_ATTEMPTS: clampInt(env.CHANNEL_MAIL_MAX_ATTEMPTS, 5, 1, 20),
+
+    /**
+     * The mailbox we are told about. Absent host ⇒ the reader does not start at all, which is the
+     * right behaviour for every deployment that runs no email channel — including the whole test
+     * suite. It is not a refuse-to-start key for that reason: an absent mailbox is a legitimate
+     * configuration, unlike an unreachable chats service.
+     */
+    CHANNEL_IMAP: {
+      host: (env.CHANNEL_IMAP_HOST ?? '').trim(),
+      port: clampInt(env.CHANNEL_IMAP_PORT, 3143, 1, 65_535),
+      secure: (env.CHANNEL_IMAP_SECURE ?? '').trim().toLowerCase() === 'true',
+      user: (env.CHANNEL_IMAP_USER ?? '').trim(),
+      password: env.CHANNEL_IMAP_PASSWORD ?? '',
+    },
+
+    /**
+     * Host allow-list for every outbound mail connection the product opens — the IMAP mailbox this
+     * service holds, and the SMTP relays in auth and chats (Principle III, FR-041/FR-048).
+     *
+     * ⚠️ **`MAIL_ALLOWED_HOSTS`, not `CHANNEL_MAIL_ALLOWED_HOSTS`.** One list for one boundary: a
+     * channel-scoped name would have meant a second list the moment auth's relay needed the same
+     * guard, and two allow-lists for one rule is the arrangement that ends with them disagreeing.
+     * The parser is shared for the same reason — see `libs/common/src/mail/guards.ts`.
+     *
+     * ⚠️ **Empty means unrestricted**, the same reading feature 028 chose and defended for recipient
+     * domains. Reversed, it would silently stop all mail in production, where an empty list is the
+     * legitimate configuration, and mail that has stopped is indistinguishable from mail that is
+     * merely slow. Set it on anything that is not production.
+     */
+    MAIL_ALLOWED_HOSTS: parseHostAllowList(env.MAIL_ALLOWED_HOSTS),
   };
 }
 

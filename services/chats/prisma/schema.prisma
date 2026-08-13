@@ -39,6 +39,19 @@ model Conversation {
   /// `src/conversation/urgency.ts`. Written only via `priorityWrite()`; a structural guard fails when any
   /// path writes the word by hand.
   priority_rank        Int      @default(0)
+  /// ── Feature 033 (roadmap 6.1/6.4, subpoint 2.1e): the ARRIVAL CHANNEL, now typed ──────────────
+  ///
+  /// Values are the closed vocabulary in `libs/common/src/channels/kinds.ts` — `api | email | messenger`.
+  /// The column keeps its name and its type: the 033 migration rewrites the VALUES in place (`chat` →
+  /// `api`) rather than adding a `channel_kind` column, so the wire field is unchanged and nothing
+  /// downstream breaks. Two columns for one fact would be two sources of truth, and the loser would be
+  /// whichever the next reader did not notice.
+  ///
+  /// ⚠️ **STILL NULLABLE, and that is load-bearing.** NULL means *no arrival channel* — a ticket an agent
+  /// raised, or a seeded one — which is an ABSENCE, not a fourth kind. About one in six rows are NULL and
+  /// the 029 Inbox filter depends on them staying reachable: see the `channel` filter note in
+  /// `conversation.repository.ts`, which warns that a `channel: null` predicate must never be introduced.
+  /// Inventing an `internal` kind to fill a legitimate absence would be a lie in the data.
   channel              String?
   assignee_operator_id String? // soft ref to users.Operator.id
   // Reserved classification (ADR 0027) — all nullable (unclassified is valid, FR-012):
@@ -56,6 +69,39 @@ model Conversation {
   /// nobody can read. Cleared the moment the condition clears — which is also what makes "it resolves"
   /// a fact on the row instead of a hope.
   unroutable_since     DateTime?
+
+  // ── Feature 033 (roadmap 6.1, ADR 0044 §1) — WHO WROTE, and the honest answer when we cannot tell ──
+  //
+  /// `identified` | `unidentified`. NULL for every conversation created before this feature.
+  ///
+  /// ⚠️ **STORED, NOT DERIVED FROM `player_id`,** and the difference is the requirement. A null
+  /// `player_id` cannot distinguish *"resolution ran and matched nobody"* from *"resolution never ran"* —
+  /// and those are opposite facts: the first is a ticket the manual attach (W9) must work on, the second
+  /// is a ticket nothing has looked at yet. ADR 0044 §1 forbids implying the unidentified state by a
+  /// blank precisely because a blank is what their current Zendesk shows, and nobody can tell from it
+  /// whether the data is missing or merely unmapped.
+  ///
+  /// Forbidden alongside it (ADR 0044 §1): `***`-style fillers and auto-generated stand-in names
+  /// (`Web User 6a5df…`). The state is a value a reader can act on; it is not a decorated absence.
+  identity_state       String?
+  /// Opaque soft ref to `users.ChannelParticipant.id` — the envelope a reply needs.
+  ///
+  /// ⚠️ **THE ADDRESS IS NOT HERE, AND MUST NEVER BE.** Replying to an email ticket needs the address the
+  /// customer wrote FROM, which cannot come from a hash and cannot come from the player's registered
+  /// address (they may differ, and answering the registered one would send a stranger's conversation to
+  /// them). So a clear-text contact value must exist somewhere — and it exists in `users`, which owns
+  /// contact values, holds the hash salt and has the field-tier allow-list. `ContactMatch`'s own comment
+  /// names what a column here would create: *"a NEW PII surface: one the tier policy does not classify,
+  /// masking does not cover, exports do not know about, and a log could reach."* chats holds a handle.
+  channel_participant_id String?
+  /// Set when this ticket exists because a reply arrived on a thread whose ticket was already `closed`.
+  ///
+  /// Soft ref within this table (no FK: the parent may be archived under a retention policy that does not
+  /// exist yet, and a hard reference would make that policy a schema change). `closed` is final — reviving
+  /// it months later would return it to routing, to the SLA clock and to a reporting period already
+  /// counted — so the thread continues in a new ticket that says which one it continues. A `solved` ticket
+  /// reopens instead, and leaves this NULL.
+  continues_conversation_id String?
 
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt
@@ -151,6 +197,147 @@ model Conversation {
   // index this third order is a sort over a scan of the largest table in the system — the same budget
   // argument as the `updated_at` index above, and the reason the rank is stored at all.
   @@index([account_id, priority_rank, updated_at])
+  // ── Feature 033: the unidentified work queue ────────────────────────────────────────────────────
+  //
+  // "Show me the tickets nobody has been matched to" is W9's whole job — the manual attach exists
+  // because this feature creates these tickets. A low-cardinality column would not normally earn an
+  // index on the largest table in the system; this one earns it because that read is foreseeable and
+  // narrow, and because without it the query is a scan every time an agent opens the queue.
+  @@index([account_id, identity_state])
+}
+
+/// ⭐ A configured way in and out, for exactly one account and one brand (feature 033, roadmap 6.5).
+///
+/// ── What a channel is, and what it is not ────────────────────────────────────────────────────────
+/// It is the addressable, per-tenant *thing* — a webhook key, a mailbox address. It is **not** a
+/// `channel_kind`: the KIND is the closed vocabulary in code that logic may branch on, the CHANNEL is
+/// configuration. Same two-level split as statuses and their categories (ADR 0040), and for the same
+/// reason: the admin screen at roadmap 3.10 / block W15 must be able to add one with an INSERT.
+///
+/// ── ⚠️ THERE IS NO SECRET COLUMN, deliberately ──────────────────────────────────────────────────
+/// Verifying an HMAC needs the KEY MATERIAL, so unlike feature 028's invite token a channel secret
+/// cannot be stored as a hash — and a recoverable secret at rest needs encryption plus a key-management
+/// story that one MVP channel does not justify. The secret therefore lives in configuration
+/// (`CHANNEL_SECRETS`), keyed by `key`, and this row identifies the channel and holds nothing secret.
+///
+/// The cost is stated rather than hidden: **rotation is a redeploy until W15 exists.** `enabled = false`
+/// is the immediate stop button in the meantime, and a disabled channel is answered exactly like an
+/// unknown one — an attacker must not be able to tell a retired key from a nonexistent one.
+///
+/// `brand_id` is a SOFT ref to `brands.Brand.id` — never joined (Principle VIII). It is the single most
+/// security-relevant field here: the intake's brand comes from THIS row, never from the payload.
+model Channel {
+  id         String   @id @default(uuid())
+  account_id String
+  brand_id   String // soft ref to brands.Brand.id
+  /// One of `api | email | messenger` — the closed vocabulary in libs/common. Never free text.
+  kind       String
+  /// The public identifier a delivery names, and the lookup key for its secret in configuration.
+  key        String
+  /// The channel's OWN address (an email channel's mailbox). Ours, not a customer's — not PII.
+  address    String?
+  /// The stop button before the admin screen exists. A disabled channel refuses like an unknown one.
+  enabled    Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  intakes ChannelIntake[]
+
+  /// The verification lookup: a delivery names a key, within an account.
+  @@unique([account_id, key])
+  /// One channel per kind per brand — the MVP's "one key and one address" (subpoint 2.1h). A second
+  /// mailbox for one brand is a W15 feature, and it will relax this unique deliberately rather than
+  /// discovering that two rows silently competed for the same inbound mail.
+  @@unique([account_id, brand_id, kind])
+  @@index([account_id])
+}
+
+/// ⭐ The ledger that makes intake AT-MOST-ONCE (feature 033, roadmap 6.1 — FR-012/FR-013).
+///
+/// ── This table is the feature ────────────────────────────────────────────────────────────────────
+/// `@@unique([channel_id, external_event_id])` is the whole of duplicate suppression. The write path
+/// **inserts first** and reads a unique violation (Prisma `P2002`) as *"already accepted"*. A
+/// `findFirst` followed by a `create` would be a race against the provider's own retry — which arrives
+/// concurrently BY DESIGN, because that is what every webhook provider does when its acknowledgement is
+/// lost. This project has paid for that lesson twice already: feature 014's attachment link and feature
+/// 031's assignment budget were both check-then-write, and both were found on a live run.
+///
+/// ── Why refusals are rows here and nowhere else ──────────────────────────────────────────────────
+/// FR-010 says a refused delivery leaves NO product data — no conversation, no message, no upload. A
+/// ledger row is not product data: it is the audit of a rejection, and it carries no payload. Without
+/// it, a refusal is indistinguishable from a delivery that never arrived, and those have opposite
+/// causes — one is our rejection, the other is somebody else's outage.
+model ChannelIntake {
+  id                 String   @id @default(uuid())
+  account_id         String
+  channel_id         String
+  /// What the adapter derived. A delivery with no derivable id is REFUSED, never given a generated one:
+  /// a generated id makes every replay look new, which is the failure this table exists to prevent.
+  external_event_id  String
+  /// What it produced. NULL on a refusal — and on a duplicate, where the first row holds them.
+  conversation_id    String?
+  message_id         String?
+  /// `accepted` | `refused`.
+  outcome            String
+  /// A CLASS, never a sentence: `signature` · `unparseable` · `loop` · `no_event_id` ·
+  /// `unknown_channel` · `disabled` · `no_status_configured` · `replay_window`.
+  refusal_class      String?
+  created_at         DateTime @default(now())
+
+  channel Channel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  /// ⭐ THE constraint. See the model note — this is not an optimisation of a check done in code, it is
+  /// the only place the decision can safely be made.
+  @@unique([channel_id, external_event_id])
+  /// "What has this channel been sent lately, and what did we do with it" — the diagnostic read.
+  @@index([account_id, created_at])
+}
+
+/// ⭐ One intent to deliver one conversation message (feature 033, roadmap 6.4 — FR-036…FR-040).
+///
+/// ── Feature 028's proven mechanics, in the service that owns conversation mail ───────────────────
+/// Claim-and-lease (`pending → sending` as a conditional update, stale-claim reclaim, delete on
+/// success). The mechanics are reused; the STORE is not: auth owns identity mail, chats owns
+/// conversation mail, and no service reads another's tables (Principle VIII).
+///
+/// ── Two deliberate differences from 028, both of them corrections ────────────────────────────────
+/// 1. **`next_attempt_at` exists.** 028 sets a failed row back to `pending` and the very next tick
+///    retries — no growing gap. FR-039 requires backoff, so the claim predicate is
+///    `status = 'pending' AND next_attempt_at <= now`.
+/// 2. **THERE IS NO RECIPIENT COLUMN, and nothing here is ever logged with an address.** 028 logs
+///    `to=<address>` and defends it correctly: that recipient is an operator's own work address. Here the
+///    recipient is a CUSTOMER, which is precisely what anti-pitching protects. The envelope is fetched
+///    from `users` at send time and never stored, never logged.
+///
+/// ── Deleted on success, like 028 — with one thing rescued first ──────────────────────────────────
+/// This is a queue, not an archive; the history is the message itself. But the `Message-ID` we issued
+/// must outlive the row, because a customer's reply will quote it weeks later — so it is written to
+/// `Message.external_id` BEFORE the row is removed. Getting that order wrong would make threading work
+/// in tests and fail in production, where the row is actually deleted.
+model OutboundMessage {
+  id               String    @id @default(uuid())
+  account_id       String
+  conversation_id  String
+  message_id       String
+  channel_id       String
+  /// `pending` | `sending` | `failed`. There is no `sent`: a sent row is deleted.
+  status           String    @default("pending")
+  attempts         Int       @default(0)
+  /// The backoff clock — the delta from 028. `now + base * 2^attempts`, bounded.
+  next_attempt_at  DateTime  @default(now())
+  /// A CLASS from `libs/common/src/mail` — never the relay's own sentence, which quotes the envelope.
+  last_error_class String?
+  /// Also the stale-claim cutoff: a claim older than the lease means the claimer died.
+  last_attempt_at  DateTime?
+  created_at       DateTime  @default(now())
+
+  /// ⭐ ONE MESSAGE, ONE DELIVERY — structurally. FR-036 says a public reply creates exactly one intent,
+  /// and this is what makes "exactly one" a property of the database rather than of the caller's care.
+  /// A retry of the request that posted the message cannot produce a second copy for the customer.
+  @@unique([message_id])
+  /// The claim query, in its exact shape.
+  @@index([status, next_attempt_at])
+  @@index([account_id])
 }
 
 /// ⭐ One configured ticket status of one account (feature 032, roadmap 4.16 — ADR 0040).
@@ -206,6 +393,16 @@ model Message {
   // cross-account validation + notification are deferred to the Users read endpoint (Phase 5) —
   // resolution is itself account-scoped, so an out-of-account id can never resolve (research R6).
   mentions        String[] @default([])
+  /// ── Feature 033 (roadmap 6.4): this message's identity ON ITS CHANNEL ─────────────────────────
+  ///
+  /// The `Message-ID` we were given for an inbound email, or the one we issued for an outbound reply.
+  /// NULL for everything else — an agent's note, a widget message, every message written before 033.
+  ///
+  /// ⚠️ **Threading cannot be reconstructed after the fact.** A customer's reply quotes the identifier we
+  /// put on the message weeks earlier; if we did not store it then, there is nothing to match and the
+  /// thread splits with no way back. That is why inbound and outbound email had to be one feature rather
+  /// than two, and it is why this column is written BEFORE the outbox row that produced it is deleted.
+  external_id     String?
   created_at      DateTime @default(now())
 
   conversation Conversation  @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
@@ -213,6 +410,14 @@ model Message {
 
   @@index([conversation_id, created_at]) // keyset thread paging
   @@index([account_id])
+  /// ⭐ Feature 033: the same inbound email appears at most once (FR-032).
+  ///
+  /// ⚠️ Relies on Postgres treating NULLs as DISTINCT in a unique index, which is exactly the behaviour
+  /// needed here: every non-email message has NULL and they must not collide with each other. That is a
+  /// property of the database rather than of our code, so `tests/channels/constraints-033.spec.ts`
+  /// asserts it directly — a future migration to a different engine, or to `NULLS NOT DISTINCT`, would
+  /// otherwise turn "one copy per email" into "one message per conversation, silently".
+  @@unique([account_id, external_id])
 }
 
 /// A message's link to an upload (feature 016, roadmap 4.9 / FR-014).

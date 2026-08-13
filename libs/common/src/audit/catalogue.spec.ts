@@ -78,6 +78,21 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // statements about WHICH RECORD a thing belongs to, and brand drives reporting and record identity
     // even though ADR 0038 keeps it out of authorization.
     'conversation.brand_changed',
+    // ── Feature 033 (roadmap 6.1/6.4/6.5/6.6) — the first audited acts with NO HUMAN ACTOR ──
+    //
+    // A stranger's delivery, a mailbox, a retry. There is no operator to name, which is exactly why they
+    // are recorded: intake is the only place in the product where something happens because an outsider
+    // asked for it. All four are written by `chats`, and all four are expressible without a contact
+    // value — the `assignment` class's allow-list already permits a bare identifier KIND, the shape
+    // feature 020 established for `player.link`, so no allow-list change was needed for these either.
+    'channel.intake_refused',
+    'channel.identity_resolved',
+    // Audited AS WELL AS recorded as a transition: the transition is the history a person reads, this is
+    // the accountability record for a state change nobody authorised.
+    'conversation.reopened_by_reply',
+    // The refusal most easily mistaken for success — an unsent message and a delivered one look the same
+    // from inside the product, and the customer's silence is the only symptom.
+    'channel.send_refused',
   ];
 
   it('every action resolves to a class and a writer', () => {

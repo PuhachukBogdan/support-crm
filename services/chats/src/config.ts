@@ -80,6 +80,78 @@ export function loadChatsConfig(env: NodeJS.ProcessEnv = process.env) {
   );
 }
 
+/**
+ * ── Feature 033 (roadmap 6.1/6.5) — the channel intake's two configuration values ────────────────
+ *
+ * These are a THIRD category, distinct from both groups above, and the distinction is the point:
+ * they are **tunables with safe defaults**, parsed after the refuse-to-start gate rather than through
+ * it. `loadConfig` checks presence before zod runs, so a key routed through it is required in every
+ * environment whatever its schema says — and requiring these would mean a deployment that runs no
+ * channels at all cannot boot.
+ *
+ * The safety does not come from the default; it comes from which way the default fails. Absent
+ * secrets ⇒ an empty map ⇒ **every delivery is refused** as an unknown channel. There is no value of
+ * this configuration that makes an unverifiable webhook acceptable.
+ */
+export function loadChannelConfig(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    /** channel key → shared secret. Empty map = nothing can be verified = nothing is accepted. */
+    secrets: parseChannelSecrets(env.CHANNEL_SECRETS),
+    /**
+     * How far a delivery's timestamp may sit from ours.
+     *
+     * ⚠️ It bounds FORGERY, not duplication. A captured body must not stay replayable forever; a
+     * *duplicate* is stopped by the unique constraint on `(channel_id, external_event_id)`, which is
+     * why a replay arriving after this window is refused as stale rather than accepted as new. The two
+     * mechanisms are often conflated, and conflating them yields a system that accepts a duplicate
+     * once it is old enough.
+     */
+    replayWindowSeconds: clampInt(env.CHANNEL_INTAKE_REPLAY_WINDOW_S, 300, 5, 3_600),
+    /** The single support mailbox of the MVP (2.1h). Used by the seed; empty is legitimate. */
+    emailAddress: (env.CHANNEL_EMAIL_ADDRESS ?? '').trim(),
+  };
+}
+
+/**
+ * Parse `key:secret,key:secret` into a lookup.
+ *
+ * ⚠️ **A malformed entry is DROPPED, never guessed at.** A pair with no colon, an empty key or an
+ * empty secret would otherwise become a channel that verifies against `''` — which every unsigned
+ * delivery satisfies. Dropping it means that channel is unknown and its deliveries are refused, which
+ * is the same outcome as not configuring it at all.
+ *
+ * A secret is never logged, never returned in an error, and never compared with `===` (see
+ * `channel/signature.ts` — the comparison is constant-time).
+ */
+export function parseChannelSecrets(raw: string | undefined): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  for (const entry of (raw ?? '').split(',')) {
+    const trimmed = entry.trim();
+    if (trimmed === '') continue;
+    const colon = trimmed.indexOf(':');
+    // A secret may itself contain ':' — split on the FIRST one only, or a base64 secret silently
+    // truncates and every signature fails with nothing to see in a log.
+    if (colon <= 0) continue;
+    const key = trimmed.slice(0, colon).trim();
+    const secret = trimmed.slice(colon + 1).trim();
+    if (key === '' || secret === '') continue;
+    out.set(key, secret);
+  }
+  return out;
+}
+
+/** Parse an integer env value; fall back when unparseable, clamp into [min, max]. */
+function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  const n = Number.parseInt((raw ?? '').trim(), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+export type ChannelConfig = ReturnType<typeof loadChannelConfig>;
+
+/** Nest DI token carrying the validated {@link ChannelConfig}. */
+export const CHANNEL_CONFIG = Symbol('CHANNEL_CONFIG');
+
 export type ChatsConfig = ReturnType<typeof loadChatsConfig>;
 
 /**

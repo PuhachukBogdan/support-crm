@@ -100,20 +100,17 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env) {
 }
 
 /**
- * Parse the recipient allow-list (FR-018/FR-019).
+ * ⚠️ **MOVED** to `libs/common/src/mail/guards.ts` (feature 033, research R7) and re-exported here.
  *
- * ⚠️ **Empty means UNRESTRICTED, not "send nothing".** Read the other way round it would silently
- * stop all mail in production, where an empty list is the legitimate configuration — and a mail
- * system that sends nothing looks exactly like one that is merely slow.
+ * It moved because feature 033 added a second mail sender and the guard had to become one boundary
+ * rather than two implementations. Re-exported rather than relocated in-place because `config.spec.ts`
+ * imports it from this path and is the proof the behaviour did not change — that test passes unmodified.
  *
- * A leading `@` is accepted because that is how somebody writing down a domain will type it.
+ * ⚠️ **Empty means UNRESTRICTED, not "send nothing".** Read the other way round it would silently stop
+ * all mail in production, where an empty list is the legitimate configuration — and a mail system that
+ * sends nothing looks exactly like one that is merely slow.
  */
-export function parseAllowedRecipientDomains(raw: string | undefined): string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
-    .filter((d) => d.length > 0);
-}
+export { parseAllowedRecipientDomains } from '@crm/common';
 
 export type AuthConfig = ReturnType<typeof loadAuthConfig>;
 

@@ -54,6 +54,10 @@ const detailRow = {
   classified_by: 'ai',
   subject_source: 'auto',
   routed_group_id: null,
+  // Feature 033: present in the fixture because the ROW type requires it — the projection guard and the
+  // compiler together are what keep a declared field from being silently unmapped.
+  identity_state: null,
+  continues_conversation_id: null,
 };
 
 /**

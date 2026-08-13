@@ -141,6 +141,61 @@ model Person {
   @@index([account_id])
 }
 
+/// ⭐ THE ENVELOPE — the address a channel conversation must be answered at (feature 033, roadmap 6.4).
+///
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+/// ⚠️ **THIS IS THE ONLY NEW CLEAR-TEXT CONTACT VALUE IN FEATURE 033, AND IT IS HERE ON PURPOSE.**
+///
+/// Replying to an email ticket needs the address the customer wrote **from**. That address cannot come
+/// from `ContactMatch` — a hash matches, it does not reveal — and it cannot come from the player's
+/// registered address, because a player may write from a different one and answering the registered
+/// address instead would send a stranger's conversation to them. So a readable value must exist
+/// somewhere.
+///
+/// It exists in THIS service because this service already owns contact values: it holds the hash salt,
+/// it holds the opaque GR8 snapshot, and it is the only service with a field-tier allow-list. The
+/// alternative was a column on `chats.Conversation`, and `ContactMatch`'s own comment names exactly what
+/// that would have created — *"a NEW PII surface: one the tier policy does not classify, masking does not
+/// cover, exports do not know about, and a log could reach."* chats holds an opaque handle instead.
+///
+/// **⚠️ It is NOT in the `field-tiers.ts` map, and that was decided rather than forgotten.** Classifying
+/// it was tried and `tests/users-read/tier-agreement.spec.ts` refused it: that map governs the `Player`
+/// read path and its keys must be fields of that DTO. An entry for a field no projection serves would
+/// have claimed a protection it does not have — the map's fail-closed guarantee applies to fields served
+/// *through* it.
+///
+/// **Its protection is threefold instead, and each part is real:** it lives in the service that owns
+/// contact values; it leaves that service only through `GetChannelEnvelope`, a system-actor rpc that no
+/// gateway route exposes and that the outbound delivery path alone calls; and it is never logged. If a
+/// card field ever surfaces it to a person, THAT field belongs in the tier map.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+///
+/// `player_id` is filled when intake resolved who wrote and stays NULL for an unidentified thread — the
+/// envelope is a property of the THREAD, not of a person, which is why it can exist without one.
+model ChannelParticipant {
+  id         String   @id @default(uuid())
+  account_id String
+  brand_id   String
+  /// The channel kind this address belongs to — `email` today.
+  kind       String
+  /// ⚠️ A contact value in clear. See the model note above before adding any reader.
+  address    String
+  /// Soft ref to the brand-scoped player, when identity resolved. NULL = unidentified thread.
+  player_id  String?
+  created_at DateTime @default(now())
+
+  /// One participant per address per brand, so a returning customer reuses the row rather than
+  /// accumulating one per conversation. Brand-scoped because identity is (ADR 0038): the same address
+  /// under two brands is two participants until a `Person` link says otherwise.
+  @@unique([account_id, brand_id, kind, address])
+  @@index([account_id])
+  /// Feature 033: required by `tests/data-model/indexes.spec.ts` (Principle VII) — `player_id` is a
+  /// high-cardinality soft ref, and "which threads belong to this player" is the read W9's attach screen
+  /// and the player card will both make. Indexed before either exists, because the guard's point is that
+  /// a hot column is cheap now and a table scan on the day somebody writes the query.
+  @@index([account_id, player_id])
+}
+
 /// A player record's participation in a person.
 ///
 /// `linked_on` records WHICH KIND of identifier established the link ('email' | 'phone') and never

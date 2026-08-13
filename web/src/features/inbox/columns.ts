@@ -87,16 +87,24 @@ type FilterKey = 'status' | 'channel';
 const STATUSES = ['open', 'pending'] as const;
 
 /**
- * ⚠️ **The channel list is deliberately NOT a closed catalogue.** A channel is data, never a branch
- * (roadmap 9.6a) — Phase 6 adds them as connections are made. These are the values present today; the
- * gateway accepts any well-formed name, so a new channel becomes filterable without a code change.
+ * ⭐ **Corrected by feature 033 (2026-08-05): `'chat'` is gone.** The 033 migration typed the arrival
+ * channel into the closed vocabulary `api | email | messenger` and folded `chat` into `api` — the widget
+ * chat *is* the API channel (roadmap 6.1). Left in this list it would be a filter option matching zero
+ * rows, which reads to an agent as "there are no widget tickets" rather than "that word is retired".
+ *
+ * ⚠️ **This paragraph replaces one claiming the list is deliberately NOT a closed catalogue.** That was
+ * true when a channel was free text; it stopped being true when three subsystems began standing on the
+ * column (SLA per channel, this filter, the analytics split). The values are now a catalogue in
+ * `libs/common/src/channels/kinds.ts`, and `messenger` is deliberately absent HERE rather than absent
+ * there: the kind exists so the vocabulary is complete, but no messenger is connected in the MVP, so
+ * offering it would be the same empty-filter mistake in a new place. It arrives with the transport.
  *
  * ⛔ **There is no "no channel" option, and that is a real limitation worth stating.** About one in six
  * conversations carry no channel; the wire cannot express "unset" as a filter value (an empty string
  * means "no filter"). Those rows stay reachable by not filtering — so the filter narrows, and clearing
  * it is how you get back to everything (FR-011a).
  */
-const CHANNELS = ['chat', 'email', 'api'] as const;
+const CHANNELS = ['api', 'email'] as const;
 
 /**
  * ⭐ **Order copied from Zendesk** (`ui-design/screenshots/views_1.png`, 2026-08-03):

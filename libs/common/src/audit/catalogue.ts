@@ -295,6 +295,83 @@ export const AUDIT_ACTIONS = {
     label: 'Conversation moved to another brand',
   },
 
+  // ── channels (feature 033, roadmap 6.1/6.4/6.5/6.6) ──
+  //
+  // These four are the first audited acts whose ACTOR is not a person. A stranger's delivery, a mailbox,
+  // a retry — there is no operator to name, and that is precisely why they are recorded: the intake path
+  // is the only place in the product where something happens because an outsider asked.
+  //
+  // ⚠️ **Every one of them is expressible without a contact value, and that is a constraint on the
+  // entry rather than a hope about the caller.** The detail allow-list of the `assignment` class already
+  // permits a bare identifier KIND (`email` | `phone` | `player_id`) — the shape feature 020 established
+  // for `player.link` — so a resolution can be recorded as "matched on an email" and can never be
+  // recorded as "matched on ann@example.test".
+
+  /**
+   * A delivery was refused at the channel edge — bad signature, no derivable event id, a loop, an
+   * unparseable message, a disabled channel, an account with no `new` status configured.
+   *
+   * Recorded because a refusal that leaves no trace is indistinguishable from a delivery that never
+   * arrived, and those two have opposite causes: one is our rejection, the other is somebody else's
+   * outage. `refusalClass` only — never the payload, never the signature, never the secret.
+   */
+  'channel.intake_refused': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'An inbound channel delivery was refused',
+  },
+  /**
+   * Intake decided who wrote — or decided that it could not tell.
+   *
+   * The counterpart to `player.link`: that one records two records becoming one person, this one records
+   * a conversation being attached to a person automatically, by whatever the channel carried. Both are
+   * automatic decisions about identity, and an automatic decision needs a record of itself — a wrong
+   * attachment is otherwise visible only as a customer card that quietly contains someone else's words.
+   *
+   * ⚠️ The identifier CLASS is recorded and the value never is (ADR 0044 §4's rule, applied here to the
+   * automatic path rather than to the agent's lookup).
+   */
+  'channel.identity_resolved': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'Intake resolved (or failed to resolve) who wrote',
+  },
+  /**
+   * A customer's reply reopened a ticket that had been solved.
+   *
+   * ⚠️ Audited **as well as** recorded as a transition, which is unusual and deliberate. The transition
+   * is the history a person reads on the ticket; the audit entry is the accountability record for a
+   * state change **nobody authorised** — the same reason `conversation.brand_changed` exists, except the
+   * actor here is an email rather than a supervisor. A ticket that reopens itself with no trace is a
+   * closed-work number that changes with nothing to point at.
+   *
+   * Its sibling case leaves no entry, correctly: a reply to a `closed` ticket creates a NEW ticket, and
+   * creating a ticket is not a state change needing accountability — the link on the row is the record.
+   */
+  'conversation.reopened_by_reply': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'A customer reply reopened a solved conversation',
+  },
+  /**
+   * An outbound message was refused before it left — the capability matrix said the channel cannot
+   * carry it, or the egress guard refused the host.
+   *
+   * ⚠️ Recorded because THIS is the refusal most likely to be mistaken for success. A message that was
+   * never sent and never complained about looks, from inside the product, exactly like one that was
+   * delivered; the customer's silence is the only symptom, and it arrives days later. `reasonClass`
+   * only — never the recipient, never the body, never the relay's own sentence.
+   */
+  'channel.send_refused': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'An outbound channel message was refused before sending',
+  },
+
   // ── retention (roadmap 7.3 + ADR 0015) ──
   'audit.trim': {
     class: 'retention',

@@ -132,6 +132,16 @@ export interface ConversationDetailRow extends ConversationSummaryRow {
    * joined. Null for everything routed the old way, and for everything that predates the column.
    */
   routed_group_id: string | null;
+  /**
+   * ── Feature 033 (roadmap 6.1, ADR 0044 §1) ─────────────────────────────────────────────────────
+   *
+   * `identified` | `unidentified`; null for every conversation created before the feature — a THIRD
+   * fact, not a synonym for either, and the reason the state is stored rather than derived from an
+   * empty `player_id`.
+   */
+  identity_state: string | null;
+  /** Set when a reply on a CLOSED thread produced this ticket. Null for a reopened `solved` one. */
+  continues_conversation_id: string | null;
 }
 
 export function toSummaryWire(r: ConversationSummaryRow) {
@@ -238,5 +248,11 @@ export function toDetailWire(r: ConversationDetailRow) {
     subject: r.subject ?? '',
     subjectSource: r.subject_source ?? '',
     routedGroupId: r.routed_group_id ?? '',
+    // Feature 033. Projected the moment the fields were declared, because
+    // `conversation-projection-covers-contract.spec.ts` refuses a declared field nothing maps — it would
+    // read as permanently empty to every consumer, which is worse than absent: absent is a compile error
+    // at the call site, empty is a screen that quietly says "nobody wrote this".
+    identityState: r.identity_state ?? '',
+    continuesConversationId: r.continues_conversation_id ?? '',
   };
 }

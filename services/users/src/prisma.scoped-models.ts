@@ -44,4 +44,9 @@ export const SCOPED_MODELS = [
   // a row here decides what a manager may read, so a leak across the tenancy wall would not merely
   // show the wrong data, it would grant the wrong access. Same reasoning as the group tables.
   'PlayerAssignment',
+  // Feature 033 (roadmap 6.4): the envelope a channel conversation is answered at. Scoped for the
+  // strongest reason any table here is — it holds a CONTACT VALUE IN CLEAR, the only new one the
+  // channels feature adds. A read that crossed the tenancy wall would hand one tenant another tenant's
+  // customer address, which is the exact harm anti-pitching exists to prevent, at tenant scale.
+  'ChannelParticipant',
 ] as const;

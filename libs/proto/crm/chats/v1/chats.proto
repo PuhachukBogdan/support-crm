@@ -171,6 +171,24 @@ message Conversation {
   // ⭐ Feature 032 (roadmap 4.16) — the status in the model of record, same pair as on the summary.
   string status_key = 18;
   ConversationStatusCategory status_category = 19;
+  // ── ⭐ Feature 033 (roadmap 6.1, ADR 0044 §1) — additive ────────────────────────────────────────
+  //
+  // WHO WROTE, and the honest answer when we cannot tell: `identified` | `unidentified` | "" (a
+  // conversation created before this feature, which is a third fact and not a synonym for either).
+  //
+  // ⚠️ Sent as its own field rather than inferred from an empty `player_id`, and that is the point. A
+  // blank `player_id` cannot distinguish *"resolution ran and matched nobody"* from *"resolution never
+  // ran"* — opposite facts, one of which is work for the manual attach (W9) and one of which is not.
+  // ADR 0044 §1 forbids implying the state by a blank precisely because a blank is what their current
+  // Zendesk shows, and nobody can tell from it whether the data is missing or merely unmapped.
+  //
+  // Forbidden alongside it (ADR 0044 §1): `***` fillers and generated stand-in names (`Web User 6a5df…`).
+  string identity_state = 20;
+  // Set when this ticket exists because a customer replied on a thread whose ticket was already CLOSED.
+  // Empty for everything else, including a reopened `solved` ticket — that one keeps its own id and gets
+  // a transition instead. `closed` is final: reviving it would return it to routing, to the SLA clock and
+  // to a reporting period already counted.
+  string continues_conversation_id = 21;
 }
 
 // Feature 016 (roadmap 4.9) — rendering metadata for a file attached to a message. The bytes are
@@ -245,6 +263,56 @@ service ChatsReadService {
   // the same fact class as reading the list. Inactive statuses are returned too (`active = false`), or
   // a conversation still sitting in a retired status would render with no label at all.
   rpc ListConversationStatuses(Empty) returns (ConversationStatusList);
+
+  // ── ⭐ Feature 033 (roadmap 6.6, subpoint 2.1e) — what each channel kind can do ──────────────────
+  //
+  // *"Can we send on this kind right now, and what kind of message?"* — asked BEFORE anything is offered,
+  // so the product never renders an action guaranteed to fail (roadmap 6.6: render only genuinely
+  // available channels).
+  //
+  // ⚠️ It carries NO tenant data — the matrix is the same for every account, because it describes other
+  // people's platforms rather than our configuration. Gated by `crm.inbox.view` all the same: a read with
+  // no route is a read nobody can reach, and this one is what W6's filter, W7's composer and W20's split
+  // will stand on.
+  //
+  // ⚠️ **This is not the enforcement point.** The server refuses an unavailable action itself, in the send
+  // path (FR-006). This rpc lets an interface avoid OFFERING one; an interface that merely hid the button
+  // would leave the path reachable, which is why both exist.
+  // ⚠️ The rpc line is declared by US5 beside its handler — `every-rpc-is-served.spec.ts` refuses a
+  // contract nothing serves, and this one arrived a phase early. The messages below stay: they describe
+  // `libs/common/src/channels/capabilities.ts`, which exists and is tested.
+}
+
+// Feature 033 — the capability matrix, as data (see `libs/common/src/channels/capabilities.ts`).
+message ChannelCapabilityList {
+  repeated ChannelCapability capabilities = 1;
+}
+
+message ChannelCapability {
+  ChannelKind kind = 1;
+  bool may_initiate = 2;
+  // 0 = NO WINDOW, i.e. always allowed — never "never allowed". A window is a restriction and its absence
+  // is freedom; reading 0 the other way would silently forbid every email reply.
+  int32 reply_window_hours = 3;
+  bool supports_attachments = 4;
+  bool template_required_to_initiate = 5;
+  // False for `messenger` in the MVP: the kind and the adapter contract ship, the transport does not
+  // (subpoint 2.1i, vendor question O1). A send is refused as unavailable — never a crash, never a
+  // silent no-op.
+  bool live_transport = 6;
+}
+
+// The closed channel vocabulary (`libs/common/src/channels/kinds.ts`).
+//
+// ⚠️ UNSPECIFIED is a real value here and means **no arrival channel** — a ticket an agent raised, or a
+// seeded one. About one in six conversations are in that state, and it is an ABSENCE rather than a fourth
+// kind; the `Conversation.channel` field stays a string for that reason and this enum types the answers
+// that DO have a channel.
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_API = 1;
+  CHANNEL_KIND_EMAIL = 2;
+  CHANNEL_KIND_MESSENGER = 3;
 }
 
 message ConversationStatusList {
@@ -443,6 +511,88 @@ service ChatsWriteService {
   rpc SetFirstReplySlaPolicy(SetFirstReplySlaPolicyRequest) returns (FirstReplySlaPolicy);
   // NOTE: SetConversationSubject (roadmap 4.18) is declared by US3 alongside its handler — an rpc
   // ships with its writer, which is the lesson every-rpc-is-served taught twice in this feature.
+
+  // ── ⭐ Feature 033 (roadmap 6.1/6.4) — the channel ingress the seed path was annotated for ───────
+  //
+  // `RecordIncomingMessage` above carries the note "internal/seed + future channel ingress (Phase 6)".
+  // This is that Phase 6 — and it is a NEW rpc rather than a widening of that one, because the two differ
+  // in the only way that matters: `RecordIncomingMessage` TRUSTS its caller's brand and player id, which
+  // is right for a seed and unacceptable for a stranger's payload.
+  //
+  // ⚠️ Neither of these is reachable by an operator session. They are called by the gateway's public
+  // intake route and by the worker's mailbox reader — the two paths whose authentication is a signature
+  // and a mailbox credential rather than a JWT.
+  //
+  // ⚠️ Declared WITH its handler (`channel/channel.grpc.controller.ts`), not before it — the rule the
+  // note two services above records, and which `every-rpc-is-served.spec.ts` enforced against this
+  // feature's first draft. `AcceptInboundEmail` follows in US2, beside its own handler.
+  rpc AcceptChannelDelivery(AcceptChannelDeliveryRequest) returns (AcceptChannelDeliveryResponse);
+}
+
+// ── Feature 033 (roadmap 6.1) — one signed delivery from an API channel ───────────────────────────
+//
+// ⚠️ **`raw_body` IS BYTES, and that is a requirement rather than a style choice.** The signature is over
+// exactly what arrived; a parsed-then-reserialised body is a different byte string, so every signature
+// would fail and the symptom would read as "the provider signs wrongly". The gateway preserves the bytes
+// and never parses them — it holds no channel secret and does no verification (Principle VIII).
+message AcceptChannelDeliveryRequest {
+  string channel_key = 1;             // which channel it CLAIMS to be; the credential decides the brand
+  // ⚠️ **A STRING, and not `bytes` — corrected by `tests/uploads/single-ingest-path.spec.ts`.**
+  //
+  // The first draft declared `bytes`, which is the natural type for "verify over exactly what arrived" and
+  // which feature 016's structural guarantee forbids: **only the uploads messages carry a byte payload**,
+  // so that there is exactly one path by which raw content enters the product. A second byte-carrying rpc
+  // is how that guarantee erodes, and the guard exists because prose could not stop it.
+  //
+  // A string costs nothing here. Proto3 strings are UTF-8, an API-channel webhook is JSON text, and the
+  // gateway hands over the **exact characters it received** rather than a re-serialisation — which is the
+  // property the signature actually depends on (see `channels/raw-body.spec.ts`). A binary webhook payload
+  // would need a different answer, and there is none to support.
+  string raw_body_text = 2;
+  string signature = 3;               // the `X-CRM-Signature` header, verbatim
+  int64 received_at = 4;              // when the gateway got it — bounds the replay window
+}
+
+// The outcome of either intake path.
+message AcceptChannelDeliveryResponse {
+  string conversation_id = 1;
+  string message_id = 2;
+  // ⚠️ TRUE IS A SUCCESS, not an error. A provider that re-delivers because its acknowledgement was lost
+  // must be told "already accepted" — answering with a failure makes it retry for ever (FR-012).
+  bool duplicate = 3;
+  // Empty on success. A CLASS, never a sentence: `signature` · `unparseable` · `loop` · `no_event_id` ·
+  // `unknown_channel` · `disabled` · `no_status_configured` · `replay_window`.
+  string refusal_class = 4;
+}
+
+// ── Feature 033 (roadmap 6.4) — one message taken out of the mailbox ──────────────────────────────
+//
+// MIME parsing happens in the worker (it holds the parser and the connection); what crosses the wire is
+// the normalised message. `from_address` is passed straight through to `users` and is NEVER stored by
+// chats — chats keeps only the opaque participant handle (FR-021b).
+message AcceptInboundEmailRequest {
+  string channel_key = 1;
+  string message_id = 2;              // the RFC `Message-ID` — the at-most-once key (FR-032)
+  string in_reply_to = 3;
+  repeated string references = 4;
+  string from_address = 5;            // ⚠️ never logged on either side; never stored in chats_db
+  // The source's own title. ⚠️ Empty means THE SOURCE GAVE NONE, which leaves our derivation window open
+  // (FR-028) — it is not a title of "". The two are different facts and stay different.
+  string subject = 6;
+  string body_text = 7;
+  // ⚠️ **UPLOAD IDS, not bytes — and this is a better design than the one it replaced.**
+  //
+  // The first draft carried the file content here, which feature 016's structural guarantee forbids: only
+  // the uploads messages carry a byte payload, so raw content enters the product by exactly one path.
+  // `tests/uploads/single-ingest-path.spec.ts` refused it.
+  //
+  // The fix is not a workaround. The worker already holds a `users` client, so it calls `CreateUpload`
+  // itself under the `channel_inbound_attachment` purpose and sends chats the resulting ids — which means
+  // the bytes travel one hop instead of two, chats never buffers a stranger's file in memory, and the
+  // validation that decides whether a file is acceptable happens in the service that owns storage. The
+  // guard did not merely block a contract; it pointed at the shorter route.
+  repeated string upload_ids = 8;
+  int64 sent_at = 9;
 }
 
 message PostMessageRequest {
@@ -787,6 +937,19 @@ service ChatsMaintenanceService {
   // customer work in a maintenance log that nobody reads with customer eyes.
   rpc DrainBacklog(MaintenanceBatchRequest) returns (DrainResult);
 
+  // ⭐ Feature 033 (roadmap 6.4): claim and send due conversation replies.
+  //
+  // Every property of the sweeps above, including the one that matters most here: **COUNTS OUT, NOTHING
+  // ABOUT A MESSAGE IN.** Feature 028 established that shape for identity mail, and this path needs it
+  // more strictly — the recipient of a conversation reply is a CUSTOMER, and a maintenance response that
+  // named one would put a contact value in a log read by nobody with customer eyes.
+  //
+  // The worker only says "now". chats holds the outbox, fetches the envelope from `users` at send time,
+  // and opens the connection.
+  // ⚠️ The rpc line is declared by US4 beside its handler and its worker tick — both
+  // `every-rpc-is-served.spec.ts` and `maintenance-ticks.spec.ts` refuse a maintenance rpc with no
+  // handler and no stated way of being reached, and they refused this one when it arrived early.
+
   // Feature 017 (roadmap 4.10). Both inherit every property of the sweep above: system actor only, no
   // gateway route, batch-capped, COUNTS in the response.
   //
@@ -850,6 +1013,14 @@ message DrainResult {
                          // §2. A high number here with `assigned` at zero is the head-of-line signal.
   int32 unroutable = 4;  // could reach nobody at all; each raises its own audited event
   // No ids of any kind. Counts only.
+}
+
+// Feature 033 (roadmap 6.4) — the outbound tick's answer. Counts only, like every result here.
+message SendDueResult {
+  int32 attempted = 1;
+  int32 sent = 2;      // a transport ACCEPTED it — not that a human read it
+  int32 failed = 3;    // includes dead-lettered; the row carries the error CLASS, this does not
+  // ⚠️ No ids, no addresses, no error text. The recipient of a conversation reply is a customer.
 }
 
 message MaintenanceBatchRequest {

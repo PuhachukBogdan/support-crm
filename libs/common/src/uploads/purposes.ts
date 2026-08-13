@@ -107,6 +107,41 @@ export const UPLOAD_PURPOSES = {
   },
 
   /**
+   * A file that arrived ON a channel (feature 033, roadmap 6.1/6.4 — subpoint 2.1a/2.1c).
+   *
+   * ── Why its own row rather than reusing `message_attachment` ─────────────────────────────────────
+   * The writer is not a person. `message_attachment` is gated on `crm.conversation.reply` because an
+   * agent attaching a file is exercising an authority; an inbound file is written by the intake path on
+   * behalf of a stranger, and there is no operator whose permission could be checked. Reusing that row
+   * would silently give a stranger's upload an agent's caps and an agent's permission story.
+   *
+   * `permission: null` therefore means **"the caller is the intake path, not an authenticated human"**,
+   * which is a different statement from the avatar's "authenticated is sufficient". Neither means "no
+   * check": intake is reached only through a verified channel signature or the mailbox we hold, and
+   * that verification IS the authorization for this write.
+   *
+   * ── The caps are deliberately tighter than an agent's ───────────────────────────────────────────
+   * 5 MB rather than 10, and no GIF. This is the one upload path an unauthenticated party can reach, so
+   * the budget is what a support conversation actually needs — a screenshot or a receipt — and nothing
+   * more. A stranger cannot use it to park 10 MB of animation in our storage.
+   *
+   * ⚠️ A rejected file MUST NOT cost its message. FR-018 requires the words to land even when the
+   * attachment does not, because a customer's text silently lost to a bad file is indistinguishable
+   * from the system working. That rule lives in the intake path, not in this row; the row only decides
+   * what is acceptable.
+   */
+  channel_inbound_attachment: {
+    permission: null,
+    origin: 'ingested',
+    ephemeral: false,
+    ttlSeconds: 0,
+    maxBytes: 5 * MB,
+    types: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
+    derivative: 'images-only',
+    derivativeLongestEdge: 256,
+  },
+
+  /**
    * The profile avatar. Limits fixed by ADR 0035 (2 MB; PNG/JPEG/WebP by content; SVG excluded) —
    * reproduced here as data, which is the FR-003/SC-009 claim being made rather than described.
    *

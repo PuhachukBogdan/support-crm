@@ -10,6 +10,11 @@ import { CannedController } from './canned.controller';
 import { AutomationsController } from './automations.controller';
 import { SlaController } from './sla.controller';
 import { PersonController } from './person.controller';
+// ⭐ Feature 033 (roadmap 6.1): the channel intake edge. It lives in `../channels/` rather than here
+// because it is not an operator-facing chats route — it is the one @Public() route in the product whose
+// caller holds no session, and grouping it with the session-guarded chats surface would invite somebody
+// to add a sibling that inherits the exemption by accident.
+import { ChannelsController } from '../channels/channels.controller';
 
 /**
  * Gateway chats edge (feature 012). Thin REST surface over the chats gRPC service (Principle VIII —
@@ -20,6 +25,7 @@ import { PersonController } from './person.controller';
 @Module({
   imports: [GrpcClientsModule],
   controllers: [
+    ChannelsController,
     ConversationsController,
     MessagesController,
     FeedController,

@@ -9,6 +9,10 @@ import {
   SEED_BRAND_ID,
   SEED_BRAND_ID_2,
   SEED_PLAYER_ID,
+  // Feature 033 (roadmap 6.5, 2.1h): the two configured channels.
+  SEED_CHANNEL_API_KEY,
+  SEED_CHANNEL_EMAIL_ADDRESS,
+  channelKindFromStored,
   // Feature 029 (FR-024) — the three conversations for judging the Inbox.
   SEED_CONVERSATION_TEST_ID,
   SEED_CONVERSATION_BILLING_ID,
@@ -142,7 +146,13 @@ describe('chats seed builder', () => {
     expect(new Set(categories)).toEqual(new Set(['Test', 'Billing', 'Access']));
 
     const channels = mine.map((c) => (c as { channel?: string | null }).channel);
-    expect(new Set(channels).size).toBe(3); // three different channels, so the filter has real work
+    // ⚠️ Feature 033: still three distinct values, but one of them is now NULL rather than a third word.
+    // The migration folded `chat` into `api` (the widget chat IS the API channel), so three words were no
+    // longer available — and NULL is the truer third case: about one in six conversations have no arrival
+    // channel and the filter deliberately cannot narrow to them. The screen now shows a row the filter
+    // cannot reach, which is the case most worth seeing and the one three tidy words was hiding.
+    expect(new Set(channels).size).toBe(3);
+    expect(channels).toContain(null);
 
     // Every one has a human title, so the queue is scannable rather than a column of ids.
     for (const c of mine) expect((c as { subject?: string | null }).subject).toBeTruthy();
@@ -494,6 +504,59 @@ describe('chats seed — feature 032 (status categories)', () => {
     const configured = new Set(seed.statuses.map((s) => s.key));
     for (const match of stored.matchAll(/"MACRO_ACTION_TYPE_SET_STATUS","value":"([^"]+)"/g)) {
       expect(configured.has(match[1]!)).toBe(true);
+    }
+  });
+});
+
+describe('chats seed — feature 033 (channels)', () => {
+  const seed = buildSeed();
+
+  it('provisions one API channel and one email channel, both for brand 1', () => {
+    // Subpoint 2.1h: one key and one address, in configuration, with no authoring screen.
+    expect(seed.channels).toHaveLength(2);
+    expect(seed.channels.map((c) => c.kind).sort()).toEqual(['api', 'email']);
+    for (const ch of seed.channels) expect(ch.brand_id).toBe(SEED_BRAND_ID);
+  });
+
+  it('⭐ brand 2 gets NO channel — so brand isolation is falsifiable', () => {
+    // The isolation test asks whether a delivery signed for brand 1 can create a ticket under brand 2.
+    // Giving brand 2 its own channel would let that test pass for the wrong reason.
+    expect(seed.channels.some((c) => c.brand_id === SEED_BRAND_ID_2)).toBe(false);
+  });
+
+  it('⚠️ stores NO secret on any channel row', () => {
+    // Verifying an HMAC needs the key material, so unlike an invite token a channel secret cannot be a
+    // hash — and a recoverable secret at rest needs encryption and key management no MVP channel earns.
+    // It lives in `CHANNEL_SECRETS`. This asserts the row never grows a place to put one.
+    const serialised = JSON.stringify(seed.channels);
+    expect(serialised).not.toMatch(/secret/i);
+    expect(serialised).not.toMatch(/token/i);
+    for (const ch of seed.channels) {
+      expect(Object.keys(ch).sort()).toEqual(
+        ['account_id', 'address', 'brand_id', 'enabled', 'id', 'key', 'kind'].sort(),
+      );
+    }
+  });
+
+  it('the API channel key is the one configuration must carry', () => {
+    // A mismatch between this and the deployment's CHANNEL_SECRETS refuses every delivery — the
+    // fail-closed direction, but it presents as "the webhook does not work", so live-w3.sh checks the pair.
+    const api = seed.channels.find((c) => c.kind === 'api')!;
+    expect(api.key).toBe(SEED_CHANNEL_API_KEY);
+    expect(api.address).toBeNull();
+  });
+
+  it('the email channel carries the mailbox address and no key secret', () => {
+    const email = seed.channels.find((c) => c.kind === 'email')!;
+    expect(email.address).toBe(SEED_CHANNEL_EMAIL_ADDRESS);
+  });
+
+  it('every seeded conversation channel is in the closed vocabulary, or absent', () => {
+    // After the 033 migration a stored channel is a kind or NULL. `chat` must not survive anywhere,
+    // including in fixtures — a seed is where a retired vocabulary grows back most quietly.
+    for (const conv of seed.conversations) {
+      const kind = channelKindFromStored(conv.channel as string | null);
+      expect(kind === null).toBe(false); // null = a word the vocabulary cannot resolve
     }
   });
 });

@@ -1,0 +1,12 @@
+-- Feature 031 (roadmap 4.20) — when the drain first found that waiting work can reach NOBODY.
+--
+-- ⚠️ It exists so the audited `conversation.unroutable` event is written ONCE PER CONDITION rather than
+-- once per tick. The drain rides a 30-second heartbeat; without this stamp a desk left un-routable over a
+-- weekend writes ~20 000 identical entries, and an alarm that repeats is an alarm nobody can read.
+--
+-- Cleared when the condition clears and when the conversation gains an owner — which is what makes
+-- "it resolves" a fact on the row rather than an intention (SC-008).
+--
+-- ⓘ NO INDEX, deliberately: it is only ever read for rows the backlog index has already selected, and
+-- this is the largest table in the system.
+ALTER TABLE "Conversation" ADD COLUMN "unroutable_since" TIMESTAMP(3);

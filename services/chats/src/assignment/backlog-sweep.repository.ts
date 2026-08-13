@@ -23,8 +23,8 @@ import { PrismaService } from '../prisma.service';
  * ── Why it is judged compliant with Principle I ─────────────────────────────────────────────────
  * Identical five-way argument to the SLA sweep, and each point is checked by a test:
  *
- *   1. **Ids only.** The `select` is `{ account_id, id, channel, brand_id, routed_group_id, backlog_at }`
- *      — what routing arithmetic needs and nothing else. No subject, no player, no body (Principle IV).
+ *   1. **Ids only.** The `select` is the id, the account, and what routing arithmetic needs — channel,
+ *      brand, desk, and the two timestamps. No subject, no player, no body (Principle IV).
  *   2. **Nothing leaves the service.** `DrainBacklog` answers with COUNTS, never rows, even for a
  *      system caller.
  *   3. **No caller can reach it.** Only `ChatsMaintenanceService.DrainBacklog` calls it; that handler
@@ -52,6 +52,8 @@ export interface WaitingConversation {
   brand_id: string;
   routed_group_id: string | null;
   backlog_at: Date;
+  /** Set once the drain has recorded that this work can reach nobody; null while it can. */
+  unroutable_since: Date | null;
 }
 
 @Injectable()
@@ -76,6 +78,7 @@ export class BacklogSweepRepository {
         brand_id: true,
         routed_group_id: true,
         backlog_at: true,
+        unroutable_since: true,
       },
     })) as WaitingConversation[];
   }

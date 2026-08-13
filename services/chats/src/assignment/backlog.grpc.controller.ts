@@ -1,4 +1,4 @@
-import { Controller, Inject } from '@nestjs/common';
+import { Controller, Inject, Logger } from '@nestjs/common';
 import { GrpcMethod, RpcException } from '@nestjs/microservices';
 import { status as GrpcStatus } from '@grpc/grpc-js';
 import { Metadata, type MetadataValue } from '@grpc/grpc-js';
@@ -46,6 +46,8 @@ import { AuditRepository } from '../audit/audit.repository';
  */
 @Controller()
 export class BacklogMaintenanceController {
+  private readonly logger = new Logger(BacklogMaintenanceController.name);
+
   constructor(
     @Inject(BacklogRepository) private readonly backlog: BacklogRepository,
     @Inject(BacklogSweepRepository) private readonly sweep: BacklogSweepRepository,
@@ -69,82 +71,129 @@ export class BacklogMaintenanceController {
 
     for (const item of waiting) {
       /**
-       * ⚠️ Capacity is re-read for EVERY item, not once for the batch.
+       * ⚠️ **One bad row must not kill the tick**, and the first live run proved why: a queued
+       * conversation with no desk made the pool raise, the exception escaped this loop, and the whole
+       * batch — every account — stopped. The SLA sweep learnt this already: *"a rule blowing up must not
+       * stop the sweep."*
        *
-       * The first assignment in this loop consumes a unit, so a batch-level snapshot would hand the same
-       * free slot to several conversations — the over-allocation R8 exists to prevent, arriving through
-       * the back door of a cached pool.
+       * A raise here is a DEPENDENCY problem (auth or users unreachable), not a fact about the
+       * conversation, so it counts as skipped and the next tick tries again. It is deliberately NOT
+       * recorded as unroutable: *"nobody can take this"* and *"I could not find out"* are different
+       * answers, and the whole pool contract exists to keep them apart.
        */
-      const desk = await this.pool.candidatesFor(
-        item.account_id,
-        item.routed_group_id ?? '',
-        // ⚠️ Metadata built PER ACCOUNT from the row, not forwarded from the caller: the caller has no
-        // account, and the downstream reads (desk membership, operator profiles) each need one. The
-        // actor kind travels with it so the users side can tell a machine from a person — a system
-        // caller must not be able to borrow a human's permissions (the `ListPersonMembers` rule).
-        systemMetadataFor(item.account_id),
-        item.channel,
-        item.brand_id,
-      );
-
-      if (desk.reason) {
-        /**
-         * ⭐ Work that can reach NOBODY (ADR 0042 §5, FR-022). Recorded as an **audited event**, and the
-         * conversation keeps its place in the queue.
-         *
-         * ⚠️ **An event and not a notification, deliberately** (research R7/D-5): there is no alerting
-         * surface in this product, and an alarm with no consumer is the defect that shipped once already
-         * when the audit log ran for five features with no screen. 9.18 is its future reader, and the fact
-         * is on record now rather than shouted into a log nothing collects.
-         *
-         * ⚠️ **A reason CLASS, never a sentence and never the customer.** The class is what an
-         * administrator can act on — *the desk is not a queue* is a checkbox, *nobody is available* is a
-         * rota — and it carries no contact value by construction.
-         */
-        unroutable += 1;
-        await this.audit.append(item.account_id, {
-          action: 'conversation.unroutable',
-          actorKind: 'system',
-          actorRef: 'backlog-drain',
-          accountId: item.account_id,
-          targetRef: item.id,
-          detail: {
-            reasonClass: desk.reason === 'DESK_NOT_ROUTABLE' ? 'desk_not_routable' : 'nobody_available',
-          },
-        } as never);
-        continue;
-      }
-
-      const servable = firstServable([toItem(item)], (channel) =>
-        desk.candidates.some((c) =>
-          servesChannel(channel, Math.max(0, c.capacity - c.currentLoad), c.currentLoad === 0),
-        ),
-      );
-      if (!servable.pick) {
-        // ⚠️ Passed over, and NOTHING about it is rewritten — that is what keeps its place (FR-008).
+      try {
+        const outcome = await this.serve(item);
+        if (outcome === 'assigned') assigned += 1;
+        else if (outcome === 'unroutable') unroutable += 1;
+        else skipped += 1;
+      } catch (err) {
         skipped += 1;
-        continue;
+        // Reason class only — never the conversation, the account or the desk (Principle IV / SEC-26).
+        this.logger.warn(`drain skipped an item: ${err instanceof Error ? err.name : 'unknown'}`);
       }
-
-      const { operatorId } = await this.rotation.selectAndAssign(
-        item.account_id,
-        item.id,
-        item.routed_group_id || 'default',
-        desk.candidates,
-        item.routed_group_id || undefined,
-      );
-      if (operatorId === null) {
-        // It fitted a moment ago and does not now — somebody else took the slot. Not an error: the item
-        // stays queued and the next drain tries again.
-        skipped += 1;
-        continue;
-      }
-
-      await this.backlog.dequeue(item.account_id, item.id);
-      assigned += 1;
     }
 
     return { considered: waiting.length, assigned, skipped, unroutable };
+  }
+
+  /** One waiting conversation. Returns what happened to it; throws only on a dependency failure. */
+  private async serve(item: WaitingConversation): Promise<'assigned' | 'skipped' | 'unroutable'> {
+    /**
+     * ⚠️ No desk, no push. Work now records the desk it was pushed to when it joins the queue, so this
+     * is the caller-supplied-candidates path (feature 013), which names no desk at all: there is nothing
+     * to build a pool from and the router that queued it is gone. Answered as unroutable with its own
+     * reason CLASS — something an administrator can act on — rather than skipped for ever in silence.
+     */
+    if (!item.routed_group_id) return this.recordUnroutable(item, 'no_desk');
+
+    /**
+     * ⚠️ Capacity is re-read for EVERY item, not once for the batch.
+     *
+     * The first assignment in a batch consumes a unit, so a batch-level snapshot would hand the same
+     * free slot to several conversations — the over-allocation R8 exists to prevent, arriving through
+     * the back door of a cached pool.
+     */
+    const desk = await this.pool.candidatesFor(
+      item.account_id,
+      item.routed_group_id,
+      // ⚠️ Metadata built PER ACCOUNT from the row, not forwarded from the caller: the caller has no
+      // account, and the downstream reads (desk membership, operator profiles) each need one. The actor
+      // kind travels with it so the users side can tell a machine from a person — a system caller must
+      // not be able to borrow a human's permissions (the `ListPersonMembers` rule).
+      systemMetadataFor(item.account_id),
+      item.channel,
+      item.brand_id,
+    );
+
+    if (desk.reason) {
+      return this.recordUnroutable(
+        item,
+        desk.reason === 'DESK_NOT_ROUTABLE' ? 'desk_not_routable' : 'nobody_available',
+      );
+    }
+
+    // ⭐ The condition CLEARED (SC-008): this work can reach somebody again, whether or not it fits right
+    // now. Cleared before the capacity test, because "somebody could take this" and "somebody has room
+    // this second" are different facts, and only the first is what the alarm was about.
+    if (item.unroutable_since) await this.backlog.clearUnroutable(item.account_id, item.id);
+
+    const servable = firstServable([toItem(item)], (channel) =>
+      desk.candidates.some((c) =>
+        servesChannel(channel, Math.max(0, c.capacity - c.currentLoad), c.currentLoad === 0),
+      ),
+    );
+    // ⚠️ Passed over, and NOTHING about it is rewritten — that is what keeps its place (FR-008).
+    if (!servable.pick) return 'skipped';
+
+    const { operatorId } = await this.rotation.selectAndAssign(
+      item.account_id,
+      item.id,
+      item.routed_group_id,
+      desk.candidates,
+      item.routed_group_id,
+    );
+    // It fitted a moment ago and does not now — somebody else took the slot. Not an error: the item stays
+    // queued and the next drain tries again.
+    if (operatorId === null) return 'skipped';
+
+    await this.backlog.dequeue(item.account_id, item.id);
+    return 'assigned';
+  }
+
+  /**
+   * ⭐ Work that can reach NOBODY (ADR 0042 §5, FR-022). An **audited event**, and the conversation keeps
+   * its place in the queue.
+   *
+   * ⚠️ **Once per CONDITION, not once per tick.** The drain rides a 30-second heartbeat; a desk left
+   * un-routable over a weekend would otherwise write some 20 000 identical entries, and an alarm that
+   * repeats is an alarm nobody can read. `markUnroutable` makes "first time" a decision the DATABASE
+   * makes, so two drains racing cannot both believe they were first.
+   *
+   * ⚠️ **An event and not a notification, deliberately** (research R7/D-5): there is no alerting surface
+   * in this product, and an alarm with no consumer is the defect that shipped once already when the audit
+   * log ran for five features with no screen. 9.18 is its future reader, so the fact goes on record rather
+   * than into a log nothing collects.
+   *
+   * ⚠️ **A reason CLASS, never a sentence and never the customer.** The class is what an administrator can
+   * act on — *the desk is not a queue* is a checkbox, *nobody is available* is a rota, *no desk* is a
+   * router that named none — and it carries no contact value by construction.
+   */
+  private async recordUnroutable(
+    item: WaitingConversation,
+    reasonClass: 'desk_not_routable' | 'nobody_available' | 'no_desk',
+  ): Promise<'unroutable'> {
+    const first = await this.backlog.markUnroutable(item.account_id, item.id, new Date());
+    if (first) {
+      await this.audit.append(item.account_id, {
+        action: 'conversation.unroutable',
+        actorKind: 'system',
+        actorRef: 'backlog-drain',
+        accountId: item.account_id,
+        targetRef: item.id,
+        detail: { reasonClass },
+      } as never);
+    }
+    return 'unroutable';
   }
 }
 

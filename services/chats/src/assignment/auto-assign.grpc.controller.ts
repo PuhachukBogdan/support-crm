@@ -142,7 +142,10 @@ export class AutoAssignController {
        * ⚠️ The reason code is UNCHANGED on purpose. Callers already handle it, and "nobody has room right
        * now" is still the truth; what changed is that the conversation is now in a queue that will drain.
        */
-      await this.backlog.enqueue(ctx.accountId, conversationId, new Date());
+      // ⚠️ The DESK travels with it. Without this the queue is undrainable: `routed_group_id` is
+      // written by the assignment, so work that never got an owner recorded no desk and the drain had
+      // no pool to resolve. Found on the first live run, one row into the first tick.
+      await this.backlog.enqueue(ctx.accountId, conversationId, new Date(), groupId || undefined);
       return { assigned: false, operatorId: '', reason: NO_OPERATOR_AVAILABLE };
     }
 

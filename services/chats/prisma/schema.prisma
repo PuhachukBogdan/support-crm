@@ -45,6 +45,14 @@ model Conversation {
   /// Feature 031: when this conversation started waiting for capacity. NULL = not waiting.
   /// See the `@@index([account_id, backlog_at])` note below for why the drain never rewrites it.
   backlog_at           DateTime?
+  /// Feature 031: when the drain first found that this waiting work can reach NOBODY. NULL = it can.
+  ///
+  /// ⚠️ It exists so the audited `conversation.unroutable` event is written ONCE PER CONDITION rather
+  /// than once per tick. The drain runs every 30 seconds; without this stamp a desk left un-routable
+  /// over a weekend would write ~20 000 identical audit entries, and an alarm that repeats is an alarm
+  /// nobody can read. Cleared the moment the condition clears — which is also what makes "it resolves"
+  /// a fact on the row instead of a hope.
+  unroutable_since     DateTime?
 
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt

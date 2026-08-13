@@ -28,13 +28,20 @@ const md = () => {
   return m;
 };
 
-const item = (id: string, channel: string | null = 'chat', accountId = 'acc-1') => ({
+const item = (
+  id: string,
+  channel: string | null = 'chat',
+  accountId = 'acc-1',
+  over: Partial<{ routed_group_id: string | null; unroutable_since: Date | null }> = {},
+) => ({
   account_id: accountId,
   id,
   channel,
   brand_id: 'b-1',
   routed_group_id: 'g-1',
   backlog_at: new Date(1),
+  unroutable_since: null as Date | null,
+  ...over,
 });
 type Waiting = ReturnType<typeof item>;
 
@@ -49,9 +56,14 @@ function build(opts: {
   candidates?: ReturnType<typeof cand>[];
   reason?: string | null;
   assignReturns?: (string | null)[];
+  /** The stamp is already set: the condition was recorded on an earlier tick. */
+  alreadyUnroutable?: boolean;
 }) {
   const waitingAcrossAccounts = jest.fn(async () => opts.waiting ?? []);
   const dequeue = jest.fn(async () => undefined);
+  // `markUnroutable` answers whether THIS call wrote the stamp — the database decides who was first.
+  const markUnroutable = jest.fn(async () => opts.alreadyUnroutable !== true);
+  const clearUnroutable = jest.fn(async () => undefined);
   // Typed with the arguments the assertions read back (the account and the metadata it was given).
   const candidatesFor = jest.fn(
     async (accountId: string, groupId: string, metadata: Metadata, ...rest: unknown[]) => {
@@ -73,7 +85,7 @@ function build(opts: {
     void entry;
   });
   const controller = new BacklogMaintenanceController(
-    { dequeue } as unknown as BacklogRepository,
+    { dequeue, markUnroutable, clearUnroutable } as unknown as BacklogRepository,
     { waitingAcrossAccounts } as unknown as BacklogSweepRepository,
     { candidatesFor } as unknown as GroupPoolService,
     { selectAndAssign } as unknown as RoundRobinStateRepository,
@@ -86,6 +98,8 @@ function build(opts: {
     candidatesFor,
     selectAndAssign,
     append,
+    markUnroutable,
+    clearUnroutable,
   };
 }
 
@@ -249,6 +263,95 @@ describe('draining the backlog', () => {
     // Without this, "one event" is satisfied by a drain that alarms about everything.
     const { controller, append } = build({ waiting: [item('c-1')] });
     await controller.drainBacklog({ limit: 10 }, md());
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('⭐ the unroutable event is written ONCE PER CONDITION, not once per tick', async () => {
+    // The drain rides a 30-second heartbeat. A desk left un-routable over a weekend would otherwise write
+    // some 20 000 identical entries, and an alarm that repeats is an alarm nobody can read.
+    const { controller, append, markUnroutable } = build({
+      waiting: [item('c-1', 'chat', 'acc-1', { unroutable_since: new Date(5) })],
+      reason: 'DESK_NOT_ROUTABLE',
+      alreadyUnroutable: true,
+    });
+
+    const res = await controller.drainBacklog({ limit: 10 }, md());
+
+    // Still counted — the tick reports what it saw…
+    expect(res).toMatchObject({ unroutable: 1 });
+    // …and still ASKS, because who was first is the database's decision, not this process's memory.
+    expect(markUnroutable).toHaveBeenCalledTimes(1);
+    // …but nothing new goes on the record.
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('⭐ SC-008 the condition CLEARS when the work can reach somebody again', async () => {
+    const { controller, clearUnroutable } = build({
+      waiting: [item('c-1', 'chat', 'acc-1', { unroutable_since: new Date(5) })],
+    });
+    await controller.drainBacklog({ limit: 10 }, md());
+    expect(clearUnroutable).toHaveBeenCalledWith('acc-1', 'c-1');
+  });
+
+  it('⚠️ it clears even when the work does not FIT yet — those are different facts', async () => {
+    // 'somebody could take this' and 'somebody has room this second' are not the same claim, and only
+    // the first one is what the alarm was about. Leaving the stamp on a full-but-staffed desk would keep
+    // an alarm alive that has already been answered.
+    const { controller, clearUnroutable } = build({
+      waiting: [item('c-voice', 'voice', 'acc-1', { unroutable_since: new Date(5) })],
+      candidates: [cand('op-a', 4, 2)], // has room, but not the whole person a voice call needs
+    });
+    const res = await controller.drainBacklog({ limit: 10 }, md());
+    expect(res).toMatchObject({ assigned: 0, skipped: 1 });
+    expect(clearUnroutable).toHaveBeenCalledTimes(1);
+  });
+
+  it('⭐ work with NO DESK is unroutable with its own class, not a crash', async () => {
+    // Found live: `routed_group_id` was written by the assignment, so queued work had no desk and the pool
+    // raised 'missing group identity' — killing the whole tick on the first row.
+    const { controller, append } = build({
+      waiting: [item('c-1', 'chat', 'acc-1', { routed_group_id: null })],
+    });
+    const res = await controller.drainBacklog({ limit: 10 }, md());
+    expect(res).toMatchObject({ unroutable: 1 });
+    expect((append.mock.calls[0]![1] as { detail: { reasonClass: string } }).detail.reasonClass).toBe(
+      'no_desk',
+    );
+  });
+
+  it('⭐ ONE BAD ROW DOES NOT KILL THE TICK — the rest of the batch still runs', async () => {
+    // The live failure exactly: an exception escaped the loop and every account stopped draining. A raise
+    // is a DEPENDENCY problem, not a fact about the conversation, so it is a skip and the next tick retries.
+    const { controller, dequeue } = build({ waiting: [item('c-bad'), item('c-good')] });
+    let first = true;
+    (controller as unknown as { pool: { candidatesFor: unknown } }).pool = {
+      candidatesFor: async () => {
+        if (first) {
+          first = false;
+          throw new Error('AuthorityUnavailableError');
+        }
+        return { candidates: [cand('op-a')], reason: null };
+      },
+    };
+
+    const res = await controller.drainBacklog({ limit: 10 }, md());
+
+    expect(res).toMatchObject({ considered: 2, assigned: 1, skipped: 1 });
+    expect(dequeue).toHaveBeenCalledWith('acc-1', 'c-good');
+  });
+
+  it('⛔ a dependency failure is NOT recorded as unroutable', async () => {
+    // 'nobody can take this' and 'I could not find out' are different answers, and the whole pool
+    // contract exists to keep them apart. Recording the second as the first would send an administrator
+    // to fix a rota when the users service was down.
+    const { controller, append } = build({ waiting: [item('c-bad')] });
+    (controller as unknown as { pool: { candidatesFor: unknown } }).pool = {
+      candidatesFor: async () => {
+        throw new Error('AuthorityUnavailableError');
+      },
+    };
+    const res = await controller.drainBacklog({ limit: 10 }, md());
+    expect(res).toMatchObject({ skipped: 1, unroutable: 0 });
     expect(append).not.toHaveBeenCalled();
   });
 });

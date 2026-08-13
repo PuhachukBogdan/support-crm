@@ -52,10 +52,49 @@ export class BacklogRepository {
    * that tries the same conversation three times does not push it to the back of its own queue. An
    * unconditional write would make a retry a demotion — and retries are exactly what a full desk produces.
    */
-  async enqueue(accountId: string, conversationId: string, at: Date): Promise<void> {
+  async enqueue(
+    accountId: string,
+    conversationId: string,
+    at: Date,
+    /**
+     * ⭐ The DESK the work was pushed to — required for the queue to be drainable at all.
+     *
+     * ⚠️ **Found live.** `routed_group_id` is written by the assignment, so work that never got an owner
+     * had no desk recorded, and the drain then had nothing to resolve a pool from: it raised *"missing
+     * group identity"* and the whole tick died on the first queued row. The desk a conversation was
+     * ROUTED to is a fact independent of whether anybody took it, and this is where it becomes one.
+     *
+     * `undefined` for the caller-supplied-candidates path (feature 013), which names no desk. Such a row
+     * is answered by the drain as unroutable with its own reason class rather than silently sitting there.
+     */
+    routedGroupId?: string,
+  ): Promise<void> {
     await this.prisma.forAccount(accountId).conversation.updateMany({
       where: { id: conversationId, backlog_at: null, assignee_operator_id: null },
-      data: { backlog_at: at },
+      data: { backlog_at: at, ...(routedGroupId ? { routed_group_id: routedGroupId } : {}) },
+    });
+  }
+
+  /**
+   * The work can reach nobody, and this is the first time the drain has seen that.
+   *
+   * ⚠️ Returns whether the stamp was actually written, and the caller writes the audit event only then.
+   * `updateMany` with `unroutable_since: null` in the predicate makes "first time" a decision the
+   * DATABASE makes, so two drains racing cannot both think they were first.
+   */
+  async markUnroutable(accountId: string, conversationId: string, at: Date): Promise<boolean> {
+    const { count } = await this.prisma.forAccount(accountId).conversation.updateMany({
+      where: { id: conversationId, unroutable_since: null },
+      data: { unroutable_since: at },
+    });
+    return count > 0;
+  }
+
+  /** The condition cleared: this work can reach somebody again. */
+  async clearUnroutable(accountId: string, conversationId: string): Promise<void> {
+    await this.prisma.forAccount(accountId).conversation.updateMany({
+      where: { id: conversationId, unroutable_since: { not: null } },
+      data: { unroutable_since: null },
     });
   }
 
@@ -80,7 +119,8 @@ export class BacklogRepository {
   async dequeue(accountId: string, conversationId: string): Promise<void> {
     await this.prisma.forAccount(accountId).conversation.updateMany({
       where: { id: conversationId },
-      data: { backlog_at: null },
+      // The unroutable stamp goes with it: work that has an owner is not waiting for anybody.
+      data: { backlog_at: null, unroutable_since: null },
     });
   }
 }

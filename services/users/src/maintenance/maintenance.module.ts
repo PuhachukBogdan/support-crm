@@ -4,6 +4,8 @@ import { MaintenanceController } from './maintenance.controller';
 import { MaintenanceService } from './maintenance.service';
 import { PresenceModule } from '../presence/presence.module';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
+import { PrismaService } from '../prisma.service';
+import { OperatorRepository } from '../operator/operator.repository';
 
 /**
  * The maintenance surface (feature 017, US3).
@@ -16,6 +18,8 @@ import { PresenceSweepService } from '../presence/presence-sweep.service';
 @Module({
   imports: [UploadsModule, PresenceModule],
   controllers: [MaintenanceController],
-  providers: [MaintenanceService, PresenceSweepService],
+  // Feature 031: `ResolveRoutingOperators` answers the routing question for a MACHINE, from the same
+  // repository the permission-gated human rpc uses. One method, two surfaces, two different gates.
+  providers: [MaintenanceService, PresenceSweepService, PrismaService, OperatorRepository],
 })
 export class MaintenanceModule {}

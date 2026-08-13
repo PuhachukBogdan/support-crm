@@ -363,6 +363,26 @@ service UsersMaintenanceService {
   // Idempotent by predicate: a row the sweep has already lowered no longer matches the threshold it
   // was lowered for, so a second tick with no activity in between writes nothing.
   rpc SweepIdlePresence(MaintenanceBatchRequest) returns (SweepPresenceResult);
+
+  // ── ⭐ Feature 031 (roadmap 4.20). Who at this desk can take pushed work — asked by a MACHINE.
+  //
+  // Same question as `UsersReadService.ListOperatorsByAuthUsers`, same repository method, and
+  // deliberately a SECOND surface rather than a relaxation of the first.
+  //
+  // ⚠️ That rpc is gated on `crm.conversation.assign` and its comment states the rule: *"the caller
+  // forwards its own credentials unchanged; calling as a system actor would launder the permission."*
+  // The backlog drain has no credentials to forward — a tick belongs to no person — so it must not be
+  // able to reach the human surface at all. Instead it asks here, where the gate is the actor KIND
+  // that no breadth of permission satisfies, exactly as the purge and the presence sweep above.
+  //
+  // The ACCOUNT is in the request because a machine has none of its own; the handler refuses an absent
+  // one rather than defaulting. Staffing facts only — no customer data exists in this answer to mask.
+  rpc ResolveRoutingOperators(ResolveRoutingOperatorsRequest) returns (ListOperatorsByAuthUsersResponse);
+}
+
+message ResolveRoutingOperatorsRequest {
+  string account_id = 1;            // required: the system caller has no account of its own
+  repeated string auth_user_ids = 2;
 }
 
 message SweepPresenceResult {

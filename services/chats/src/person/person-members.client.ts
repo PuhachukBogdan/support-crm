@@ -2,7 +2,7 @@ import { Inject, Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { ClientsModule, RpcException, type ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, type Observable } from 'rxjs';
 import { status as GrpcStatus } from '@grpc/grpc-js';
-import type { Metadata } from '@grpc/grpc-js';
+import type { Metadata, MetadataValue } from '@grpc/grpc-js';
 import {
   decodeWireState,
   grpcClientOptions,
@@ -141,6 +141,14 @@ interface UsersReadGrpc {
   ): Observable<{ assignments?: AssignmentWire[]; nextPageToken?: string }>;
 }
 
+/** The machine-only surface (feature 031) — system actor, no route, staffing facts only. */
+interface UsersMaintenanceGrpc {
+  resolveRoutingOperators(
+    d: { accountId: string; authUserIds: string[] },
+    md?: Metadata,
+  ): Observable<{ operators?: ResolvedOperatorWire[] }>;
+}
+
 /**
  * How many portfolio pages this client will follow before refusing (feature 030, research R5).
  *
@@ -149,17 +157,26 @@ interface UsersReadGrpc {
  * day, *"eleven of your players are invisible and nobody mentioned it"* is an incident. The bound also
  * makes the spec's assumption — tens of players, not thousands — checkable instead of implied.
  */
+function readMeta(md: Metadata | undefined, key: string): string {
+  const raw: MetadataValue | undefined = md?.get?.(key)?.[0];
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof (raw as Buffer).toString === 'function') return (raw as Buffer).toString('utf8');
+  return '';
+}
+
 const PORTFOLIO_PAGE_SIZE = 200;
 const PORTFOLIO_MAX_PAGES = 10;
 
 @Injectable()
 export class PersonMembersClient implements OnModuleInit {
   private users!: UsersReadGrpc;
+  private machine!: UsersMaintenanceGrpc;
 
   constructor(@Inject(CHATS_PERSON_CLIENT) private readonly client: ClientGrpc) {}
 
   onModuleInit(): void {
     this.users = this.client.getService<UsersReadGrpc>('UsersReadService');
+    this.machine = this.client.getService<UsersMaintenanceGrpc>('UsersMaintenanceService');
   }
 
   /**
@@ -289,10 +306,26 @@ export class PersonMembersClient implements OnModuleInit {
     // into "group routing not available".
     if (ids.length === 0) return [];
 
+    /**
+     * ⭐ Feature 031: WHICH surface answers depends on whether the caller is a person.
+     *
+     * The human rpc is gated on `crm.conversation.assign` and forwards the caller's own credentials —
+     * *"calling as a system actor would launder the permission"*, in its own words. The backlog drain has
+     * no credentials to forward, so it asks the machine-only surface, gated on the actor KIND.
+     *
+     * ⚠️ Decided by what the metadata SAYS, in one place, rather than by a boolean parameter threaded
+     * through the pool: a flag would let a human path pass `true` and quietly bypass its own permission
+     * check. The actor kind is set by the caller that has one and cannot be set by the gateway (the
+     * gateway sets `x-actor-user-id`; `x-actor-kind: system` exists only inside the cluster).
+     */
+    const asMachine = readMeta(metadata, 'x-actor-kind') === 'system';
+
     let res: { operators?: ResolvedOperatorWire[] };
     try {
       res = await firstValueFrom(
-        this.users.listOperatorsByAuthUsers({ accountId, authUserIds: ids }, metadata),
+        asMachine
+          ? this.machine.resolveRoutingOperators({ accountId, authUserIds: ids }, metadata)
+          : this.users.listOperatorsByAuthUsers({ accountId, authUserIds: ids }, metadata),
       );
     } catch (err) {
       if (typeof (err as { code?: number })?.code === 'number') throw err;

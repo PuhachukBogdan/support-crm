@@ -74,6 +74,9 @@ describe('writers of assignee_operator_id (T016)', () => {
       // writing `backlog_at`. It is on this list because the list is per FILE — a file that touches the
       // column has to be looked at once, and once is the point.
       'assignment/backlog.ts',
+      // Feature 031, second half: the drain's UNSCOPED read filters on the assignee too — queued work
+      // must still be unowned. On the list for the same per-FILE reason as `backlog.ts`.
+      'assignment/backlog-sweep.repository.ts',
       'assignment/group-pool.ts',
       'assignment/round-robin-state.repository.ts',
       // ⭐ Automations and macros ASSIGN too — the two writers a search for "the routing path" misses,

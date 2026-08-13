@@ -4,11 +4,30 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata, MetadataValue } from '@grpc/grpc-js';
 import { MaintenanceService } from './maintenance.service';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
+import { OperatorRepository } from '../operator/operator.repository';
+import type { PresenceState } from '@crm/common';
 import { loadUsersConfig } from '../config';
 
 interface BatchWire {
   limit?: number;
 }
+
+interface ResolveRoutingWire {
+  accountId?: string;
+  authUserIds?: string[];
+}
+
+/**
+ * The wire numbering, local to this file for the reason `player.grpc.controller.ts` states about its own
+ * copy: the numbering belongs to the CONTRACT, and each surface that encodes it owns its encoder. A
+ * shared one would be a third place to change when the proto changes.
+ */
+const PRESENCE_STATE_WIRE: Readonly<Record<PresenceState, number>> = {
+  online: 1,
+  transfers_only: 2,
+  away: 3,
+  offline: 4,
+};
 
 function readMeta(md: Metadata | undefined, key: string): string {
   const raw: MetadataValue | undefined = md?.get?.(key)?.[0];
@@ -47,6 +66,9 @@ export class MaintenanceController {
     // system actor only, no gateway route, counts in the response — which is why it lives here and
     // not on the presence service.
     @Inject(PresenceSweepService) private readonly sweep: PresenceSweepService,
+    // Feature 031: the same repository the human-facing rpc uses. ONE method answers "who can take
+    // this work?" — two surfaces ask it, with two different gates.
+    @Inject(OperatorRepository) private readonly operators: OperatorRepository,
   ) {}
 
   @GrpcMethod('UsersMaintenanceService', 'PurgeExpiredArtefacts')
@@ -82,5 +104,47 @@ export class MaintenanceController {
       offlineAfterSeconds: cfg.PRESENCE_OFFLINE_AFTER_SECONDS,
     });
     return { toAway: counts.toAway, toOffline: counts.toOffline, failed: counts.failed };
+  }
+
+  /**
+   * ⭐ Who at a desk can take pushed work — asked by a MACHINE (feature 031, roadmap 4.20).
+   *
+   * ── Why this exists beside an rpc that already answers it ──────────────────────────────────────
+   * `UsersReadService.ListOperatorsByAuthUsers` answers the same question, gated on
+   * `crm.conversation.assign`, and its comment states the rule this handler obeys: *"the caller forwards
+   * its own credentials unchanged; calling as a system actor would launder the permission."*
+   *
+   * The backlog drain has no credentials to forward — a periodic tick belongs to no person. Relaxing the
+   * human rpc to accept a system actor would have made that sentence false for every caller. So the
+   * machine gets its own surface with the gate this service exists for: the actor **kind**, which no
+   * breadth of permission satisfies.
+   *
+   * ⚠️ **The account is in the REQUEST**, and refused when absent. A system caller has no account of
+   * its own; the drain takes it from the row it is acting on. Defaulting it to anything would be a
+   * cross-account read waiting to happen.
+   *
+   * ⓘ Staffing facts only — operator id, auth id, presence state, switched-off channels. There is no
+   * customer data in this answer to mask and nothing here to audit as an access (the same judgement the
+   * human rpc records).
+   */
+  @GrpcMethod('UsersMaintenanceService', 'ResolveRoutingOperators')
+  async resolveRoutingOperators(req: ResolveRoutingWire, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const accountId = String(req?.accountId ?? '').trim();
+    if (!accountId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'account_id is required' });
+    }
+    const asked = Array.isArray(req?.authUserIds) ? req.authUserIds.map((id) => String(id ?? '')) : [];
+    const resolved = await this.operators.resolveByAuthUserIds(accountId, asked);
+    return {
+      operators: resolved.map((r) => ({
+        operatorId: r.operatorId,
+        authUserId: r.authUserId,
+        state: PRESENCE_STATE_WIRE[r.state] ?? 4,
+        blockedChannels: r.blockedChannels,
+      })),
+    };
   }
 }

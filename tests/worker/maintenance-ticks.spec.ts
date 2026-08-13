@@ -12,10 +12,28 @@ import { join, resolve, sep } from 'node:path';
  * nothing in a unit test knows whether a scheduler exists.
  *
  * ── Why this generalises ─────────────────────────────────────────────────────────────────────────
- * A maintenance RPC is defined by having **no user-facing caller** — no gateway route, no UI, no client
- * except a tick. That is exactly what makes it the one shape of dead code the product cannot notice: an
- * unused ordinary endpoint gets found the first time somebody tries the feature, and an untriggered sweep
- * gets found when an operator asks why nothing has been cleaned up in three months.
+ * A maintenance RPC is defined by having **no user-facing caller** — no gateway route, no UI. That is
+ * exactly what makes it the one shape of dead code the product cannot notice: an unused ordinary endpoint
+ * gets found the first time somebody tries the feature, and an untriggered sweep gets found when an
+ * operator asks why nothing has been cleaned up in three months.
+ *
+ * ── ⭐ Feature 031 SPLIT the rule, because "a tick" turned out to be too narrow ──────────────────
+ * This file used to say *"no client except a tick"*. Then the backlog drain needed a staffing read whose
+ * permission gate is the actor KIND rather than a human's permission key, and the right home for it was
+ * `UsersMaintenanceService` — system-actor-only, no route, exactly the properties that service exists for.
+ * Nothing ticks it: **chats calls it, synchronously, while draining.**
+ *
+ * So the property is not "everything here is ticked" but **"nothing here is dead"**, and each rpc declares
+ * WHICH kind of caller it has:
+ *
+ *   • `tick`    — scheduled work. Must be reached from a worker JOB. (The 017 defect.)
+ *   • `service` — a question another service asks. Must have a client call in a service that is neither
+ *                 its owner nor the gateway. A read with no remote caller is the same dead code by a
+ *                 different door — and one that the gateway could reach would make the actor-kind gate
+ *                 decoration.
+ *
+ * Miscategorising is caught too: a `service` rpc that no other service calls fails, and a `tick` rpc with
+ * no job fails. The category is the review moment; the assertions are what make it honest.
  *
  * Feature 015's live defect was the mirror image — a hosted PACKAGE whose handler was never wired — and
  * `services/users/src/maintenance/hosting.spec.ts` now covers that direction. This covers the other.
@@ -66,6 +84,31 @@ function maintenanceRpcs(): Array<{ service: string; rpc: string; file: string }
 
 const RPCS = maintenanceRpcs();
 
+/**
+ * How each maintenance rpc is reached. Pinned by name, so a new one cannot be added without answering
+ * *"and what calls it?"* — the question this whole file exists to force.
+ */
+const CALLER_KIND: Readonly<Record<string, 'tick' | 'service'>> = {
+  'ChatsMaintenanceService.DrainBacklog': 'tick',
+  'ChatsMaintenanceService.ExpireDueExports': 'tick',
+  'ChatsMaintenanceService.ReportTransitionStreamHealth': 'tick',
+  'ChatsMaintenanceService.RunDueExports': 'tick',
+  'ChatsMaintenanceService.SweepConversationSubjects': 'tick',
+  'ChatsMaintenanceService.SweepFirstReplySla': 'tick',
+  'UsersMaintenanceService.PurgeExpiredArtefacts': 'tick',
+  'UsersMaintenanceService.SweepIdlePresence': 'tick',
+  // ⭐ Feature 031: asked by CHATS while draining the backlog, not by a tick. See the header.
+  'UsersMaintenanceService.ResolveRoutingOperators': 'service',
+};
+
+const TICKED = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'tick');
+const ASKED = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'service');
+
+/** Every service's source except the worker's, keyed by service name, comments stripped. */
+const SERVICE_CODE = walk(join(ROOT, 'services'))
+  .filter((f) => !f.endsWith('.spec.ts') && !f.includes(`${sep}worker${sep}`))
+  .map((f) => ({ file: rel(f), code: stripComments(readFileSync(f, 'utf8')) }));
+
 /** The worker's source, comments stripped — a mention in prose is not a call. */
 const WORKER_CODE = walk(WORKER_SRC)
   .filter((f) => !f.endsWith('.spec.ts'))
@@ -98,12 +141,25 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       'ChatsMaintenanceService.SweepConversationSubjects',
       'ChatsMaintenanceService.SweepFirstReplySla',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
+      // ⭐ Feature 031 (roadmap 4.20): the one rpc here that is NOT ticked — chats asks it while draining.
+      // Its gate is the actor KIND, which is why it belongs on this service rather than beside the
+      // permission-gated human rpc that answers the same question.
+      'UsersMaintenanceService.ResolveRoutingOperators',
       // Feature 025 (roadmap 5.9). Third time, and the answer to "what calls it?" is a tick of its
       // OWN — the interval is added directly to the away threshold as lag, so a five-minute
       // heartbeat would make a ten-minute threshold mean "ten to fifteen". A separate queue also
       // stops a stuck presence pass from delaying artefact deletion, or the reverse.
       'UsersMaintenanceService.SweepIdlePresence',
     ]);
+  });
+
+  it('every maintenance rpc declares HOW it is reached', () => {
+    // The pin above says which rpcs exist; this says which kind of caller each one claims. A new rpc that
+    // skipped this map would otherwise be silently exempt from both checks below.
+    const undeclared = RPCS.map((r) => `${r.service}.${r.rpc}`).filter((k) => !CALLER_KIND[k]);
+    expect(undeclared).toEqual([]);
+    expect(TICKED.length).toBeGreaterThan(5);
+    expect(ASKED.length).toBeGreaterThan(0);
   });
 
   it('reads the worker source', () => {
@@ -113,7 +169,7 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
 });
 
 describe('*** every maintenance RPC is CALLED by the worker ***', () => {
-  it.each(RPCS.map((r) => [`${r.service}.${r.rpc}`, r.rpc]))(
+  it.each(TICKED.map((r) => [`${r.service}.${r.rpc}`, r.rpc]))(
     '%s has a client method call',
     (_label, rpc) => {
       const method = camel(rpc);
@@ -125,7 +181,7 @@ describe('*** every maintenance RPC is CALLED by the worker ***', () => {
     },
   );
 
-  it.each(RPCS.map((r) => [`${r.service}.${r.rpc}`, r.rpc]))(
+  it.each(TICKED.map((r) => [`${r.service}.${r.rpc}`, r.rpc]))(
     '%s is reached from a JOB, not only declared on a client',
     (_label, rpc) => {
       const method = camel(rpc);
@@ -148,6 +204,28 @@ describe('*** every maintenance RPC is CALLED by the worker ***', () => {
     expect(jobClasses.length).toBeGreaterThan(2);
     const unregistered = jobClasses.filter((c) => !new RegExp(`\\b${c}\\b`).test(appModule));
     expect(unregistered).toEqual([]);
+  });
+});
+
+describe('*** a `service` maintenance RPC has a REMOTE caller ***', () => {
+  it.each(ASKED.map((r) => [`${r.service}.${r.rpc}`, r.rpc, r.file]))(
+    '%s is called by a service that is not its owner',
+    (_label, rpc, file) => {
+      // The owner declares the handler, so a scan that counted it would pass on a read nobody asks.
+      const owner = (file as string).split('/')[2]!; // libs/proto/crm/<owner>/v1/…
+      const method = camel(rpc as string);
+      const callers = SERVICE_CODE.filter(
+        (f) =>
+          !f.file.startsWith(`services/${owner}/`) &&
+          !f.file.startsWith('services/gateway/') &&
+          new RegExp(`\\.${method}\\s*\\(`).test(f.code),
+      ).map((f) => f.file);
+      expect({ rpc, called: callers.length > 0 }).toEqual({ rpc, called: true });
+    },
+  );
+
+  it('the scan can see other services at all (not vacuous)', () => {
+    expect(SERVICE_CODE.some((f) => f.file.startsWith('services/chats/'))).toBe(true);
   });
 });
 

@@ -51,6 +51,20 @@ jobs:
           set -e
           tail -c 200000 /tmp/test-output.txt
           if [ "$code" -ne 0 ]; then
+            # ⭐ THE VERDICT AS AN ANNOTATION, which is the half that is readable WITHOUT credentials.
+            #
+            # The job summary below renders on the run page for a human. The API does not expose it
+            # (`check-runs` answers an empty `output`), and the step log is 403 for anyone without repo
+            # access — so a red run could be seen and not read. An `::error::` annotation IS returned by
+            # `GET /repos/{o}/{r}/check-runs/{id}/annotations` unauthenticated, so the failing suites and
+            # assertions travel to whoever needs them instead of only to whoever can log in.
+            #
+            # Newlines are `%0A` and a literal `%` is `%25` — the workflow-command escaping, in that order
+            # (escaping `%` after the newlines would double-escape the separators).
+            detail=$(grep -E '^(FAIL |Summary of all failing tests)|^\s+● ' /tmp/test-output.txt \
+              | grep -v '● Console' | sort -u | head -25)
+            esc=$(printf '%s' "$detail" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r//g;s/\n/%0A/g')
+            echo "::error title=Test failures::${esc}"
             {
               echo "## Test step failed (exit $code)"
               echo

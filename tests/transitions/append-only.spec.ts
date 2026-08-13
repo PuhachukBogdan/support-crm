@@ -44,6 +44,27 @@ const sources = SERVICES.flatMap((s) => walk(join(ROOT, 'services', s, 'src'))).
 const read = (f: string) => stripComments(readFileSync(f, 'utf8'));
 const rel = (f: string) => f.slice(ROOT.length + 1).replace(/\\/g, '/');
 
+/**
+ * Does any RAW statement in `code` touch `table`?
+ *
+ * ⚠️ Per STATEMENT, not per file. The file-level version fired on a `pg_advisory_xact_lock` that names no
+ * table, in a file that happens to write transitions through the ORM — and the honest repair for a guard
+ * that reports something which is not there is to make it ask the right question, not to exempt the file.
+ *
+ * The window is the raw call up to the END OF ITS STATEMENT (the next `;`), capped so a file without one
+ * cannot make this scan the rest of the world. A multi-line template literal has no `;` inside it and is
+ * still covered; the next statement along is not, which is the whole point.
+ */
+function rawSqlMentioning(code: string, table: string): boolean {
+  const re = /\$(?:executeRaw|queryRaw)(?:Unsafe)?\s*[(`]/g;
+  for (let m = re.exec(code); m !== null; m = re.exec(code)) {
+    const end = code.indexOf(';', m.index);
+    const stop = end === -1 ? m.index + 400 : Math.min(end, m.index + 400);
+    if (new RegExp(table, 'i').test(code.slice(m.index, stop))) return true;
+  }
+  return false;
+}
+
 describe('the transition stream is append-only and never trimmed', () => {
   it('scanned every service (guards against a vacuous pass)', () => {
     expect(sources.length).toBeGreaterThan(150);
@@ -58,9 +79,7 @@ describe('the transition stream is append-only and never trimmed', () => {
   });
 
   it('no raw-SQL escape hatch touches the table either', () => {
-    const offenders = sources
-      .filter((f) => /\$executeRaw|\$queryRaw/.test(read(f)) && /ConversationTransition/i.test(read(f)))
-      .map(rel);
+    const offenders = sources.filter((f) => rawSqlMentioning(read(f), 'ConversationTransition')).map(rel);
     expect(offenders).toEqual([]);
   });
 
@@ -74,10 +93,26 @@ describe('the transition stream is append-only and never trimmed', () => {
   });
 
   it('no raw-SQL escape hatch touches the operator table either', () => {
-    const offenders = sources
-      .filter((f) => /\$executeRaw|\$queryRaw/.test(read(f)) && /OperatorTransition/i.test(read(f)))
-      .map(rel);
+    const offenders = sources.filter((f) => rawSqlMentioning(read(f), 'OperatorTransition')).map(rel);
     expect(offenders).toEqual([]);
+  });
+
+  it('⚠️ the raw-SQL detector reads the STATEMENT, and is proven on planted samples', () => {
+    // ⭐ It used to ask whether a FILE contained both a raw call and the table's name anywhere in it.
+    // Feature 031 added a `pg_advisory_xact_lock` to the assignment transaction — a statement that names
+    // no table at all — in a file that also uses the `conversationTransition` delegate, and the guard
+    // fired. Widening the exemption would have been the wrong repair: what it should ask is whether the
+    // RAW STATEMENT touches the table, and now it does.
+    expect(rawSqlMentioning('await tx.$executeRawUnsafe(`DELETE FROM "ConversationTransition"`)', 'ConversationTransition')).toBe(true);
+    expect(rawSqlMentioning('await tx.$queryRaw`SELECT * FROM "OperatorTransition"`', 'OperatorTransition')).toBe(true);
+    // …and not on a lock that names no table, even beside a transition write.
+    expect(
+      rawSqlMentioning(
+        'await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1))", key); ' +
+          'await tx.conversationTransition.create({ data });',
+        'ConversationTransition',
+      ),
+    ).toBe(false);
   });
 
   it('the operator detector works on planted samples too', () => {

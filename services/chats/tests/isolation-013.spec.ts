@@ -155,6 +155,10 @@ function scopedFor(acc: string) {
       },
     },
   } as Record<string, unknown>;
+  // Feature 031: the per-operator advisory lock the claim takes. It names no table and carries the
+  // account in its key, so it is account-agnostic by construction — nothing for this sweep to isolate,
+  // but the fake has to answer or every assignment throws.
+  scoped.$executeRawUnsafe = () => Promise.resolve(1);
   scoped.$transaction = (arg: unknown) =>
     typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(scoped) : Promise.resolve([]);
   return scoped;

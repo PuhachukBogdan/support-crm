@@ -45,7 +45,8 @@ function fakePrisma() {
   const conversation = {
     findFirst: jest.fn().mockResolvedValue(conversationRow()),
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-    findMany: jest.fn(),
+    // Feature 031: what the chosen operator is holding, re-read inside the lock. Empty = a fresh desk.
+    findMany: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
   };
   const roundRobinState = {
@@ -54,7 +55,15 @@ function fakePrisma() {
     create: jest.fn().mockResolvedValue({ id: 'rr1' }),
   };
   const conversationTransition = { create: jest.fn() };
-  const scoped = { conversation, roundRobinState, conversationTransition } as Record<string, unknown>;
+  // Feature 031: the per-operator advisory lock the claim takes before re-reading the load. A fake
+  // that omitted it would make every assignment throw — which is how the real one is proven to run.
+  const executeRawUnsafe = jest.fn(async () => 1);
+  const scoped = {
+    conversation,
+    roundRobinState,
+    conversationTransition,
+    $executeRawUnsafe: executeRawUnsafe,
+  } as Record<string, unknown>;
   scoped.$transaction = jest.fn(function (this: unknown, cb: (tx: unknown) => unknown) {
     if (this !== scoped) throw new TypeError('$transaction lost its binding');
     return cb(scoped);

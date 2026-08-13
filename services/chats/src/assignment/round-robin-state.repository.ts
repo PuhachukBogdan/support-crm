@@ -8,6 +8,10 @@ import {
   TRANSITION_BEFORE_SELECT,
 } from '../transition/conversation-transitions';
 import { selectRoundRobin, type RoundRobinCandidate } from './round-robin';
+import { unitsUsed } from './capacity';
+
+/** The statuses that count as work in hand — the same set the pool counts (one definition, two readers). */
+const OPEN_STATUSES = ['open', 'pending'] as const;
 
 export interface AutoAssignOutcome {
   operatorId: string | null;
@@ -31,11 +35,19 @@ interface WorkflowTx {
     // Feature 023: the transition needs the row as it was BEFORE the assignment, read inside the
     // same transaction so `from` is the value this write actually replaced.
     findFirst(args: unknown): Promise<ConversationBefore | null>;
-    updateMany(args: unknown): Promise<unknown>;
+    // Feature 031: what this operator is holding, re-read INSIDE the lock — see `selectAndAssign`.
+    findMany(args: unknown): Promise<{ channel: string | null }[]>;
+    updateMany(args: unknown): Promise<{ count: number }>;
   };
   conversationTransition: {
     create(args: { data: Record<string, unknown> }): Promise<unknown>;
   };
+  /**
+   * Feature 031: the per-operator advisory lock, and the ONLY raw statement in this service's write
+   * paths. It touches no tenant table — it takes a lock on a hashed string — so it neither needs nor
+   * bypasses the account scope; the account is part of the key so two accounts never contend.
+   */
+  $executeRawUnsafe(sql: string, ...values: unknown[]): Promise<number>;
 }
 
 /**
@@ -108,13 +120,55 @@ export class RoundRobinStateRepository {
       const { operatorId, nextCursor } = selectRoundRobin(candidates, existing?.cursor ?? -1);
       if (operatorId === null) return { operatorId: null };
 
+      /**
+       * ⭐ THE BUDGET IS RE-CHECKED UNDER A LOCK, and this is the fix for a live-only defect.
+       *
+       * ⚠️ **Two concurrent routers both assigned, and the agent ended up holding 7 of 6.** The capacity
+       * test lived entirely in the POOL — computed before this transaction opened — so two requests read
+       * the same load of 5, both passed, and both wrote. Serialising the *cursor* (which this transaction
+       * already did, and which its header claims prevents exactly this) makes the rotation fair; it does
+       * nothing about the budget, because the load was decided outside.
+       *
+       * A `SELECT … count(*) < capacity` in the predicate would not fix it either: under READ COMMITTED
+       * both statements see the same snapshot and both succeed. The serialisation has to be explicit.
+       *
+       * ⓘ The lock is keyed on `(account, operator)` and released with the transaction. Two claims for the
+       * same person queue behind each other for the microseconds this takes; claims for different people
+       * never touch. The loser gets `{ operatorId: null }` — the "somebody took the slot" answer both the
+       * router and the drain already handle by queueing or skipping.
+       */
+      await tx.$executeRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
+        `${accountId}:${operatorId}`,
+      );
+
+      const chosen = candidates.find((c) => c.operatorId === operatorId);
+      const held = await tx.conversation.findMany({
+        where: { assignee_operator_id: operatorId, status: { in: [...OPEN_STATUSES] } },
+        select: { channel: true },
+      });
+      // The SAME arithmetic the pool used, on a load re-read inside the lock. `'exclusive'` means the
+      // person is holding work that owns them entirely, which is full whatever the number says.
+      const used = unitsUsed(held);
+      if (!chosen || used === 'exclusive' || used >= chosen.capacity) return { operatorId: null };
+
       const before = await tx.conversation.findFirst({
         where: { id: conversationId },
         select: TRANSITION_BEFORE_SELECT,
       });
 
-      await tx.conversation.updateMany({
-        where: { id: conversationId },
+      /**
+       * ⚠️ A conversation that was UNOWNED is claimed conditionally, so two routers cannot both claim it.
+       * `count === 0` means somebody else got there first — the same "lost the race" answer as above.
+       *
+       * ⓘ When it already had an owner this is a deliberate re-route by a caller who asked for one, and the
+       * write stays unconditional: adding the guard there would turn a reassignment into a silent refusal.
+       */
+      const claim = await tx.conversation.updateMany({
+        where: {
+          id: conversationId,
+          ...(before && before.assignee_operator_id === null ? { assignee_operator_id: null } : {}),
+        },
         data: {
           assignee_operator_id: operatorId,
           // Feature 024: which desk took it. Written in the SAME statement as the assignee, so the
@@ -123,6 +177,7 @@ export class RoundRobinStateRepository {
           ...(routedGroupId ? { routed_group_id: routedGroupId } : {}),
         },
       });
+      if (claim.count === 0) return { operatorId: null };
 
       // Feature 023 — the FIFTH writer of this column, and the one no manual inventory found: the
       // structural guard did. Auto-assignment is precisely the change analytics asks about, so a

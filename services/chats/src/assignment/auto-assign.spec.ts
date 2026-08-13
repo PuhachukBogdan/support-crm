@@ -39,7 +39,8 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   const conversation = {
     findFirst: over.convFindFirst ?? jest.fn().mockResolvedValue(conversationRow()),
     updateMany: over.convUpdateMany ?? jest.fn().mockResolvedValue({ count: 1 }),
-    findMany: jest.fn(),
+    // Feature 031: what the chosen operator is holding, re-read inside the lock. Empty = a fresh desk.
+    findMany: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
   };
   const roundRobinState = {
@@ -50,7 +51,15 @@ function fakePrisma(over: Record<string, jest.Mock> = {}) {
   // Feature 023: auto-assignment is the FIFTH writer of assignee_operator_id, so the transition
   // rides this same interactive transaction.
   const conversationTransition = { create: over.transitionCreate ?? jest.fn() };
-  const scoped = { conversation, roundRobinState, conversationTransition } as Record<string, unknown>;
+  // Feature 031: the per-operator advisory lock the claim takes before re-reading the load. A fake
+  // that omitted it would make every assignment throw — which is how the real one is proven to run.
+  const executeRawUnsafe = jest.fn(async () => 1);
+  const scoped = {
+    conversation,
+    roundRobinState,
+    conversationTransition,
+    $executeRawUnsafe: executeRawUnsafe,
+  } as Record<string, unknown>;
   // Interactive $transaction: hand the callback the same scoped client (what Prisma does).
   //
   // Declared as a METHOD (not a detached arrow) and it asserts its own `this`, because feature-013
@@ -123,8 +132,11 @@ describe('AutoAssignConversation — happy path', () => {
     );
 
     expect(res).toMatchObject({ assigned: true, operatorId: 'op-a', reason: '' });
+    // ⭐ Feature 031: the claim is CONDITIONAL on the conversation still being unowned — two routers
+    // must not both claim it. The guard is added only when it was unowned to begin with, so a
+    // deliberate re-route still writes unconditionally.
     expect(conversation.updateMany).toHaveBeenCalledWith({
-      where: { id: 'c1' },
+      where: { id: 'c1', assignee_operator_id: null },
       data: { assignee_operator_id: 'op-a' },
     });
     // First run for this group → the state row is created with the chosen index.
@@ -142,8 +154,11 @@ describe('AutoAssignConversation — happy path', () => {
       md(),
     );
     expect(res).toMatchObject({ assigned: true, operatorId: 'op-b' });
+    // ⭐ Feature 031: the claim is CONDITIONAL on the conversation still being unowned — two routers
+    // must not both claim it. The guard is added only when it was unowned to begin with, so a
+    // deliberate re-route still writes unconditionally.
     expect(conversation.updateMany).toHaveBeenCalledWith({
-      where: { id: 'c1' },
+      where: { id: 'c1', assignee_operator_id: null },
       data: { assignee_operator_id: 'op-b' },
     });
     expect(roundRobinState.updateMany.mock.calls[0][0]).toMatchObject({
@@ -160,8 +175,11 @@ describe('AutoAssignConversation — happy path', () => {
       md(),
     );
     expect(res).toMatchObject({ assigned: true, operatorId: 'free' });
+    // ⭐ Feature 031: the claim is CONDITIONAL on the conversation still being unowned — two routers
+    // must not both claim it. The guard is added only when it was unowned to begin with, so a
+    // deliberate re-route still writes unconditionally.
     expect(conversation.updateMany).toHaveBeenCalledWith({
-      where: { id: 'c1' },
+      where: { id: 'c1', assignee_operator_id: null },
       data: { assignee_operator_id: 'free' },
     });
   });

@@ -207,6 +207,41 @@ export function InboxList({
   // One object per render is fine — it is a PROP, not a component type (see `header-cell.tsx`).
   const controls: HeaderControls = { order, onOrderChange, statusOptions, filters, onFilterChange };
 
+  // ⚠️ TEMPORARY (2026-08-06 freeze hunt): `?probe=rawrows` renders the same rows and the same funnels
+  // WITHOUT the DataTable composite, to separate the composite from everything else on this screen.
+  const probe =
+    typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('probe') ?? '';
+  if (probe === 'rawrows') {
+    const rows = state.status === 'ready' ? state.data.items : [];
+    return (
+      <HeaderControlsProvider value={controls}>
+        <StatusLabelsProvider value={statusLabels}>
+          <div data-testid="probe-rawrows" className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full table-fixed">
+              <thead>
+                <tr>
+                  {INBOX_COLUMNS.map((c) => (
+                    <th key={c.id} className="text-left text-xs">
+                      {c.header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} data-index={r.id}>
+                    <td className="text-xs">{r.statusKey}</td>
+                    <td className="text-xs">{r.subject}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </StatusLabelsProvider>
+      </HeaderControlsProvider>
+    );
+  }
+
   return (
     <HeaderControlsProvider value={controls}>
       <StatusLabelsProvider value={statusLabels}>

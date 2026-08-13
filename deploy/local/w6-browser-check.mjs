@@ -20,6 +20,7 @@
  * for plain navigation, each labelled `(dom)` so nothing reads as more than it is.
  */
 import { chromium } from 'playwright';
+import { assertNoRenderStorm } from './lib/no-render-storm.mjs';
 
 const WEB = process.env.WEB_ORIGIN ?? 'https://crm-beton.37.1.206.146.sslip.io';
 const MAIL = process.env.MAIL_ORIGIN ?? 'http://127.0.0.1:8025';
@@ -193,23 +194,11 @@ try {
   else fail('self-scope on the wire', JSON.stringify(scoped).slice(0, 200));
 
   /**
-   * ⭐⭐ THE FREEZE ASSERTION. React's scheduler posts through a MessageChannel, so counting posts is
-   * counting commits. Before the fix a single bucket click produced ~23 000 posts in 2.5 s and the page
-   * died on the next click; quiet is single digits. This is the only assertion here that could have
-   * caught the defect the operator hit three times — no jsdom test can see it.
+   * ⭐⭐ THE FREEZE ASSERTION — now the shared standing rule (`lib/no-render-storm.mjs`): every
+   * block's browser check calls it on its page's key interaction. Here that is the bucket switch —
+   * the click the operator makes most, and the one that killed the page three times.
    */
-  const posts = await p.evaluate(async () => {
-    let n = 0;
-    const proto = MessagePort.prototype;
-    const orig = proto.postMessage;
-    proto.postMessage = function (...a) { n += 1; return orig.apply(this, a); };
-    document.querySelector('[data-testid="bucket-pending"]')?.click();
-    await new Promise((r) => setTimeout(r, 2500));
-    proto.postMessage = orig;
-    return n;
-  });
-  if (posts < 200) pass(`⭐⭐ no re-render storm: ${posts} scheduler posts in 2.5s (pre-fix: ~23 000)`);
-  else fail('re-render storm', `${posts} posts in 2.5s`);
+  await assertNoRenderStorm({ page: p, selector: '[data-testid="bucket-pending"]', pass, fail });
 
   // ── 4. the status column, and the freed colour ─────────────────────────────────────────────────
   await domClick('[data-testid="bucket-pending"]');

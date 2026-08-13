@@ -11,7 +11,10 @@
 # records what happens when only one of them exists.
 set -euo pipefail
 EDGE_PW=$(tr -d '\r\n' < /tmp/probe.pw)
+# ⚠️ lib/ must travel with the check — the .mjs is copied standalone, and `no-render-storm.mjs`
+# (the standing anti-storm assertion every block's check calls) is imported relative to it.
 cp "$(dirname "$0")/w6-browser-check.mjs" /tmp/pw-work/w6-browser-check.mjs
+mkdir -p /tmp/pw-work/lib && cp "$(dirname "$0")"/lib/*.mjs /tmp/pw-work/lib/
 docker run --rm --network host -v /tmp:/tmp -w /tmp/pw-work \
   -e WEB_ORIGIN=https://crm-beton.37.1.206.146.sslip.io \
   -e MAIL_ORIGIN=http://127.0.0.1:8025 \

@@ -192,6 +192,8 @@ export type DataTableProps<T> = {
 
 /** Stable identity so an omitted `optionalColumns` cannot invalidate the memo on every render. */
 const NO_OPTIONAL: readonly string[] = [];
+/** Same rule for row selection — see the note at its use. */
+const NO_SELECTION: readonly string[] = [];
 
 /**
  * The workhorse list composite (S2). Virtualized (bounded row nodes at ~372K rows),
@@ -215,7 +217,13 @@ export function DataTable<T>({
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const items = state.status === 'ready' ? state.data.items : [];
 
-  const selected = rowSelection?.selected ?? [];
+  /**
+   * ⚠️ `NO_SELECTION` is a module constant, not `?? []`. A fresh `[]` per render made the memo below
+   * recompute every render, so `state.rowSelection` reached TanStack as a NEW OBJECT on every render —
+   * one link in the "new identity per render" chain that fed the table's own state machinery. Every
+   * such link is a candidate for the commit storm this file's big note describes.
+   */
+  const selected = rowSelection?.selected ?? NO_SELECTION;
   const rowSelectionState: RowSelectionState = useMemo(
     () => Object.fromEntries(selected.map((id) => [id, true])),
     [selected],
@@ -229,8 +237,12 @@ export function DataTable<T>({
     [columns, measuredWidth, optionalColumns],
   );
 
+  // Keyed on WHETHER selection exists, never on the prop object's identity — callers build that object
+  // inline, so depending on it would rebuild the column set (and the row model) on every render.
+  const selectable = !!rowSelection;
+  const onSelectionChange = rowSelection?.onChange;
   const allColumns = useMemo<ColumnDef<T, unknown>[]>(() => {
-    if (!rowSelection) return fitting;
+    if (!selectable) return fitting;
     const selectCol: ColumnDef<T, unknown> = {
       id: '__select',
       header: ({ table }) => (
@@ -250,7 +262,7 @@ export function DataTable<T>({
       size: 40,
     };
     return [selectCol, ...fitting];
-  }, [fitting, rowSelection]);
+  }, [fitting, selectable]);
 
   const table = useReactTable({
     data: items,
@@ -260,9 +272,9 @@ export function DataTable<T>({
     state: { rowSelection: rowSelectionState },
     enableRowSelection: !!rowSelection,
     onRowSelectionChange: (updater) => {
-      if (!rowSelection) return;
+      if (!onSelectionChange) return;
       const next = typeof updater === 'function' ? updater(rowSelectionState) : updater;
-      rowSelection.onChange(Object.keys(next).filter((k) => next[k]));
+      onSelectionChange(Object.keys(next).filter((k) => next[k]));
     },
   });
 

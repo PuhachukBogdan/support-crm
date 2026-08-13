@@ -73,6 +73,12 @@ export function Inbox() {
   // Row selection exists only where the actions it feeds do. An agent gets no checkboxes rather than
   // checkboxes that lead nowhere.
   const mayExport = useMayExport();
+  // A stable object: built inline it was a new identity per render, which the composite then had to
+  // defend against (see its note). One memo here is cheaper than that defence being load-bearing.
+  const rowSelection = useMemo(
+    () => (mayExport ? { selected, onChange: setSelected } : undefined),
+    [mayExport, selected],
+  );
 
   // key → agent name, built once per catalogue arrival; the column renders words, stores keys.
   const statusLabels = useMemo(
@@ -139,7 +145,7 @@ export function Inbox() {
           emptyLabel={emptyLabel}
           onRetry={listState.refetch}
           onLoadMore={nextCursor ? () => loadMore(nextCursor) : undefined}
-          rowSelection={mayExport ? { selected, onChange: setSelected } : undefined}
+          rowSelection={rowSelection}
           order={order}
           onOrderChange={setOrder}
           statusLabels={statusLabels}

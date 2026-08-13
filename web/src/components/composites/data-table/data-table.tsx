@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -57,6 +57,92 @@ export { ROW_HEIGHT };
  */
 const INITIAL_RECT = { width: 0, height: 600 } as const;
 
+/**
+ * The three tiers of `ui-design/density-spec.md` §2 — the mechanism that makes §1 hold ("a ticket list
+ * must fit a 2K screen without horizontal scrolling").
+ *
+ * ⚠️ **A screen declares a tier and nothing else; this composite decides what fits** (§7: S2 owns
+ * tiering, S4 declares tiers). Feature 029 broke both halves — `features/inbox/columns.ts` invented
+ * numeric priorities 1–6 with per-column breakpoints and the screen measured `window.innerWidth`
+ * itself — and the spec records the cause plainly: *the file was never opened*.
+ *
+ * ⓘ A column with no declared tier is `essential`, so every existing caller keeps rendering every
+ * column exactly as before.
+ */
+export type ColumnTier = 'essential' | 'contextual' | 'optional';
+
+/** Declared on `ColumnDef.meta`, which is TanStack's own extension point — not a parallel array. */
+declare module '@tanstack/react-table' {
+  // The two parameters are TanStack's own; they are unused here and must keep their names/arity.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData, TValue> {
+    tier?: ColumnTier;
+  }
+}
+
+/** Lowest first — the order columns are shed in. `essential` is absent because it is never shed. */
+const SHED_ORDER: readonly ColumnTier[] = ['optional', 'contextual'];
+
+export function tierOf<T>(col: ColumnDef<T, unknown>): ColumnTier {
+  return col.meta?.tier ?? 'essential';
+}
+
+/** TanStack's declared width for a column; the fallback matches its own default. */
+function sizeOf<T>(col: ColumnDef<T, unknown>): number {
+  return typeof col.size === 'number' ? col.size : 150;
+}
+
+/**
+ * Which columns fit `available` px.
+ *
+ * `optional` starts **off** (§2: "off by default; opted into per user"), then `contextual` columns are
+ * shed **from the last declared backwards** until the declared widths fit. `essential` columns are never
+ * shed — at an absurd width they truncate instead, which they now do by construction
+ * ({@link ROW_HEIGHT_CLASS} and `table-fixed`).
+ *
+ * ⚠️ `available <= 0` means *not measured yet*, not *no room*. Reading it as no room would shed every
+ * sheddable column on the first paint and then add them back — a visible reflow on every mount.
+ */
+export function columnsThatFit<T>(
+  columns: ColumnDef<T, unknown>[],
+  available: number,
+  optedIn: readonly string[] = [],
+): ColumnDef<T, unknown>[] {
+  const kept = columns.filter(
+    (c) => tierOf(c) !== 'optional' || (c.id !== undefined && optedIn.includes(c.id)),
+  );
+  if (available <= 0) return kept;
+
+  const total = () => kept.reduce((sum, c) => sum + sizeOf(c), 0);
+  for (const tier of SHED_ORDER) {
+    for (let i = kept.length - 1; i >= 0 && total() > available; i--) {
+      if (tierOf(kept[i]!) === tier) kept.splice(i, 1);
+    }
+  }
+  return kept;
+}
+
+/**
+ * The composite's own width, measured. ⭐ **Its own** — the screen used to measure `window.innerWidth`,
+ * from which the sidebar, the bucket rail and every gap still have to be subtracted, so it decided about
+ * a table far wider than the one it has. That is why columns were squeezed at half screen at all.
+ */
+function useMeasuredWidth(ref: React.RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => setWidth(el.getBoundingClientRect().width);
+    read();
+    // jsdom ships no ResizeObserver; a one-shot read still gives tests a deterministic width.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
+
 export type DataTableProps<T> = {
   columns: ColumnDef<T, unknown>[];
   state: AsyncState<PaginatedResult<T>>;
@@ -77,7 +163,16 @@ export type DataTableProps<T> = {
    * Pass a number only for a table genuinely embedded in a fixed slot (a card, a preview).
    */
   height?: number;
+  /**
+   * Ids of `optional`-tier columns the person has opted into (§2: "off by default; opted into per user,
+   * and remembered"). ⓘ The *remembering* is a preference, not a table concern — this prop is where it
+   * arrives. Omitted ⇒ no optional column renders.
+   */
+  optionalColumns?: readonly string[];
 };
+
+/** Stable identity so an omitted `optionalColumns` cannot invalidate the memo on every render. */
+const NO_OPTIONAL: readonly string[] = [];
 
 /**
  * The workhorse list composite (S2). Virtualized (bounded row nodes at ~372K rows),
@@ -94,6 +189,7 @@ export function DataTable<T>({
   rowSelection,
   emptyLabel = 'Nothing here yet.',
   height,
+  optionalColumns = NO_OPTIONAL,
 }: DataTableProps<T>) {
   /** Fills its parent unless a caller pinned a height. See the prop's note. */
   const fills = height === undefined;
@@ -106,8 +202,16 @@ export function DataTable<T>({
     [selected],
   );
 
+  /** Measured here, never handed in: see {@link useMeasuredWidth}. */
+  const rootRef = useRef<HTMLDivElement>(null);
+  const measuredWidth = useMeasuredWidth(rootRef);
+  const fitting = useMemo(
+    () => columnsThatFit(columns, measuredWidth, optionalColumns),
+    [columns, measuredWidth, optionalColumns],
+  );
+
   const allColumns = useMemo<ColumnDef<T, unknown>[]>(() => {
-    if (!rowSelection) return columns;
+    if (!rowSelection) return fitting;
     const selectCol: ColumnDef<T, unknown> = {
       id: '__select',
       header: ({ table }) => (
@@ -126,8 +230,8 @@ export function DataTable<T>({
       ),
       size: 40,
     };
-    return [selectCol, ...columns];
-  }, [columns, rowSelection]);
+    return [selectCol, ...fitting];
+  }, [fitting, rowSelection]);
 
   const table = useReactTable({
     data: items,
@@ -196,7 +300,11 @@ export function DataTable<T>({
    */
   if (state.status === 'empty') {
     return (
-      <div className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')} data-testid="dt-empty">
+      <div
+        ref={rootRef}
+        className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')}
+        data-testid="dt-empty"
+      >
         <div
           className={cn(
             'overflow-auto rounded-md border border-border',
@@ -230,7 +338,7 @@ export function DataTable<T>({
     );
   }
   return (
-    <div className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')}>
+    <div ref={rootRef} className={cn('flex flex-col gap-3', fills && 'min-h-0 flex-1')}>
       <div
         ref={parentRef}
         data-testid="dt-scroll"

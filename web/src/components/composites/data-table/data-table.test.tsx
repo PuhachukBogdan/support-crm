@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { DataTable, ROW_HEIGHT, ROW_HEIGHT_CLASS } from './data-table';
+import { DataTable, ROW_HEIGHT, ROW_HEIGHT_CLASS, columnsThatFit, tierOf } from './data-table';
 import { makeDemoRecords, type DemoRecord } from '@/data/mock/demo-data';
 import type { AsyncState, PaginatedResult } from '@/data/types';
 
@@ -110,6 +110,71 @@ describe('DataTable', () => {
       // Virtualization unmounts the node anchoring would try to hold still, so the browser must not
       // correct scrollTop underneath it.
       expect(screen.getByTestId('dt-scroll').className).toContain('[overflow-anchor:none]');
+    });
+  });
+
+  /**
+   * Tiering (`ui-design/density-spec.md` §2, obligation S2 in §7). The mechanism moved here from
+   * `features/inbox/columns.ts`, which had invented numeric priorities and measured `window.innerWidth`.
+   *
+   * ⚠️ The pure-rule tests are not enough on their own — the previous layer's rule tests all passed
+   * while the decision sat in the wrong place and read the wrong width. So the last test drives the
+   * rendered table: *test the consumer, not only the rule.*
+   */
+  describe('column tiers', () => {
+    const tiered: ColumnDef<DemoRecord, unknown>[] = [
+      { id: 'subject', accessorKey: 'subject', header: 'Subject', size: 400, meta: { tier: 'essential' } },
+      { id: 'status', accessorKey: 'status', header: 'Status', size: 300, meta: { tier: 'essential' } },
+      { id: 'assignee', accessorKey: 'assignee', header: 'Assignee', size: 300, meta: { tier: 'contextual' } },
+      { id: 'category', accessorKey: 'category', header: 'Category', size: 200, meta: { tier: 'optional' } },
+    ];
+
+    it('sheds optional first, then contextual, and never an essential column', () => {
+      expect(columnsThatFit(tiered, 5000).map((c) => c.id)).toEqual(['subject', 'status', 'assignee']);
+      expect(columnsThatFit(tiered, 800).map((c) => c.id)).toEqual(['subject', 'status']);
+      // At an absurd width the essentials remain and truncate instead — a list without its subject is
+      // not a list, and truncation is now structural (`table-fixed` + clipped cells).
+      expect(columnsThatFit(tiered, 1).map((c) => c.id)).toEqual(['subject', 'status']);
+    });
+
+    it('an unmeasured width keeps the default set rather than shedding everything', () => {
+      expect(columnsThatFit(tiered, 0).map((c) => c.id)).toEqual(['subject', 'status', 'assignee']);
+    });
+
+    it('treats a column with no declared tier as essential, so existing callers are unaffected', () => {
+      expect(tierOf({ id: 'x' } as ColumnDef<DemoRecord, unknown>)).toBe('essential');
+      const untiered: ColumnDef<DemoRecord, unknown>[] = [
+        { id: 'a', header: 'A', size: 900 },
+        { id: 'b', header: 'B', size: 900 },
+      ];
+      expect(columnsThatFit(untiered, 100).map((c) => c.id)).toEqual(['a', 'b']);
+    });
+
+    it('⭐ the RENDERED table sheds by its own measured width, not by the window', () => {
+      // The stub in this file reports 800px for every element, so the contextual column cannot fit
+      // beside two 400+300 essentials — and `window.innerWidth` (1024 in jsdom) would have kept it.
+      expect(window.innerWidth).toBeGreaterThan(800);
+      render(<DataTable columns={tiered} state={ready(makeDemoRecords(30))} getRowId={(r) => r.id} />);
+
+      const headers = Array.from(document.querySelectorAll('th')).map((th) => th.textContent);
+      expect(headers).toContain('Subject');
+      expect(headers).toContain('Status');
+      expect(headers).not.toContain('Assignee');
+      expect(headers).not.toContain('Category');
+    });
+
+    it('renders an optional column once opted into', () => {
+      render(
+        <DataTable
+          columns={[tiered[0]!, tiered[3]!]}
+          state={ready(makeDemoRecords(30))}
+          getRowId={(r) => r.id}
+          optionalColumns={['category']}
+        />,
+      );
+      expect(Array.from(document.querySelectorAll('th')).map((th) => th.textContent)).toContain(
+        'Category',
+      );
     });
   });
 

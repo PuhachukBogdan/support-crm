@@ -1,4 +1,26 @@
-import { INBOX_COLUMNS, columnsForWidth } from './columns';
+import type { ColumnDef } from '@tanstack/react-table';
+import { columnsThatFit } from '@/components/composites/data-table';
+import { INBOX_COLUMNS } from './columns';
+
+/**
+ * The screen's declaration, in the shape the composite consumes — exactly what `inbox-list.tsx` builds.
+ *
+ * ⚠️ **The shedding assertions below now run through the COMPOSITE.** They used to call a
+ * `columnsForWidth()` that lived in this folder, which is the layering violation `density-spec.md` §7
+ * records against feature 029. Keeping the assertions here and moving the mechanism there is deliberate:
+ * the rule belongs to S2, but *this screen's* outcome under it is what the operator sees.
+ */
+const defs: ColumnDef<Record<string, unknown>, unknown>[] = INBOX_COLUMNS.map((c) => ({
+  id: c.id,
+  size: c.width,
+  meta: { tier: c.tier },
+}));
+
+/** Ids the composite keeps at `width`, with no optional column opted into. */
+const keptAt = (width: number) => columnsThatFit(defs, width).map((c) => c.id);
+
+/** Everything except the optional tier — the default set, since optional is off unless opted into. */
+const DEFAULT_IDS = INBOX_COLUMNS.filter((c) => c.tier !== 'optional').map((c) => c.id);
 
 /**
  * T028 (feature 029, FR-005/FR-006) — density as a **testable rule**, not a look.
@@ -14,13 +36,25 @@ import { INBOX_COLUMNS, columnsForWidth } from './columns';
  * quietly.
  */
 describe('the column priority table is well formed', () => {
-  it('is non-empty and every column declares a priority and a minimum width', () => {
+  it('is non-empty and every column declares one of the three tiers and a width', () => {
     // Guards against a vacuous pass: an empty table would satisfy every assertion below.
     expect(INBOX_COLUMNS.length).toBeGreaterThan(4);
     for (const c of INBOX_COLUMNS) {
-      expect(c.priority).toBeGreaterThanOrEqual(1);
-      expect(c.minWidth).toBeGreaterThan(0);
+      // The three named tiers of density-spec §2 — never an invented number, which is what these were.
+      expect(['essential', 'contextual', 'optional']).toContain(c.tier);
+      expect(c.width).toBeGreaterThan(0);
       expect(c.header.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('⭐ declares no breakpoint of its own — the composite decides what fits (§7)', () => {
+    // Structural, because the violation was not a wrong number but a decision in the wrong layer: the
+    // screen measured `window.innerWidth` and ran its own `columnsForWidth`. A test of the OUTCOME
+    // would have passed throughout — feature 029's did.
+    const columns = INBOX_COLUMNS as unknown as readonly Record<string, unknown>[];
+    for (const c of columns) {
+      expect(c.priority).toBeUndefined();
+      expect(c.minWidth).toBeUndefined();
     }
   });
 
@@ -66,49 +100,59 @@ describe('*** columns drop by priority, and the list never scrolls sideways (FR-
   const WIDE = 2560; // the operator's stated reference monitor
   const NARROW = 1000;
 
-  it('at 2560 px every default column is present', () => {
-    expect(columnsForWidth(WIDE).map((c) => c.id)).toEqual(INBOX_COLUMNS.map((c) => c.id));
+  it('at 2560 px every DEFAULT column is present — and `category` is not one of them', () => {
+    expect(keptAt(WIDE)).toEqual(DEFAULT_IDS);
+    // ⭐ The density spec always put category in the optional tier; it rendered anyway because the
+    // screen had no way to say "optional". Now it does, so the default set is the spec's default set.
+    expect(keptAt(WIDE)).not.toContain('category');
   });
 
-  it('at a narrow width the LOW-priority columns are the ones gone', () => {
-    const kept = columnsForWidth(NARROW).map((c) => c.id);
-    expect(kept.length).toBeLessThan(INBOX_COLUMNS.length);
+  it('an optional column appears only when opted into', () => {
+    expect(columnsThatFit(defs, WIDE, ['category']).map((c) => c.id)).toContain('category');
+  });
 
-    const droppedPriorities = INBOX_COLUMNS.filter((c) => !kept.includes(c.id)).map(
-      (c) => c.priority,
-    );
-    const keptPriorities = INBOX_COLUMNS.filter((c) => kept.includes(c.id)).map((c) => c.priority);
-    // Nothing kept may be lower-priority than something dropped.
-    expect(Math.min(...droppedPriorities)).toBeGreaterThanOrEqual(Math.max(...keptPriorities));
+  it('at a narrow width the CONTEXTUAL columns are the ones gone, never an essential one', () => {
+    const kept = keptAt(NARROW);
+    expect(kept.length).toBeLessThan(DEFAULT_IDS.length);
+    const shedTiers = INBOX_COLUMNS.filter((c) => !kept.includes(c.id)).map((c) => c.tier);
+    expect(shedTiers).not.toContain('essential');
   });
 
   it('⭐ the subject and status survive every width — a list without them is not a list', () => {
     for (const width of [2560, 1600, 1280, 1000, 600, 320]) {
-      const kept = columnsForWidth(width).map((c) => c.id);
-      expect(kept).toContain('subject');
-      expect(kept).toContain('status');
+      expect(keptAt(width)).toContain('subject');
+      expect(keptAt(width)).toContain('status');
     }
   });
 
-  it('the kept columns always fit the width once anything is droppable', () => {
+  it('the kept columns fit the width while anything is still sheddable', () => {
     for (const width of [2560, 1600, 1280, 1000]) {
-      const total = columnsForWidth(width).reduce((sum, c) => sum + c.minWidth, 0);
+      const total = columnsThatFit(defs, width).reduce(
+        (sum, c) => sum + (typeof c.size === 'number' ? c.size : 0),
+        0,
+      );
       expect(total).toBeLessThanOrEqual(width);
     }
   });
 
   it('narrowing never ADDS a column back', () => {
-    let previous = columnsForWidth(2560).length;
+    let previous = keptAt(2560).length;
     for (const width of [2000, 1600, 1280, 1000, 800, 600]) {
-      const count = columnsForWidth(width).length;
+      const count = keptAt(width).length;
       expect(count).toBeLessThanOrEqual(previous);
       previous = count;
     }
   });
 
-  it('declared order is preserved among the survivors — dropping never reshuffles', () => {
-    const kept = columnsForWidth(1280).map((c) => c.id);
+  it('declared order is preserved among the survivors — shedding never reshuffles', () => {
+    const kept = keptAt(1280);
     const expected = INBOX_COLUMNS.filter((c) => kept.includes(c.id)).map((c) => c.id);
     expect(kept).toEqual(expected);
+  });
+
+  it('⚠️ an unmeasured width means "not measured yet", not "no room"', () => {
+    // Reading 0 as no room would shed every sheddable column on first paint and add them back after
+    // the first measurement — a visible reflow on every mount.
+    expect(keptAt(0)).toEqual(DEFAULT_IDS);
   });
 });

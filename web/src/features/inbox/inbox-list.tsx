@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { DataTable } from '@/components/composites/data-table';
 import { StatusBadge } from '@/components/composites/status-badge/status-badge';
-import { columnsForWidth, type InboxColumn } from './columns';
+import { INBOX_COLUMNS, type InboxColumn } from './columns';
 import { relativeTime, statusFromWire } from './wire-labels';
 import { SortableHeader } from './sortable-header';
 import type { ConversationRow } from './types';
@@ -47,7 +47,9 @@ function cellFor(
 ): ColumnDef<ConversationRow, unknown> {
   const base = {
     id: col.id,
-    size: col.minWidth,
+    size: col.width,
+    // The screen's whole narrowing statement. `DataTable` sheds by it — see `density-spec.md` §2/§7.
+    meta: { tier: col.tier },
     // The header renders the triangles itself when the column is sortable, so `DataTable` needs no
     // sorting knowledge — and cannot turn every header into a control the server would not honour.
     header: () => (
@@ -127,23 +129,11 @@ function cellFor(
 }
 
 /**
- * Which columns fit. Measured, because the requirement is about the viewport and jsdom has no layout
- * — so the rule is asserted on `columnsForWidth` directly and the measurement is what Track B checks
- * in a real browser (quickstart B6).
+ * ⛔ **`useViewportWidth` is gone.** It measured `window.innerWidth` and handed it to a breakpoint
+ * function in this folder — the violation `density-spec.md` §7 records against feature 029, and wrong
+ * twice over: the screen must not decide what fits (S2 does), and the window is not the table's width.
+ * The composite measures its own box.
  */
-function useViewportWidth(): number {
-  const [width, setWidth] = useState(() =>
-    typeof window === 'undefined' ? 2560 : window.innerWidth,
-  );
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    onResize();
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-  return width;
-}
-
 export function InboxList({
   state,
   onLoadMore,
@@ -163,10 +153,10 @@ export function InboxList({
   order: string;
   onOrderChange: (order: string) => void;
 }) {
-  const width = useViewportWidth();
+  // Every declared column, every time. Which of them fits is the composite's answer, not this screen's.
   const columns = useMemo(
-    () => columnsForWidth(width).map((col) => cellFor(col, { order, onOrderChange })),
-    [width, order, onOrderChange],
+    () => INBOX_COLUMNS.map((col) => cellFor(col, { order, onOrderChange })),
+    [order, onOrderChange],
   );
 
   return (

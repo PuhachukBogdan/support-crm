@@ -1,3 +1,4 @@
+import type { ColumnTier } from '@/components/composites/data-table';
 import type { ConversationRow } from './types';
 
 /**
@@ -13,7 +14,10 @@ import type { ConversationRow } from './types';
  * lowest-priority columns are dropped and the rest truncate. A list that scrolls sideways hides the
  * status column behind a gesture nobody makes.
  *
- * Lower `priority` = kept longer. 1 is never dropped.
+ * ⚠️ **This file no longer decides what fits.** Tiers come from `ui-design/density-spec.md` §2 and the
+ * composite sheds them (§7: S2 owns tiering, S4 declares tiers). The assertion the priority table used to
+ * make — *at 2560 px all default columns are present; at 1280 px exactly these are gone* — is now made
+ * against the composite, where it is true of every list rather than of this one.
  */
 export interface InboxColumn {
   /** The row field this column reads. Keyed on the type so a renamed field breaks the build. */
@@ -21,10 +25,17 @@ export interface InboxColumn {
   /** The human label. ⚠️ Deliberately not derived from `id` — two of them must NOT match the field
    *  name: `lastActivityAt` shows as "Updated" (R7) and `playerId` as "Player" (R9). */
   readonly header: string;
-  /** 1 = never dropped; larger numbers are shed first as the viewport narrows. */
-  readonly priority: number;
-  /** Minimum width in px this column needs to be worth showing at all. */
-  readonly minWidth: number;
+  /**
+   * One of `density-spec.md` §2's three tiers — **the only narrowing decision this screen makes.**
+   *
+   * ⚠️ It used to be a `priority` number 1–6 paired with a `columnsForWidth()` here, which is exactly
+   * what §7 records as feature 029's violation: *"the screen hand-coding breakpoints and reimplementing
+   * what S2 owns"*. The composite sheds `optional`, then `contextual` from the last declared backwards,
+   * and never sheds `essential`.
+   */
+  readonly tier: ColumnTier;
+  /** Width this column wants, in px — TanStack's own `size`, forwarded by the composite. */
+  readonly width: number;
   /**
    * ⭐ The two server orders this column can be sorted by — the triangles in Zendesk's header
    * (`screenshots/views_2.png`), which the operator asked for on the columns where "bigger to
@@ -53,8 +64,10 @@ export interface InboxColumn {
  * and **no Satisfaction column** (no ratings exist — roadmap 10.4).
  */
 export const INBOX_COLUMNS: readonly InboxColumn[] = [
-  { id: 'status', header: 'Status', priority: 1, minWidth: 96 },
-  { id: 'createdAt', header: 'Requested', priority: 3, minWidth: 120 },
+  { id: 'status', header: 'Status', tier: 'essential', width: 96 },
+  // "Requested" is the creation instant. §2 makes *time-since* essential and that is `Updated` below;
+  // when the queue is narrow, which one still matters is the one that moved.
+  { id: 'createdAt', header: 'Requested', tier: 'contextual', width: 120 },
   /**
    * ⚠️ "Player", NOT "Requester" — research R9. This product stores no customer name, email or phone
    * at any tier; identity lives in GR8 and arrives with roadmap 5.4. A column headed "Requester"
@@ -69,41 +82,28 @@ export const INBOX_COLUMNS: readonly InboxColumn[] = [
   {
     id: 'lastActivityAt',
     header: 'Updated',
-    priority: 2,
-    minWidth: 120,
+    // §2's "time-since" — essential, and the one column carrying a sort the server honours.
+    tier: 'essential',
+    width: 120,
     sort: { asc: 'updated_asc', desc: 'updated_desc' },
   },
-  { id: 'channel', header: 'Channel', priority: 4, minWidth: 100 },
-  { id: 'playerId', header: 'Player', priority: 2, minWidth: 140 },
-  // The reason feature 023 exists: a queue you can scan. Never dropped; truncates instead.
-  { id: 'subject', header: 'Subject', priority: 1, minWidth: 220 },
-  { id: 'priority', header: 'Priority', priority: 3, minWidth: 96 },
-  { id: 'assigneeOperatorId', header: 'Assignee', priority: 5, minWidth: 140 },
+  { id: 'channel', header: 'Channel', tier: 'contextual', width: 100 },
+  { id: 'playerId', header: 'Player', tier: 'essential', width: 140 },
+  // The reason feature 023 exists: a queue you can scan. Never shed; truncates instead.
+  { id: 'subject', header: 'Subject', tier: 'essential', width: 220 },
+  { id: 'priority', header: 'Priority', tier: 'contextual', width: 96 },
+  { id: 'assigneeOperatorId', header: 'Assignee', tier: 'contextual', width: 140 },
   // Displayed, never filterable: ADR 0027 reserved it and nothing populates it yet except the seeded
   // rows, so a filter would offer options matching nothing.
-  // ⓘ The density spec puts category in the *optional* tier (off by default). Left visible until the
-  // tiering moves into the composite, where "optional" becomes expressible — roadmap 9.2b.
-  { id: 'category', header: 'Category', priority: 6, minWidth: 120 },
+  // ⭐ **`optional` ⇒ off unless opted into** (§2), which is the state the density spec always asked for.
+  // It rendered by default only because the screen had no way to express "optional" — the tier now does.
+  { id: 'category', header: 'Category', tier: 'optional', width: 120 },
 ];
 
 /**
- * The columns that fit `width`, in declared order.
+ * ⛔ **`columnsForWidth()` is gone, deliberately.** It was this screen deciding what fits, from a width
+ * it measured off `window.innerWidth` — a number the table never had, since the sidebar, the bucket rail
+ * and every gap come out of it first. That is why columns were squeezed rather than shed at half screen.
  *
- * Drops the lowest-priority columns until the rest fit. Priority-1 columns are never dropped — at an
- * absurdly narrow width they truncate instead, because a list with no subject is not a list.
+ * The decision now lives in `DataTable.columnsThatFit`, which measures **its own** box.
  */
-export function columnsForWidth(width: number): readonly InboxColumn[] {
-  const byPriority = [...INBOX_COLUMNS].sort((a, b) => b.priority - a.priority);
-  const dropped = new Set<InboxColumn['id']>();
-
-  const total = () =>
-    INBOX_COLUMNS.filter((c) => !dropped.has(c.id)).reduce((sum, c) => sum + c.minWidth, 0);
-
-  for (const candidate of byPriority) {
-    if (total() <= width) break;
-    if (candidate.priority === 1) continue;
-    dropped.add(candidate.id);
-  }
-
-  return INBOX_COLUMNS.filter((c) => !dropped.has(c.id));
-}

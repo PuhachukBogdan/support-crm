@@ -70,6 +70,20 @@ MEMBERS=$(psql auth_db "select count(*) from \"GroupMember\" where group_id='$DE
 JADMIN=$(login "admin@example.test")
 grep -q access "$JADMIN" && pass "admin session (the observer)" || { fail "admin session" "no cookie"; echo "W5 live: $ok ok, $bad failed"; exit 1; }
 
+# ── the fixture, through the product's own path (never psql): two agents go ON SHIFT ──────────────
+# The first run of this script found the whole desk `offline/auto_inactivity` — the presence sweep
+# had, correctly, sent everyone home, and the pool answered "nobody available" for ever while the
+# queue waited. The product was RIGHT; the fixture was missing. ⚠️ agent1 stays off shift on purpose:
+# they hold the AM role on this stand (gotcha: the-probe-user-was-an-am), so keeping them out of the
+# pool makes every assignee a pure support agent — and proves along the way that an off-shift member
+# receives nothing.
+JAG2=$(login "seed-agent2@example.test")
+JAG3=$(login "seed-agent3@example.test")
+P2=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAG2" -X PUT "$G/presence/me" -H 'Content-Type: application/json' -d '{"state":"online"}')
+P3=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAG3" -X PUT "$G/presence/me" -H 'Content-Type: application/json' -d '{"state":"online"}')
+[ "$P2" = "200" ] && [ "$P3" = "200" ] && pass "fixture: agents 2 and 3 are ON SHIFT via PUT /presence/me (agent1 stays off)" \
+  || fail "fixture: presence through the product" "p2=$P2 p3=$P3"
+
 # ── 5.11 — "which operator am I?", gated by nothing but a session ─────────────────────────────────
 ME=$(curl -s -b "$JADMIN" "$G/me/operator")
 MEOP=$(echo "$ME" | sed -n 's/.*"operatorId":"\([^"]*\)".*/\1/p')
@@ -141,8 +155,11 @@ else
   grep -q access "$JAGENT" && pass "4.19 the assignee ($RAIL_EMAIL) signed in" || fail "4.19 assignee session" "no cookie"
 
   MYOP=$(curl -s -b "$JAGENT" "$G/me/operator" | sed -n 's/.*"operatorId":"\([^"]*\)".*/\1/p')
-  [ "$MYOP" = "$RAIL_OP" ] && pass "5.11 ⭐ the assignee's /me/operator IS the id the router assigned to" \
-    || fail "5.11 identity round-trip" "me=$MYOP assigned=$RAIL_OP"
+  # ⚠️ Non-emptiness FIRST: run one of this script compared "" to "" here and called it ok — the exact
+  # vacuous-pass shape the wiki's rule 2 exists for. Both operands must BE something before equality
+  # means anything.
+  [ -n "$MYOP" ] && [ "$MYOP" = "$RAIL_OP" ] && pass "5.11 ⭐ the assignee's /me/operator IS the id the router assigned to" \
+    || fail "5.11 identity round-trip" "me='$MYOP' assigned='$RAIL_OP'"
 
   RAIL0=$(curl -s -b "$JAGENT" "$G/conversations?assigneeOperatorId=$RAIL_OP&openedByOperatorId=$RAIL_OP&statusCategories=new,open,pending,on_hold")
   echo "$RAIL0" | grep -q "$RAIL_CONV" && fail "4.19 rail before opening" "ticket on the rail before it was opened" \

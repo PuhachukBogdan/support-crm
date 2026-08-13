@@ -279,6 +279,27 @@ export class ConversationReadController {
    *  · the RESTRICTED transition `contact.lookup_performed` is recorded on the conversation under
    *    the SAME hash the users-side audit entry carries — one token, two trails, correlatable.
    */
+  /**
+   * W9 (ADR 0044 §5) — the detach warning, BEFORE the detach. Reads only; the same harvest the
+   * write path returns, so the dialog and the outcome cannot disagree.
+   */
+  @GrpcMethod('ChatsReadService', 'PreviewPlayerDetach')
+  @RequiresChatsPermission('crm.contact.lookup')
+  async previewPlayerDetach(req: { conversationId?: string }, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const conversationId = (req.conversationId ?? '').trim();
+    const conversation = conversationId
+      ? await this.repo.getById(ctx.accountId, conversationId)
+      : null;
+    if (!conversation) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    const harvest = await this.repo.staffWritesSinceAttach(ctx.accountId, conversationId);
+    return {
+      detachedPlayerId: conversation.player_id ?? '',
+      publicReplies: harvest.publicReplies,
+      privateNotes: harvest.privateNotes,
+    };
+  }
+
   @GrpcMethod('ChatsReadService', 'LookupContactForConversation')
   @RequiresChatsPermission('crm.contact.lookup')
   async lookupContactForConversation(

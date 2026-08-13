@@ -262,6 +262,10 @@ service ChatsReadService {
   // `crm.contact.lookup` — the person-members rule), and records the restricted transition
   // `contact.lookup_performed` on the conversation. There is no other route to this question.
   rpc LookupContactForConversation(LookupContactForConversationRequest) returns (ConversationContactLookupResult);
+  // ⚠️ 0044 §5 requires the warning BEFORE the detach — "the UI must warn at detach and list what
+  // was created during the attachment window". So the counts are readable without performing it:
+  // the same harvest the detach returns, computed on demand. Same key as the detach itself.
+  rpc PreviewPlayerDetach(ConversationPlayerDetachRequest) returns (ConversationPlayerDetachResult);
 
   // ── Feature 032 (roadmap 4.16) — the account's configured statuses, in display order.
   //

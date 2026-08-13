@@ -87,3 +87,21 @@ export interface CannedResponseWire {
   name: string;
   body: string;
 }
+
+/**
+ * W9 — the lookup's answer (ADR 0044 §4): enough to CONFIRM and attach, and nothing more. No card,
+ * no contact echo, no list. `ambiguous` names nobody on purpose.
+ */
+export interface ContactLookupWire {
+  matched: boolean;
+  ambiguous: boolean;
+  playerId: string;
+  brandId: string;
+}
+
+/** W9 — what detaching answers (0044 §5): the warning, quantified. */
+export interface DetachWarningWire {
+  detachedPlayerId: string;
+  publicReplies: number;
+  privateNotes: number;
+}

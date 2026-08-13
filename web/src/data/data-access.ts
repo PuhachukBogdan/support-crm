@@ -8,7 +8,8 @@ import type { Query, PaginatedResult, ResourceName } from './types';
  */
 export interface DataAccess {
   list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>>;
-  get<T = unknown>(resource: ResourceName, id: string): Promise<T>;
+  /** `within` (W9): the parent instance for a CHILD read — same rule as the writes below. */
+  get<T = unknown>(resource: ResourceName, id: string, within?: string): Promise<T>;
   /**
    * W7 widened the three writes with `within` — the parent instance id for CHILD resources
    * (`conversation-messages` lives under one conversation). Reads carry it on `Query.within`
@@ -17,7 +18,12 @@ export interface DataAccess {
    */
   create<T = unknown>(resource: ResourceName, input: unknown, within?: string): Promise<T>;
   update<T = unknown>(resource: ResourceName, id: string, patch: unknown, within?: string): Promise<T>;
-  remove(resource: ResourceName, id: string, within?: string): Promise<void>;
+  /**
+   * W9 widened the return: a DELETE may answer with a body worth reading — detaching a player
+   * returns what staff wrote while it was attached (ADR 0044 §5's warning). Callers that ignore it
+   * are unchanged; `void` remains the default type parameter.
+   */
+  remove<T = void>(resource: ResourceName, id: string, within?: string): Promise<T>;
   /**
    * Watch for *something changed*, and re-read through the methods above (feature 034, MVP block W4).
    *

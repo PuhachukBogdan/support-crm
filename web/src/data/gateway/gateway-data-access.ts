@@ -59,9 +59,9 @@ export class GatewayDataAccess implements DataAccess {
     return { items, nextCursor, hasMore: nextCursor !== null };
   }
 
-  async get<T = unknown>(resource: ResourceName, id: string): Promise<T> {
+  async get<T = unknown>(resource: ResourceName, id: string, within?: string): Promise<T> {
     const row = this.rowWith(resource, 'get');
-    const res = await this.http({ path: this.itemPath(row, id) });
+    const res = await this.http({ path: this.itemPath(row, id, within) });
     return this.okBody(res) as T;
   }
 
@@ -84,10 +84,12 @@ export class GatewayDataAccess implements DataAccess {
     return this.okBody(res) as T;
   }
 
-  async remove(resource: ResourceName, id: string, within?: string): Promise<void> {
+  async remove<T = void>(resource: ResourceName, id: string, within?: string): Promise<T> {
     const row = this.rowWith(resource, 'remove');
     const res = await this.http({ path: this.itemPath(row, id, within), method: 'DELETE' });
-    this.okBody(res);
+    // The body is returned rather than discarded: a DELETE may answer with something the caller
+    // must show (W9's detach warning). A route with no body simply yields undefined.
+    return this.okBody(res) as T;
   }
 
   /** Resolve the row and confirm the operation exists for it — a missing op fails by name. */

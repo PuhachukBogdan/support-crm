@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { relativeTime } from '@/features/inbox/wire-labels';
 import { useStatuses } from '@/features/inbox/use-statuses';
+import { IdentityPanel } from './identity-panel';
 import type { AsyncState } from '@/data/types';
 import type { TicketState } from '@/store/ticket/ticket.slice';
 import type { ConversationDetail, LabelWire } from './types';
@@ -29,9 +30,11 @@ export function FieldsColumn({
   accountLabels,
   mutation,
   myOperatorId,
+  canLookUp,
   onTakeIt,
   onAttachLabel,
   onDetachLabel,
+  onIdentityChanged,
 }: {
   detail: AsyncState<ConversationDetail>;
   labels: AsyncState<LabelWire[]>;
@@ -39,9 +42,13 @@ export function FieldsColumn({
   mutation: TicketState['mutation'];
   /** `''` until `/me/operator` answers — «take it» stays unrendered rather than mis-assigning. */
   myOperatorId: string;
+  /** W9: holder of `crm.contact.lookup`? RENDER-only — the server refuses regardless. */
+  canLookUp: boolean;
   onTakeIt: (operatorId: string) => void;
   onAttachLabel: (labelId: string) => void;
   onDetachLabel: (labelId: string) => void;
+  /** Identity changed (attached/detached) ⇒ the whole window re-reads. */
+  onIdentityChanged: () => void;
 }) {
   const { statuses } = useStatuses();
   const busy = mutation.status === 'busy';
@@ -55,15 +62,24 @@ export function FieldsColumn({
       {detail.status === 'ready' ? (
         <>
           <Field label="Brand" value={detail.data.brandId} mono />
-          <Field
-            label="Requester"
-            value={
-              detail.data.identityState === 'unidentified'
-                ? 'Not identified' // W9 adds the search-and-attach flow for exactly this state.
-                : detail.data.playerId
-            }
-            mono={detail.data.identityState !== 'unidentified'}
-          />
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">Requester</div>
+            <div
+              className={`truncate text-sm ${detail.data.identityState !== 'unidentified' ? 'font-mono' : ''}`}
+            >
+              {detail.data.identityState === 'unidentified' ? 'Not identified' : detail.data.playerId || '—'}
+            </div>
+            {/* ⭐ W9: the search-and-attach flow lives HERE and nowhere else — inside the ticket that
+                has no player. It renders nothing without `crm.contact.lookup` (render-only gating). */}
+            <div className="mt-1">
+              <IdentityPanel
+                conversationId={detail.data.id}
+                identified={detail.data.identityState === 'identified'}
+                canLookUp={canLookUp}
+                onChanged={onIdentityChanged}
+              />
+            </div>
+          </div>
           <div>
             <div className="flex items-baseline justify-between">
               <div className="text-xs font-medium text-muted-foreground">Assignee</div>

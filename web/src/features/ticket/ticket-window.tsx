@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/composites/states';
 import { useStatuses } from '@/features/inbox/use-statuses';
 import { useMyOperator } from '@/features/inbox/use-my-operator';
+import { useSession } from '@/session';
 import { useTicket } from './use-ticket';
 import { useTicketLive } from './use-ticket-live';
 import { useTemplates } from './use-templates';
@@ -38,6 +39,13 @@ export function TicketWindow({ id }: { id: string }) {
   const me = useMyOperator();
   // W8 — the composer's pickers (empty lists ⇒ the buttons do not render).
   const { macros, canned } = useTemplates();
+  /**
+   * W9 — the lookup key. ⛔ RENDER-only, as `permissionKeys` always is: hiding the box is a
+   * courtesy so nobody meets a 403, and the refusal itself lives on the server (three tiers of it).
+   */
+  const session = useSession();
+  const canLookUp =
+    session.state.kind === 'authenticated' && session.state.permissionKeys.includes('crm.contact.lookup');
   // W8 (9.9) — the left column's width: a live CSS value during the drag, a stored number after it.
   const fields = useStoredPanelWidth();
 
@@ -97,9 +105,11 @@ export function TicketWindow({ id }: { id: string }) {
             accountLabels={t.accountLabels}
             mutation={t.mutation}
             myOperatorId={me.operatorId ?? ''}
+            canLookUp={canLookUp}
             onTakeIt={t.takeIt}
             onAttachLabel={t.attachLabel}
             onDetachLabel={t.detachLabel}
+            onIdentityChanged={t.refresh}
           />
         </div>
         <PanelDivider target={fields} />

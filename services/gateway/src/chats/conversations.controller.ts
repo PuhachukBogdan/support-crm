@@ -51,6 +51,8 @@ interface ChatsReadGrpc {
     d: { conversationId: string; kind: string; value: string },
     md?: unknown,
   ): Observable<unknown>;
+  // W9 (0044 §5): the warning, readable BEFORE the detach that it warns about.
+  previewPlayerDetach(d: { conversationId: string }, md?: unknown): Observable<unknown>;
 }
 interface ChatsWriteGrpc {
   setConversationStatus(
@@ -293,7 +295,14 @@ export class ConversationsController implements OnModuleInit {
     return callChats(this.write.setConversationPlayer({ conversationId: id, playerId }, this.meta(req)));
   }
 
-  /** W9 (0044 §5): the response is the WARNING — what staff wrote while the player was attached. */
+  /** W9 (0044 §5): the warning, read BEFORE the detach — the dialog and the outcome agree. */
+  @Get(':id/player/detach-preview')
+  @RequiresPermission('crm.contact.lookup')
+  async previewDetach(@Param('id') id: string, @Req() req: ChatsReq) {
+    return callChats(this.read.previewPlayerDetach({ conversationId: id }, this.meta(req)));
+  }
+
+  /** W9 (0044 §5): the response repeats the WARNING as the outcome of what was just done. */
   @Delete(':id/player')
   @RequiresPermission('crm.contact.lookup')
   async detachPlayer(@Param('id') id: string, @Req() req: ChatsReq) {

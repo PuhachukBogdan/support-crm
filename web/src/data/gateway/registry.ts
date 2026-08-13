@@ -309,6 +309,51 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     verbs: { update: 'POST' },
     ops: ['update'],
   },
+  /**
+   * ⭐ W9 / spec 035 (ADR 0044 §4) — the contact lookup. A CHILD SINGLETON with a POST verb: the
+   * searched value rides the body (never a query a proxy would log), and the route exists only
+   * under a conversation — there is deliberately no account-level lookup row here, because a
+   * standalone one would BE the "player database with a search box" the ADR forbids.
+   */
+  {
+    resource: 'conversation-contact-lookup',
+    path: '/conversations/{within}/contact-lookup',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'POST' },
+    ops: ['update'],
+  },
+  {
+    // The warning, READ before the detach it warns about (0044 §5 requires the person be told
+    // first). Same harvest the detach returns, so the dialog and the outcome cannot disagree.
+    resource: 'conversation-detach-preview',
+    path: '/conversations/{within}/player/detach-preview',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  {
+    // The identity pair (0044 §5): PUT places, DELETE detaches — and DELETE's RESPONSE repeats the
+    // warning as the outcome, which is why `remove` here is read for its body.
+    resource: 'conversation-player',
+    path: '/conversations/{within}/player',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['update', 'remove'],
+  },
 ] as const;
 
 /** Look up a row. An unknown resource is a programming error, surfaced as one. */

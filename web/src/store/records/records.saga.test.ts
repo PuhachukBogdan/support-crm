@@ -48,7 +48,7 @@ describe('records saga', () => {
       get: async () => ({}) as never,
       create: async () => ({}) as never,
       update: async () => ({}) as never,
-      remove: async () => {},
+      remove: async <T = void,>() => undefined as T,
       subscribe: () => () => undefined,
     };
     setDataAccess(leaky);
@@ -73,7 +73,7 @@ describe('records saga', () => {
       get: async () => ({}) as never,
       create: async () => ({}) as never,
       update: async () => ({}) as never,
-      remove: async () => {},
+      remove: async <T = void,>() => undefined as T,
       subscribe: () => () => undefined,
     };
     setDataAccess(staged);

@@ -146,7 +146,7 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
     async update<T = unknown>(): Promise<T> {
       throw new Error('not used by the inbox');
     },
-    async remove(): Promise<void> {
+    async remove<T = void>(): Promise<T> {
       throw new Error('not used by the inbox');
     },
     subscribe(handler: (event: RealtimeEvent) => void): () => void {

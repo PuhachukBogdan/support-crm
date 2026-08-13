@@ -126,9 +126,12 @@ export class MockDataAccess implements DataAccess {
     return updated as T;
   }
 
-  async remove(_resource: ResourceName, id: string): Promise<void> {
+  // W9 widened the port's `remove` to return a body (a DELETE may answer with something the caller
+  // must show). The demo store has nothing to say, so it answers `undefined` — the default `void`.
+  async remove<T = void>(_resource: ResourceName, id: string): Promise<T> {
     await this.settle();
     this.records = this.records.filter((r) => r.id !== id);
+    return undefined as T;
   }
 
   /** Handlers registered against the demo store, and the hook a test uses to fire one. */

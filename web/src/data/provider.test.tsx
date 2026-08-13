@@ -31,7 +31,7 @@ const stub: DataAccess = {
   get: async () => ({}) as never,
   create: async () => ({}) as never,
   update: async () => ({}) as never,
-  remove: async () => {},
+  remove: async <T = void,>() => undefined as T,
   // Feature 034: this stub has no transport, so nothing ever arrives — the no-op an implementation
   // without realtime is required to return (FR-014).
   subscribe: () => () => undefined,

@@ -27,6 +27,9 @@ export interface TicketStubOptions {
   failDetailWith?: DataError;
   /** W8 — applying a macro fails with this (the all-or-nothing refusal). */
   failMacroWith?: DataError;
+  /** W9 — what the lookup answers, and its refusal (403 without the key, 429 over the cap). */
+  lookupAnswer?: { matched: boolean; ambiguous: boolean; playerId: string; brandId: string };
+  failLookupWith?: DataError;
 }
 
 export interface WriteRecord {
@@ -114,7 +117,11 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
       if (resource === 'canned-responses') return page((opts.canned ?? []) as unknown as T[]);
       throw new Error(`unexpected list: ${resource}`);
     },
-    async get<T = unknown>(resource: ResourceName, id: string): Promise<T> {
+    async get<T = unknown>(resource: ResourceName, id: string, within?: string): Promise<T> {
+      if (resource === 'conversation-detach-preview') {
+        writes.push({ op: 'update', resource, id: 'preview', within });
+        return { detachedPlayerId: 'p1', publicReplies: 2, privateNotes: 1 } as unknown as T;
+      }
       if (resource === 'me-operator') {
         if (opts.myOperatorId === null) throw { kind: 'unavailable' };
         return { operatorId: opts.myOperatorId ?? 'op-me', active: true } as unknown as T;
@@ -151,10 +158,25 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
     async update<T = unknown>(resource: ResourceName, id: string, patch: unknown, within?: string): Promise<T> {
       writes.push({ op: 'update', resource, id, payload: patch, within });
       if (resource === 'conversation-macros' && opts.failMacroWith) throw opts.failMacroWith;
+      // W9: the lookup rides `update` (POST on a child singleton — the value must be in the body).
+      if (resource === 'conversation-contact-lookup') {
+        if (opts.failLookupWith) throw opts.failLookupWith;
+        return (opts.lookupAnswer ?? {
+          matched: true,
+          ambiguous: false,
+          playerId: 'p-found',
+          brandId: 'brand-a',
+        }) as unknown as T;
+      }
       return {} as T;
     },
-    async remove(resource: ResourceName, id: string, within?: string): Promise<void> {
+    async remove<T = void>(resource: ResourceName, id: string, within?: string): Promise<T> {
       writes.push({ op: 'remove', resource, id, within });
+      // W9: a DELETE may answer with a body the caller shows — the detach warning is the first.
+      if (resource === 'conversation-player') {
+        return { detachedPlayerId: 'p1', publicReplies: 2, privateNotes: 1 } as unknown as T;
+      }
+      return undefined as T;
     },
     subscribe(handler: (event: RealtimeEvent) => void): () => void {
       watchers.add(handler);

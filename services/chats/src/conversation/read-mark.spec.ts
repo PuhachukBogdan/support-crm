@@ -10,6 +10,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import { fakeStatusRepository } from '../status/status.fixture';
 import {
   fakeOperatorIdentity,
+  noLookupDeps,
   noOperatorIdentity,
   recordingReadMarks,
 } from '../shared/operator-identity.fake';
@@ -75,6 +76,7 @@ function build(opts: {
     fakeStatusRepository(),
     opts.identity ?? noOperatorIdentity(),
     opts.marks ?? recordingReadMarks().repo,
+    ...noLookupDeps(),
   );
 }
 

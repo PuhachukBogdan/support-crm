@@ -198,6 +198,119 @@ export class ConversationWriteController {
   }
 
   /**
+   * ⭐ W9 / spec 035 (ADR 0044 §5) — attach the conversation to a player. Gated by the SAME key as
+   * the lookup (`crm.contact.lookup`): confirming a match and recording it are one capability, and
+   * a key that allowed searching but not attaching would push the attach into support tickets.
+   *
+   * Refusals before any write: not found; ALREADY IDENTIFIED (detach first — a silent overwrite
+   * would orphan the previous identity's window without a detach event to close it). The brand is
+   * NOT a parameter: the player must exist under the conversation's own brand — the lookup that
+   * produced this id was scoped to it, and a request field would allow attaching across brands.
+   */
+  @GrpcMethod('ChatsWriteService', 'SetConversationPlayer')
+  @RequiresChatsPermission('crm.contact.lookup')
+  async setConversationPlayer(
+    req: { conversationId?: string; playerId?: string },
+    metadata: Metadata,
+  ) {
+    const ctx = readActorContext(metadata);
+    const playerId = (req.playerId ?? '').trim();
+    const conversationId = (req.conversationId ?? '').trim();
+    if (!playerId || !conversationId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'conversationId and playerId are required' });
+    }
+
+    const existing = await this.repo.getById(ctx.accountId, conversationId);
+    if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    if (existing.identity_state === 'identified') {
+      throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: 'already identified — detach first' });
+    }
+
+    const statement = this.audit.statement(ctx.accountId, {
+      actorUserId: ctx.userId,
+      actorKind: 'user',
+      underPreview: ctx.underPreview,
+      action: 'conversation.player_attach',
+      targetRef: conversationId,
+      // The PAIR, as ids: a bare player id names two customers (the 07-29 Person repair).
+      detail: { playerRef: playerId, brandRef: existing.brand_id },
+    });
+
+    const before = await this.repo.transitionBeforeOf(ctx.accountId, conversationId);
+    if (!before) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    const count = await this.repo.setPlayer(
+      ctx.accountId,
+      before,
+      playerId,
+      userActor(ctx.userId),
+      statement,
+      metadata,
+    );
+    if (count === 0) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    // Whose ticket this is just changed — exactly what the Inbox and the open window render.
+    await this.realtime.conversation('conversation.updated', ctx.accountId, conversationId);
+
+    const fresh = await this.repo.getById(ctx.accountId, conversationId);
+    if (!fresh) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    return toDetailWire(fresh);
+  }
+
+  /**
+   * The reverse — and the response IS the warning (0044 §5's hazard): what staff wrote while this
+   * player was attached stays where it was written, so the counts travel back for the UI to show
+   * BEFORE the person confirms. The counts are computed before the detach; the transition inside
+   * the same transaction is what closes the window for the NEXT computation.
+   */
+  @GrpcMethod('ChatsWriteService', 'DetachConversationPlayer')
+  @RequiresChatsPermission('crm.contact.lookup')
+  async detachConversationPlayer(req: { conversationId?: string }, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const conversationId = (req.conversationId ?? '').trim();
+    if (!conversationId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'conversationId is required' });
+    }
+
+    const existing = await this.repo.getById(ctx.accountId, conversationId);
+    if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    const detachedPlayerId = (existing.player_id ?? '').trim();
+    if (existing.identity_state !== 'identified' || detachedPlayerId === '') {
+      throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: 'nothing attached' });
+    }
+
+    const harvest = await this.repo.staffWritesSinceAttach(ctx.accountId, conversationId);
+
+    const statement = this.audit.statement(ctx.accountId, {
+      actorUserId: ctx.userId,
+      actorKind: 'user',
+      underPreview: ctx.underPreview,
+      action: 'conversation.player_detach',
+      targetRef: conversationId,
+      detail: { playerRef: detachedPlayerId, brandRef: existing.brand_id },
+    });
+
+    const before = await this.repo.transitionBeforeOf(ctx.accountId, conversationId);
+    if (!before) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    const count = await this.repo.detachPlayer(
+      ctx.accountId,
+      before,
+      detachedPlayerId,
+      userActor(ctx.userId),
+      statement,
+      metadata,
+    );
+    if (count === 0) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    await this.realtime.conversation('conversation.updated', ctx.accountId, conversationId);
+
+    return {
+      detachedPlayerId,
+      publicReplies: harvest.publicReplies,
+      privateNotes: harvest.privateNotes,
+    };
+  }
+
+  /**
    * A person names the conversation, and that LOCKS the title (feature 023, roadmap 4.18 — FR-022).
    *
    * ── No new permission key, deliberately ─────────────────────────────────────────────────────────

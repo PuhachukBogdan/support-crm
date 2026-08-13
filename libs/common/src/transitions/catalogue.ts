@@ -99,16 +99,19 @@ export const TRANSITION_TYPES = {
     status: 'no-writer-yet',
     label: 'Work handed back with a reason (roadmap 4.20)',
   },
+  // W9 / spec 035: promoted to live — the writers are the SetConversationPlayer /
+  // DetachConversationPlayer transactions (ADR 0044 §5). The detach event is what makes "what was
+  // written while the wrong player was attached" a computable window.
   'conversation.player_attached': {
     subject: 'conversation',
     writer: 'chats',
-    status: 'no-writer-yet',
+    status: 'live',
     label: 'Conversation attached to a customer (roadmap 6.7)',
   },
   'conversation.player_detached': {
     subject: 'conversation',
     writer: 'chats',
-    status: 'no-writer-yet',
+    status: 'live',
     label: 'Conversation detached from a customer (roadmap 6.7)',
   },
   'escalation.status_changed': {
@@ -165,10 +168,12 @@ export const TRANSITION_TYPES = {
     // trail must show (SEC-PV1).
     label: 'Provisioning call rejected (roadmap 3.15)',
   },
+  // W9 / spec 035: promoted to live — written by LookupContactForConversation, the context-gated
+  // proxy that is the ONLY route to the lookup (ADR 0044 §4).
   'contact.lookup_performed': {
     subject: 'conversation',
     writer: 'chats',
-    status: 'no-writer-yet',
+    status: 'live',
     restricted: true,
     label: 'Customer looked up by contact value — HASHED, restricted (roadmap 6.7)',
   },

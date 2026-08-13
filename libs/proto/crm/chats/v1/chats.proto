@@ -256,6 +256,13 @@ service ChatsReadService {
   rpc GetPlayerContactSummary(GetPlayerContactSummaryRequest) returns (ContactSummary);
   rpc GetPersonContactSummary(GetPersonContactSummaryRequest) returns (ContactSummary);
 
+  // ── W9 / spec 035 (ADR 0044 §4) — the lookup, gated by CONTEXT as well as by key. It exists
+  // ONLY under a conversation: chats verifies the conversation is the caller's and UNIDENTIFIED,
+  // then dials users WITH THE CALLER'S OWN metadata (a system actor would launder
+  // `crm.contact.lookup` — the person-members rule), and records the restricted transition
+  // `contact.lookup_performed` on the conversation. There is no other route to this question.
+  rpc LookupContactForConversation(LookupContactForConversationRequest) returns (ConversationContactLookupResult);
+
   // ── Feature 032 (roadmap 4.16) — the account's configured statuses, in display order.
   //
   // One call per screen, joined client-side: that is what keeps the two NAMES off every conversation
@@ -520,6 +527,14 @@ service ChatsWriteService {
   // ⭐ Feature 032 (roadmap 4.16 — R22) — additive. The one field an agent may NOT change. Gated by
   // `crm.conversation.set_brand` at both tiers and audited inside the update's own transaction.
   rpc SetConversationBrand(SetConversationBrandRequest) returns (Conversation);
+  // ── W9 / spec 035 (ADR 0044 §5) — additive. The reversible identity pair, both under
+  // `crm.contact.lookup` (detach requires the same permission as attach). Attach carries the
+  // conversation's OWN brand implicitly — the player must exist under it; a bare id names two
+  // customers. Both write a transition AND an audit entry inside the update's transaction.
+  rpc SetConversationPlayer(SetConversationPlayerRequest) returns (Conversation);
+  // The response is the WARNING (0044 §5's hazard): what was written while the wrong player was
+  // attached stays where it was written, so the caller shows these counts BEFORE confirming.
+  rpc DetachConversationPlayer(ConversationPlayerDetachRequest) returns (ConversationPlayerDetachResult);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   // Internal/seed + future channel ingress (Phase 6) path for inbound customer messages:
   rpc RecordIncomingMessage(RecordIncomingMessageRequest) returns (Message);
@@ -678,6 +693,39 @@ message SetConversationStatusRequest {
 message SetConversationBrandRequest {
   string conversation_id = 1;
   string brand_id = 2;
+}
+
+// ── W9 / spec 035 — lookup + the reversible identity pair ──
+message LookupContactForConversationRequest {
+  string conversation_id = 1;
+  string kind = 2;  // 'email' | 'phone'
+  string value = 3; // raw; hashed in users, never stored, never echoed
+}
+
+message ConversationContactLookupResult {
+  bool matched = 1;
+  bool ambiguous = 2; // names NOBODY (0044 §4)
+  string player_id = 3;
+  string brand_id = 4;
+}
+
+message SetConversationPlayerRequest {
+  string conversation_id = 1;
+  // The brand is NOT a field: the player must exist under the conversation's own brand, which the
+  // service reads from the row — a request that could name a brand could attach across one.
+  string player_id = 2;
+}
+
+message ConversationPlayerDetachRequest {
+  string conversation_id = 1;
+}
+
+message ConversationPlayerDetachResult {
+  // 0044 §5's hazard, quantified: what was WRITTEN while this player was attached stays where it
+  // was written. The caller shows these before confirming; silence here would detach silently.
+  string detached_player_id = 1;
+  int32 public_replies = 2;
+  int32 private_notes = 3;
 }
 
 // Feature 023. `subject` is bounded at the edge and REFUSED when over-long rather than truncated: a

@@ -29,6 +29,11 @@ describe('transition catalogue — membership is asserted, not assumed', () => {
         // switch is not expressible under the presence payload's allow-list.
         'operator.presence_changed',
         'operator.channel_availability_changed',
+        // W9 / spec 035 (ADR 0044): the lookup and the reversible identity pair — writers are the
+        // context-gated proxy and the SetConversationPlayer/Detach transactions in chats.
+        'contact.lookup_performed',
+        'conversation.player_attached',
+        'conversation.player_detached',
       ].sort(),
     );
   });
@@ -37,14 +42,12 @@ describe('transition catalogue — membership is asserted, not assumed', () => {
     expect(transitionsWithStatus('no-writer-yet').sort()).toEqual(
       [
         'conversation.released',
-        'conversation.player_attached',
-        'conversation.player_detached',
         'escalation.status_changed',
         'escalation.waiting_changed',
         // `operator.presence_changed` left this list at feature 025 — see the LIVE list above.
+        // `contact.lookup_performed` and the player attach/detach pair left at W9 (spec 035).
         'staff.provisioning_requested',
         'staff.provisioning_rejected',
-        'contact.lookup_performed',
       ].sort(),
     );
   });

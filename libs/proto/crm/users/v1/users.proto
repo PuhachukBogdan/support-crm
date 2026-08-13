@@ -241,6 +241,10 @@ message ContactLookupResult {
   bool ambiguous = 2;
   string player_id = 3; // set only when matched
   string brand_id = 4;  // echoes the searched brand — the attach must carry the PAIR
+  // The salted hash the attempt was audited under — returned so the CALLING service (chats) can
+  // write its conversation-side transition with the SAME correlatable token. Non-reversible; the
+  // raw value still travels nowhere but the original request.
+  string value_hash = 5;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════

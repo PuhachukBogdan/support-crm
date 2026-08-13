@@ -402,6 +402,7 @@ export class PlayerReadController {
         ambiguous: res.ambiguous,
         playerId: res.playerId,
         brandId: res.brandId,
+        valueHash: res.valueHash,
       };
     } catch (err) {
       if (err instanceof LookupRateCapped) {

@@ -21,6 +21,9 @@ import { resolveStatusFilter, StatusFilterError } from '../status/status-filter'
 import { SlaRepository } from '../sla/sla.repository';
 import { OperatorIdentityClient } from '../shared/operator-identity.client';
 import { ReadMarkRepository } from './read-mark.repository';
+import { PrismaService } from '../prisma.service';
+import { TransitionRecorder } from '../transition/transition.recorder';
+import { lookupPerformed, userActor } from '../transition/conversation-transitions';
 import {
   ConversationRepository,
   DEFAULT_INBOX_ORDER,
@@ -73,6 +76,9 @@ export class ConversationReadController {
     // ── W5 (roadmap 4.19): the two halves of "he OPENED it" ────────────────────────────────────────
     @Inject(OperatorIdentityClient) private readonly operatorIdentity: OperatorIdentityClient,
     @Inject(ReadMarkRepository) private readonly readMarks: ReadMarkRepository,
+    // W9 / spec 035: the lookup proxy writes the restricted transition itself.
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
   ) {}
 
   /**
@@ -257,6 +263,87 @@ export class ConversationReadController {
             firstReplySeconds: sla.first_reply_seconds ?? 0,
           }
         : undefined,
+    };
+  }
+
+  /**
+   * ⭐ W9 / spec 035 (ADR 0044 §4) — the lookup, gated by CONTEXT as well as by key. This proxy is
+   * the ONLY route to the question "whose contact is this?":
+   *
+   *  · the conversation must exist, be the caller's, and be UNIDENTIFIED — a lookup from an
+   *    identified ticket has no workflow reason and is exactly the browsing shape 0044 forbids;
+   *  · users is dialled WITH THE CALLER'S OWN metadata (`lookupByContact` forwards it unchanged),
+   *    so the permission, the audit entry and the rate cap all land on the real actor — a system
+   *    actor here would launder the sharpest key in the product;
+   *  · the conversation's own brand scopes the search; the caller cannot name another;
+   *  · the RESTRICTED transition `contact.lookup_performed` is recorded on the conversation under
+   *    the SAME hash the users-side audit entry carries — one token, two trails, correlatable.
+   */
+  @GrpcMethod('ChatsReadService', 'LookupContactForConversation')
+  @RequiresChatsPermission('crm.contact.lookup')
+  async lookupContactForConversation(
+    req: { conversationId?: string; kind?: string; value?: string },
+    metadata: Metadata,
+  ) {
+    const ctx = readActorContext(metadata);
+    const conversationId = (req.conversationId ?? '').trim();
+    const kind = req.kind === 'email' || req.kind === 'phone' ? req.kind : null;
+    const value = (req.value ?? '').trim();
+    if (!conversationId || !kind || !value) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'conversationId, kind (email|phone) and value are required',
+      });
+    }
+
+    const conversation = await this.repo.getById(ctx.accountId, conversationId);
+    if (!conversation) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    if (conversation.identity_state === 'identified') {
+      throw new RpcException({
+        code: GrpcStatus.FAILED_PRECONDITION,
+        message: 'conversation already identified',
+      });
+    }
+
+    let res;
+    try {
+      res = await this.person.lookupByContact(
+        { brandId: conversation.brand_id, kind, value },
+        metadata,
+      );
+    } catch (err) {
+      // Status preserved (403 stays 403, RESOURCE_EXHAUSTED stays itself); message never from
+      // downstream (SEC-26).
+      throw toPersonRpc(err);
+    }
+
+    // The conversation-side half of the trail. Written AFTER the users call succeeded — a refused
+    // or capped attempt is already recorded there, on the real actor, and a second row here would
+    // double-count every attempt an investigator tallies.
+    const before = await this.repo.transitionBeforeOf(ctx.accountId, conversationId);
+    if (before) {
+      await this.transitions.record(
+        this.prisma.forAccount(ctx.accountId) as never,
+        lookupPerformed(
+          ctx.accountId,
+          before,
+          {
+            valueHash: res.valueHash,
+            valueKind: kind,
+            matched: res.matched ? 'found' : res.ambiguous ? 'ambiguous' : 'none',
+          },
+          userActor(ctx.userId),
+          new Date(),
+          metadata,
+        ),
+      );
+    }
+
+    return {
+      matched: res.matched,
+      ambiguous: res.ambiguous,
+      playerId: res.playerId,
+      brandId: res.brandId,
     };
   }
 }

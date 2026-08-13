@@ -13,7 +13,7 @@ import type { SlaRepository } from '../sla/sla.repository';
 import type { PersonMembersClient } from '../person/person-members.client';
 import type { DomainEventPublisher } from '../events/events.publisher';
 import { fakeRealtime } from '../realtime/realtime.fake';
-import { noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
+import { noLookupDeps, noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 /**
  * T019 / T020 / T023 (feature 032, roadmap 4.16 — ADR 0040) — the status catalogue end to end.
@@ -366,6 +366,7 @@ describe('ListConversations — the two new filters, and what the row now carrie
       repoOf(prisma),
       noOperatorIdentity(),
       noReadMarks(),
+      ...noLookupDeps(),
     );
 
   it('⭐ the row carries the KEY and the CATEGORY, and no longer the retired enum', async () => {

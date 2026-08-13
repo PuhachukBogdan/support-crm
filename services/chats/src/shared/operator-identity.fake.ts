@@ -39,3 +39,14 @@ export function recordingReadMarks(): {
 export function noReadMarks(): ReadMarkRepository {
   return recordingReadMarks().repo;
 }
+
+/**
+ * W9: the lookup proxy's two extra constructor deps, for specs that never look anybody up. The
+ * prisma stub THROWS on touch — a spec that reaches it is a spec that should be using real doubles.
+ */
+export function noLookupDeps(): [never, never] {
+  return [
+    { forAccount: () => { throw new Error('lookup not used in this spec'); } } as never,
+    { record: () => { throw new Error('lookup not used in this spec'); } } as never,
+  ];
+}

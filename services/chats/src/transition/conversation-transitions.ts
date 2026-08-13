@@ -169,3 +169,61 @@ export function assigned(
     payload: { from: before.assignee_operator_id ?? null, to },
   };
 }
+
+/**
+ * W9 / spec 035 (ADR 0044 §5) — the reversible identity pair. Payload is `{ playerId }` and nothing
+ * else (the allow-list): the brand rides the dims snapshot, and a contact value is inexpressible.
+ * The DETACH event's timestamp is what makes "written while the wrong player was attached" a
+ * computable window.
+ */
+export function playerAttached(
+  accountId: string,
+  before: ConversationBefore,
+  playerId: string,
+  actor: TransitionActor,
+  occurredAt: Date,
+  metadata?: Metadata,
+): RecordTransitionInput {
+  return {
+    ...base(accountId, before, actor, occurredAt, metadata),
+    type: 'conversation.player_attached',
+    payload: { playerId },
+  };
+}
+
+export function playerDetached(
+  accountId: string,
+  before: ConversationBefore,
+  playerId: string,
+  actor: TransitionActor,
+  occurredAt: Date,
+  metadata?: Metadata,
+): RecordTransitionInput {
+  return {
+    ...base(accountId, before, actor, occurredAt, metadata),
+    type: 'conversation.player_detached',
+    payload: { playerId },
+  };
+}
+
+/**
+ * `contact.lookup_performed` — the RESTRICTED type, the one place a (salted, non-reversible) hash
+ * of a contact value may live (the documented SEC-26 exception). Written by the context-gated
+ * lookup proxy for the conversation the search was made FROM, under the SAME hash the users-side
+ * audit entry carries — one token, two trails, correlatable by an investigator and readable by
+ * nobody else.
+ */
+export function lookupPerformed(
+  accountId: string,
+  before: ConversationBefore,
+  detail: { valueHash: string; valueKind: string; matched: string },
+  actor: TransitionActor,
+  occurredAt: Date,
+  metadata?: Metadata,
+): RecordTransitionInput {
+  return {
+    ...base(accountId, before, actor, occurredAt, metadata),
+    type: 'contact.lookup_performed',
+    payload: { ...detail },
+  };
+}

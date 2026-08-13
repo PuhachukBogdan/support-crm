@@ -45,7 +45,14 @@ describe('contact lookup — every attempt audited, hash never value', () => {
     const db = fakeDb({ matches: [{ player_id: 'p1', brand_id: 'brand-a' }] });
     const res = await build(db).lookup('acc-1', 'u1', { brandId: 'brand-a', kind: 'email', value: 'X@Y.test' });
 
-    expect(res).toEqual({ matched: true, ambiguous: false, playerId: 'p1', brandId: 'brand-a' });
+    expect(res).toEqual({
+      matched: true,
+      ambiguous: false,
+      playerId: 'p1',
+      brandId: 'brand-a',
+      // The caller (chats) writes its conversation-side transition under the SAME token.
+      valueHash: HASH('X@Y.test'),
+    });
     const entry = lastEntry(db).data;
     expect(entry.action).toBe('contact.lookup');
     expect(entry.detail_json).toMatchObject({
@@ -73,7 +80,13 @@ describe('contact lookup — every attempt audited, hash never value', () => {
       ],
     });
     const res = await build(db).lookup('acc-1', 'u1', { brandId: 'brand-a', kind: 'email', value: 'x@y.test' });
-    expect(res).toEqual({ matched: false, ambiguous: true, playerId: '', brandId: 'brand-a' });
+    expect(res).toEqual({
+      matched: false,
+      ambiguous: true,
+      playerId: '',
+      brandId: 'brand-a',
+      valueHash: HASH('x@y.test'),
+    });
     expect(lastEntry(db).data.detail_json).toMatchObject({ matched: 'ambiguous' });
   });
 

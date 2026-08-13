@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma.service';
 import type { Metadata } from '@grpc/grpc-js';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import {
+  playerAttached,
+  playerDetached,
   statusChanged,
   subjectSet,
   TRANSITION_BEFORE_SELECT,
@@ -460,6 +462,107 @@ export class ConversationRepository {
       auditStatement,
     ] as never)) as unknown as [{ count: number }];
     return res.count;
+  }
+
+  /**
+   * W9 — the transition-dims snapshot of one row, for a caller about to write a transition. Lives
+   * HERE so no controller has to name the row's columns (the assignee-writers guard pins the files
+   * that may touch them, and this file is one of them).
+   */
+  async transitionBeforeOf(accountId: string, id: string): Promise<ConversationBefore | null> {
+    const db = this.prisma.forAccount(accountId);
+    return (await db.conversation.findFirst({
+      where: { id },
+      select: TRANSITION_BEFORE_SELECT,
+    })) as ConversationBefore | null;
+  }
+
+  /**
+   * ⭐ W9 / spec 035 (ADR 0044 §5) — attach the conversation to a player. Same read-first contract as
+   * `setBrand` (the caller has read the row and refused an already-identified one; the race window
+   * between that read and this write is the precedent's accepted cost). One batch transaction:
+   * the update, the `conversation.player_attached` transition, the audit entry — all or nothing.
+   */
+  async setPlayer(
+    accountId: string,
+    before: ConversationBefore,
+    playerId: string,
+    actor: TransitionActor,
+    auditStatement: unknown,
+    metadata?: Metadata,
+  ): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.conversation.updateMany({
+        where: { id: before.id },
+        data: { player_id: playerId, identity_state: 'identified' },
+      }),
+      this.transitions.buildStatement(
+        db as never,
+        playerAttached(accountId, before, playerId, actor, new Date(), metadata),
+      ),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
+  }
+
+  /** The reverse of {@link setPlayer} — same shape, opposite direction. */
+  async detachPlayer(
+    accountId: string,
+    before: ConversationBefore,
+    playerId: string,
+    actor: TransitionActor,
+    auditStatement: unknown,
+    metadata?: Metadata,
+  ): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const [res] = (await db.$transaction([
+      db.conversation.updateMany({
+        where: { id: before.id },
+        data: { player_id: null, identity_state: 'unidentified' },
+      }),
+      this.transitions.buildStatement(
+        db as never,
+        playerDetached(accountId, before, playerId, actor, new Date(), metadata),
+      ),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
+  }
+
+  /**
+   * W9 — 0044 §5's hazard, quantified BEFORE a detach: what staff WROTE while this player was
+   * attached stays where it was written, so the caller warns with these counts. The window opens at
+   * the latest `player_attached` transition — or, for a conversation identified at intake (no manual
+   * attach ever happened), at the conversation's own creation: everything on it was written under
+   * that identity.
+   */
+  async staffWritesSinceAttach(
+    accountId: string,
+    conversationId: string,
+  ): Promise<{ publicReplies: number; privateNotes: number }> {
+    const db = this.prisma.forAccount(accountId);
+    const attach = await db.conversationTransition.findFirst({
+      where: { subject_id: conversationId, type: 'conversation.player_attached' },
+      orderBy: { occurred_at: 'desc' },
+      select: { occurred_at: true },
+    });
+    const windowStart =
+      attach?.occurred_at ??
+      (
+        await db.conversation.findFirst({ where: { id: conversationId }, select: { created_at: true } })
+      )?.created_at ??
+      new Date(0);
+
+    const [publicReplies, privateNotes] = await db.$transaction([
+      db.message.count({
+        where: { conversation_id: conversationId, author_type: 'operator', private: false, created_at: { gte: windowStart } },
+      }),
+      db.message.count({
+        where: { conversation_id: conversationId, author_type: 'operator', private: true, created_at: { gte: windowStart } },
+      }),
+    ] as never) as unknown as [number, number];
+    return { publicReplies, privateNotes };
   }
 
   /**

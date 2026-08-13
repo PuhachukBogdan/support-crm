@@ -34,6 +34,8 @@ export interface ContactLookupResult {
   ambiguous: boolean;
   playerId: string;
   brandId: string;
+  /** The salted hash the attempt was audited under — for the caller's own trail, never the value. */
+  valueHash: string;
 }
 
 /** Thrown when the caller is over the cap. The controller maps it to RESOURCE_EXHAUSTED. */
@@ -115,6 +117,7 @@ export class ContactLookupService {
       ambiguous: outcome === 'ambiguous',
       playerId: outcome === 'found' ? matches[0]!.player_id : '',
       brandId: input.brandId,
+      valueHash: hash,
     };
   }
 }

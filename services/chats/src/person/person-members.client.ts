@@ -126,11 +126,23 @@ interface AssignmentWire {
   playerId?: string;
 }
 
+interface ContactLookupWire {
+  matched?: boolean;
+  ambiguous?: boolean;
+  playerId?: string;
+  brandId?: string;
+  valueHash?: string;
+}
+
 interface UsersReadGrpc {
   listPersonMembers(
     d: { personId: string },
     md?: Metadata,
   ): Observable<{ members?: PlayerRefWire[] }>;
+  lookupPlayerByContact(
+    d: { brandId: string; kind: string; value: string },
+    md?: Metadata,
+  ): Observable<ContactLookupWire>;
   listOperatorsByAuthUsers(
     d: { accountId: string; authUserIds: string[] },
     md?: Metadata,
@@ -294,6 +306,41 @@ export class PersonMembersClient implements OnModuleInit {
 
     // Still more pages after the ceiling: refuse rather than narrow to a subset (research R5).
     throw new MembershipUnavailableError('portfolio exceeds page ceiling');
+  }
+
+  /**
+   * W9 / spec 035 — the contact lookup, dialled FOR a conversation (ADR 0044 §4).
+   *
+   * @param metadata the CALLER's own metadata, forwarded unchanged so `users` evaluates
+   *                 `crm.contact.lookup` (and its audit + rate cap) against the real actor. Calling
+   *                 as a system actor would launder the sharpest key in the product.
+   * @throws MembershipUnavailableError when the answer cannot be established; a gRPC refusal
+   *         (PERMISSION_DENIED, RESOURCE_EXHAUSTED…) is rethrown as-is so the status survives.
+   */
+  async lookupByContact(
+    input: { brandId: string; kind: string; value: string },
+    metadata: Metadata,
+  ): Promise<{ matched: boolean; ambiguous: boolean; playerId: string; brandId: string; valueHash: string }> {
+    let res: ContactLookupWire;
+    try {
+      res = await firstValueFrom(this.users.lookupPlayerByContact(input, metadata));
+    } catch (err) {
+      if (typeof (err as { code?: number })?.code === 'number') throw err;
+      // NEVER the value, the brand or the target address (Principle IV / SEC-26).
+      throw new MembershipUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+    }
+    if (!res || typeof res.valueHash !== 'string' || res.valueHash === '') {
+      // The hash is what the conversation-side trail is written under; a response without it is a
+      // response we cannot RECORD, and an unrecorded lookup is the one shape 0044 forbids.
+      throw new MembershipUnavailableError('unreadable response');
+    }
+    return {
+      matched: res.matched === true,
+      ambiguous: res.ambiguous === true,
+      playerId: typeof res.playerId === 'string' ? res.playerId : '',
+      brandId: typeof res.brandId === 'string' ? res.brandId : '',
+      valueHash: res.valueHash,
+    };
   }
 
   async resolveOperators(

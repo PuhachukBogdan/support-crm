@@ -38,7 +38,7 @@ const build = (db: ReturnType<typeof fakeDb>) =>
   new ContactLookupService(db.prisma, new AuditRepository(db.prisma), SALT);
 
 const lastEntry = (db: ReturnType<typeof fakeDb>) =>
-  db.auditCreate.mock.calls.at(-1)![0] as { data: Record<string, unknown> };
+  (db.auditCreate.mock.calls.at(-1) as unknown as [{ data: Record<string, unknown> }])[0];
 
 describe('contact lookup — every attempt audited, hash never value', () => {
   it('a single match answers found — and the entry carries {valueHash, valueKind, matched}', async () => {
@@ -111,7 +111,9 @@ describe('contact lookup — every attempt audited, hash never value', () => {
   it('the cap counts the TRAIL itself, per actor, within the window', async () => {
     const db = fakeDb({ matches: [] });
     await build(db).lookup('acc-1', 'u7', { brandId: 'brand-a', kind: 'email', value: 'x@y.test' });
-    const where = (db.scoped.auditEntry.count.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+    const [{ where }] = db.scoped.auditEntry.count.mock.calls[0] as unknown as [
+      { where: Record<string, unknown> },
+    ];
     expect(where.actor_user_id).toBe('u7');
     expect(where.action).toBe('contact.lookup');
     expect(where.created_at).toBeDefined();

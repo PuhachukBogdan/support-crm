@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { GrpcClientsModule } from '../grpc/clients.module';
+import { BrandsController } from '../brands/brands.controller';
 import { PlayersController } from './players.controller';
 
 /**
@@ -13,6 +14,8 @@ import { PlayersController } from './players.controller';
  */
 @Module({
   imports: [GrpcClientsModule],
-  controllers: [PlayersController],
+  // W11 (9.17): the brands list rides this edge — it exists to answer the player reads' required
+  // `brandId`, so it belongs beside them rather than in a module of its own.
+  controllers: [PlayersController, BrandsController],
 })
 export class PlayersEdgeModule {}

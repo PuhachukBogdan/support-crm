@@ -4,6 +4,8 @@ import {
   grpcClientOptions,
   AUTH_PACKAGE,
   AUTH_PROTO,
+  BRANDS_PACKAGE,
+  BRANDS_PROTO,
   CHATS_PACKAGE,
   CHATS_PROTO,
   USERS_PACKAGE,
@@ -23,6 +25,8 @@ export const AUTH_CLIENT = 'AUTH_CLIENT';
 // Feature 012: the chats-core client (ChatsReadService + ChatsWriteService) — the inbox/
 // conversation/message/feed edge dials this.
 export const CHATS_CLIENT = 'CHATS_CLIENT';
+/** W11 (9.17): the brands READ surface — the directory's brand chooser has nothing without it. */
+export const BRANDS_CLIENT = 'BRANDS_CLIENT';
 // Feature 015: the audit read is federated across auth + users + chats, so the gateway needs a FULL users
 // client — until now it dialed users only for ping and health.
 export const USERS_CLIENT = 'USERS_CLIENT';
@@ -57,6 +61,21 @@ const HEALTH_TARGETS: Array<[string, string]> = [
         name: AUTH_CLIENT,
         useFactory: () =>
           grpcClientOptions(AUTH_PACKAGE, AUTH_PROTO, process.env.AUTH_GRPC_TARGET as string),
+      },
+      {
+        /**
+         * ⭐ W11 (roadmap 9.17) — the brands READ surface. Until now the gateway dialled `brands`
+         * only for readiness, and the web had no way to learn which brands exist: every read that
+         * needs one (the player list, the card) takes `brandId` as a REQUIRED parameter, so the
+         * customer directory literally could not ask its first question. One list, unpaged — an
+         * account has single digits of brands (the service says so at its own handler).
+         *
+         * ⚠️ A brand is a FILTER, not a scope (ADR 0038 §1): knowing the list grants nothing, and
+         * this client must never become a place where brand-based access is decided.
+         */
+        name: BRANDS_CLIENT,
+        useFactory: () =>
+          grpcClientOptions(BRANDS_PACKAGE, BRANDS_PROTO, process.env.BRANDS_GRPC_TARGET as string),
       },
       {
         // Chats-core surface (feature 012) — conversations/messages/player-feed reads + writes.

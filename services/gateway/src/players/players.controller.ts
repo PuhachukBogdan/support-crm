@@ -114,12 +114,15 @@ export class PlayersController implements OnModuleInit {
     @Query() query: Record<string, unknown>,
     @Req() req: PlayerReq,
   ): Promise<{ players: Record<string, unknown>[]; nextPageToken: string }> {
-    const { brandId, pageSize, pageToken } = parseListQuery(query);
+    const { brandId, pageSize, pageToken, playerIdPrefix } = parseListQuery(query);
     // Same projection as the single read — a masked field must not be blanked on one route and absent
     // on the other, or the page and the card would disagree about the same record.
     return toPlayerPageResponse(
       await callUploads(
-        this.users.listPlayersByBrand({ brandId, pageSize, pageToken }, this.meta(req)),
+        this.users.listPlayersByBrand(
+          { brandId, pageSize, pageToken, playerIdPrefix },
+          this.meta(req),
+        ),
       ),
     );
   }

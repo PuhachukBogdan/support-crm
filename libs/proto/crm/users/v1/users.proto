@@ -103,6 +103,19 @@ message ListPlayersByBrandRequest {
   string brand_id = 1;
   string page_token = 2; // opaque keyset cursor; empty = first page
   int32 page_size = 3;
+  /**
+   * ⭐ W11 (roadmap 9.17) — narrow the page to platform ids that BEGIN with this.
+   *
+   * ⚠️ **A PLAYER ID, never a contact.** Searching by email or phone is the anti-pitching
+   * INVERSION and it lives in exactly one place: `LookupPlayerByContact`, reachable only from
+   * inside an unidentified conversation, audited with a hash and rate-capped (ADR 0044 §4). A
+   * directory that searched by contact would be the "player database with a search box" that
+   * decision forbids — so this field accepts the id the agent already has in front of them.
+   *
+   * It widens no disclosure: the same page, narrowed. The bulk-read tier guard still runs FIRST,
+   * so a role that may not read the directory at all is refused before this is ever consulted.
+   */
+  string player_id_prefix = 4;
 }
 
 // Our own player fields only. GR8-derived data is served later from the Redis cache

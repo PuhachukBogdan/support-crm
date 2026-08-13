@@ -339,7 +339,9 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
   it('the requested brand is passed through, and the caller does not narrow it', async () => {
     const h = brandHarness();
     await h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am'));
-    expect(h.players.listByBrand).toHaveBeenCalledWith('acc-1', 'brand-a', 50, null);
+    // W11 (9.17): the fifth argument is the directory's id PREFIX — `undefined` when absent, so an
+    // empty search cannot become a filter that matches nothing.
+    expect(h.players.listByBrand).toHaveBeenCalledWith('acc-1', 'brand-a', 50, null, undefined);
   });
 
   it('a missing brand yields an empty page rather than every customer', async () => {

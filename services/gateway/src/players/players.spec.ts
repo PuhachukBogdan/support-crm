@@ -135,12 +135,34 @@ describe('T048a: the EDGE tier refuses, not only the service', () => {
 });
 
 describe('*** the list query is parsed fail-closed *** (T032)', () => {
-  it('accepts exactly the three parameters', () => {
+  it('accepts exactly the FOUR parameters (W11 added the id prefix)', () => {
     expect(parseListQuery({ brandId: 'brand-a', pageSize: '25', pageToken: 'abc' })).toEqual({
       brandId: 'brand-a',
       pageSize: 25,
       pageToken: 'abc',
+      // Absent search ⇒ `''`, so nothing narrows.
+      playerIdPrefix: '',
     });
+    expect(parseListQuery({ brandId: 'brand-a', playerIdPrefix: ' ply-47 ' })).toMatchObject({
+      playerIdPrefix: 'ply-47',
+    });
+  });
+
+  it('⛔ W11: there is NO contact parameter on the directory, and adding one is a 400', () => {
+    // Searching by email or phone is the anti-pitching inversion and lives ONLY inside an
+    // unidentified conversation (ADR 0044 §4). A directory that accepted it would be exactly the
+    // "player database with a search box" that decision forbids — so these are unknown keys.
+    for (const key of ['email', 'phone', 'contact', 'q']) {
+      expect(() => parseListQuery({ brandId: 'b', [key]: 'x' })).toThrow(BadRequestException);
+    }
+  });
+
+  it('W11: an over-long prefix is REFUSED, never truncated', () => {
+    // A truncated search returns rows the caller did not ask about, and an unbounded value on a
+    // `startsWith` is a free scan of an indexed column.
+    expect(() => parseListQuery({ brandId: 'b', playerIdPrefix: 'x'.repeat(65) })).toThrow(
+      BadRequestException,
+    );
   });
 
   it('*** brandId is REQUIRED — an unfiltered read is not an operation ***', () => {
@@ -178,6 +200,11 @@ describe('*** the list query is parsed fail-closed *** (T032)', () => {
   it('the parsed values are what reach the service', async () => {
     const h = harness();
     await h.ctl.listPlayers({ brandId: 'brand-a', pageSize: '10' }, h.req);
-    expect(h.recorded.args).toEqual({ brandId: 'brand-a', pageSize: 10, pageToken: '' });
+    expect(h.recorded.args).toEqual({
+      brandId: 'brand-a',
+      pageSize: 10,
+      pageToken: '',
+      playerIdPrefix: '',
+    });
   });
 });

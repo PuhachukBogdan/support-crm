@@ -109,7 +109,10 @@ export function toPlayerPageResponse(page: unknown): {
  * Feature 017's live run found the same class one layer deeper: a filter that passed validation and was
  * then silently discarded by the transport, producing a confident wrong answer.
  */
-const ALLOWED_LIST_PARAMS = ['brandId', 'pageSize', 'pageToken'] as const;
+// ⭐ W11 (9.17): `playerIdPrefix` joins the allow-list — the directory's search, by the PLATFORM ID
+// the agent already has. ⛔ Deliberately no `email`/`phone` key here, now or later: searching by a
+// contact is the anti-pitching inversion and it exists only under a conversation (ADR 0044 §4).
+const ALLOWED_LIST_PARAMS = ['brandId', 'pageSize', 'pageToken', 'playerIdPrefix'] as const;
 
 /**
  * The single-record read takes `brandId` and nothing else (feature 020).
@@ -133,6 +136,8 @@ export interface ListQuery {
   brandId: string;
   pageSize: number;
   pageToken: string;
+  /** W11 (9.17): a platform-id prefix, `''` when absent. Never a contact value. */
+  playerIdPrefix: string;
 }
 
 /**
@@ -154,10 +159,17 @@ export function parseListQuery(query: Record<string, unknown>): ListQuery {
   const brandId = typeof query?.brandId === 'string' ? query.brandId.trim() : '';
   if (!brandId) throw new BadRequestException('brandId is required');
 
+  // W11: the id prefix, trimmed. ⚠️ Bounded at 64 — a platform id is short, and an unbounded value
+  // on a `startsWith` is a free scan of an indexed column. Refused rather than truncated: a
+  // silently shortened search returns rows the caller did not ask about.
+  const playerIdPrefix = typeof query?.playerIdPrefix === 'string' ? query.playerIdPrefix.trim() : '';
+  if (playerIdPrefix.length > 64) throw new BadRequestException('playerIdPrefix is too long');
+
   return {
     brandId,
     pageSize: parsePageSize(query?.pageSize),
     pageToken: typeof query?.pageToken === 'string' ? query.pageToken : '',
+    playerIdPrefix,
   };
 }
 

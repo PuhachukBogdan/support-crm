@@ -43,6 +43,8 @@ interface ListByBrandWire {
   brandId?: string;
   pageToken?: string;
   pageSize?: number;
+  /** W11: a platform-id PREFIX — never a contact value (that search is the inversion, 0044 §4). */
+  playerIdPrefix?: string;
 }
 
 /**
@@ -215,11 +217,16 @@ export class PlayerReadController {
       throw err;
     }
 
+    // W11 (9.17): the directory's search. A platform-id PREFIX and nothing else — trimmed here so
+    // whitespace cannot become a filter that quietly matches nothing.
+    const playerIdPrefix = (req?.playerIdPrefix ?? '').trim();
+
     const page = await this.players.listByBrand(
       actor.accountId,
       brandId,
       clampPageSize(req?.pageSize),
       cursor,
+      playerIdPrefix || undefined,
     );
 
     // ONE entry for the request, targeting the BRAND — not one per record. Same call feature 017 made for

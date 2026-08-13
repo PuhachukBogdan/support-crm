@@ -59,8 +59,16 @@ export class PlayerRepository {
     brandId: string,
     limit: number,
     cursor: Cursor | null,
+    /**
+     * W11 (9.17) — an optional PLATFORM-ID prefix. Narrows the same page; never a contact value
+     * (that search is the inversion, and it lives only inside a conversation — ADR 0044 §4).
+     * The keyset predicate is unaffected: adding a filter to a keyset page is safe precisely
+     * because every predicate is re-applied per page (`keyset.ts`).
+     */
+    playerIdPrefix?: string,
   ): Promise<{ rows: PlayerRow[]; nextCursor: Cursor | null }> {
     const where: Record<string, unknown> = { brand_id: brandId };
+    if (playerIdPrefix) where.player_id = { startsWith: playerIdPrefix };
     if (cursor) {
       const at = new Date(cursor.createdAt);
       where.OR = [

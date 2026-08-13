@@ -252,7 +252,28 @@ describe('verification accepts what was issued and nothing else (FR-002 / FR-009
     const [id, secret] = split(issued.value);
 
     await expect(service.verify(id, secret)).resolves.toMatchObject({ ok: true });
-    await expect(service.verify(id, `${secret.slice(0, -1)}0`)).resolves.toEqual({
+
+    /**
+     * ⚠️ **THE FORGERY MUST BE GUARANTEED TO DIFFER, and the first version was not.**
+     *
+     * It replaced the last character with `'0'` — and the secret is `randomBytes(32).toString('hex')`,
+     * so **one issuance in sixteen already ends in `'0'`**. In those runs the "forged" value WAS the real
+     * secret, verification correctly answered `ok: true`, and the test failed while the product was
+     * right. It failed for the first time in CI on 2026-08-13 — the first CI run after 130 commits — and
+     * it had been a 6 % coin flip on every run since W31.
+     *
+     * ⓘ The sibling test twelve lines up (`no digest is ever refused as «a bare number»`) documents
+     * exactly this class at 1-in-220 and draws 2 000 samples to pin it. The same reasoning was needed one
+     * assertion below it and was not applied: **a random value mutated at one position is not a different
+     * value.** Flipping to a character that cannot be the original one removes the dice entirely.
+     */
+    const forged = `${secret.slice(0, -1)}${secret.endsWith('0') ? '1' : '0'}`;
+    // The construction's own invariant, asserted rather than assumed — so a later edit that reintroduces
+    // the coin flip fails HERE, with a message that says what is wrong, instead of once every sixteen runs.
+    expect(forged).not.toBe(secret);
+    expect(forged).toHaveLength(secret.length);
+
+    await expect(service.verify(id, forged)).resolves.toEqual({
       ok: false,
       reason: 'mismatch',
     });

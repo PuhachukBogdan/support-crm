@@ -2,7 +2,7 @@ import { all, call, fork, put, takeLatest, takeLeading } from 'redux-saga/effect
 import { getDataAccess } from '@/data/provider';
 import { toDataError } from '@/data/errors';
 import type { PaginatedResult } from '@/data/types';
-import type { ConversationDetail, ThreadMessage } from '@/features/ticket/types';
+import type { ConversationDetail, LabelWire, ThreadMessage } from '@/features/ticket/types';
 import { ticketActions } from './ticket.slice';
 
 /**
@@ -59,8 +59,29 @@ function* loadThread(id: string) {
   }
 }
 
+/**
+ * W7-7 — both label lists in one read: the conversation's own set and the account registry the
+ * «add tag» control offers. A failure here downgrades the tags block, never the window.
+ */
+function* loadLabels(id: string) {
+  try {
+    const da = getDataAccess();
+    const [mine, account]: [PaginatedResult<LabelWire>, PaginatedResult<LabelWire>] = yield all([
+      call([da, da.list], 'conversation-labels', { limit: 100, within: id }),
+      call([da, da.list], 'labels', { limit: 100 }),
+    ]);
+    yield put(ticketActions.labelsLoaded({ id, labels: mine.items, accountLabels: account.items }));
+  } catch (e) {
+    yield put(ticketActions.labelsFailed({ id, error: toDataError(e) }));
+  }
+}
+
 function* loadBoth(action: { type: string; payload: { id: string } }) {
-  yield all([call(loadDetail, action.payload.id), call(loadThread, action.payload.id)]);
+  yield all([
+    call(loadDetail, action.payload.id),
+    call(loadThread, action.payload.id),
+    call(loadLabels, action.payload.id),
+  ]);
 }
 
 /**
@@ -93,6 +114,47 @@ function* sendMessage(action: ReturnType<typeof ticketActions.send>) {
   }
 }
 
+/**
+ * W7-7 — the left column's writes: place, then re-read what the write touched. `takeLeading` for
+ * the same reason as `send` — a second click mid-flight is dropped, not queued. The label pair is
+ * IDEMPOTENT server-side (PUT attach / DELETE detach), so a retry after an error is always safe.
+ */
+function* takeIt(action: ReturnType<typeof ticketActions.takeIt>) {
+  const { id, operatorId } = action.payload;
+  try {
+    const da = getDataAccess();
+    yield call([da, da.update], 'conversation-assignee', '', { operatorId }, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield call(loadDetail, id);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
+function* attachLabel(action: ReturnType<typeof ticketActions.attachLabel>) {
+  const { id, labelId } = action.payload;
+  try {
+    const da = getDataAccess();
+    yield call([da, da.update], 'conversation-labels', labelId, undefined, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield call(loadLabels, id);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
+function* detachLabel(action: ReturnType<typeof ticketActions.detachLabel>) {
+  const { id, labelId } = action.payload;
+  try {
+    const da = getDataAccess();
+    yield call([da, da.remove], 'conversation-labels', labelId, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield call(loadLabels, id);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
 export function* ticketSaga() {
   yield fork(function* () {
     yield takeLatest(ticketActions.open.type, loadBoth);
@@ -102,5 +164,14 @@ export function* ticketSaga() {
   });
   yield fork(function* () {
     yield takeLeading(ticketActions.send.type, sendMessage);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.takeIt.type, takeIt);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.attachLabel.type, attachLabel);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.detachLabel.type, detachLabel);
   });
 }

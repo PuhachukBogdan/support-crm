@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { AsyncState, DataError } from '@/data/types';
-import type { ConversationDetail, ThreadMessage } from '@/features/ticket/types';
+import type { ConversationDetail, LabelWire, ThreadMessage } from '@/features/ticket/types';
 
 /**
  * The ticket window's state (W7, roadmap 9.3) — ONE open conversation: its detail, its thread, and
@@ -19,6 +19,15 @@ export interface TicketState {
   thread: AsyncState<ThreadMessage[]>;
   threadTruncated: boolean;
   send: { status: 'idle' | 'sending' } | { status: 'error'; error: DataError };
+  /**
+   * W7-7 — tags. `labels` is THIS conversation's set; `accountLabels` is the account's whole
+   * registry (what «add tag» may offer — attach-only in the MVP: the registry screen is W16's).
+   * Failures render as an inline note, not a dead window: tags are an annotation, never the record.
+   */
+  labels: AsyncState<LabelWire[]>;
+  accountLabels: AsyncState<LabelWire[]>;
+  /** One field-mutation (take it / tag attach / detach) in flight at a time — same as `send`. */
+  mutation: { status: 'idle' | 'busy' } | { status: 'error'; error: DataError };
 }
 
 const initialState: TicketState = {
@@ -27,6 +36,9 @@ const initialState: TicketState = {
   thread: { status: 'idle' },
   threadTruncated: false,
   send: { status: 'idle' },
+  labels: { status: 'idle' },
+  accountLabels: { status: 'idle' },
+  mutation: { status: 'idle' },
 };
 
 /** Ignore a response that belongs to a conversation the window no longer shows. */
@@ -100,6 +112,50 @@ export const ticketSlice = createSlice({
     sendFailed: (state, action: PayloadAction<{ id: string; error: DataError }>) => {
       if (stale(state, action.payload.id)) return;
       state.send = { status: 'error', error: action.payload.error };
+    },
+    /** W7-7 — tags arrive (both lists ride one action: they load and reload together). */
+    labelsLoaded: (
+      state,
+      action: PayloadAction<{ id: string; labels: LabelWire[]; accountLabels: LabelWire[] }>,
+    ) => {
+      if (stale(state, action.payload.id)) return;
+      state.labels = { status: 'ready', data: action.payload.labels };
+      state.accountLabels = { status: 'ready', data: action.payload.accountLabels };
+    },
+    labelsFailed: (state, action: PayloadAction<{ id: string; error: DataError }>) => {
+      if (stale(state, action.payload.id)) return;
+      state.labels = { status: 'error', error: action.payload.error };
+    },
+    /**
+     * W7-7 — the left column's writes. Each is fire-once (`takeLeading`), then the saga re-reads
+     * what the write touched; nothing is merged locally. «take it» carries the caller's OWN
+     * operator id from `/me/operator` — there is no field to name anyone else, mirroring 5.11.
+     */
+    takeIt: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; operatorId: string }) => ({ payload }),
+    },
+    attachLabel: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; labelId: string }) => ({ payload }),
+    },
+    detachLabel: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; labelId: string }) => ({ payload }),
+    },
+    mutationSucceeded: (state, action: PayloadAction<{ id: string }>) => {
+      if (stale(state, action.payload.id)) return;
+      state.mutation = { status: 'idle' };
+    },
+    mutationFailed: (state, action: PayloadAction<{ id: string; error: DataError }>) => {
+      if (stale(state, action.payload.id)) return;
+      state.mutation = { status: 'error', error: action.payload.error };
     },
     /** Leaving the window. Explicit, so a stray late response has nothing to land in. */
     close: (): TicketState => initialState,

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/composites/states';
 import { useStatuses } from '@/features/inbox/use-statuses';
+import { useMyOperator } from '@/features/inbox/use-my-operator';
 import { useTicket } from './use-ticket';
 import { useTicketLive } from './use-ticket-live';
 import { FieldsColumn } from './fields-column';
@@ -31,6 +32,8 @@ export function TicketWindow({ id }: { id: string }) {
   // «подписка на события») — scoped to THIS conversation, since the stream is account-wide.
   useTicketLive(id, t.refresh);
   const { statuses } = useStatuses();
+  // «take it» needs to know who I am; until /me/operator answers the control simply is not there.
+  const me = useMyOperator();
 
   const statusName = (key: string) => statuses.find((s) => s.key === key)?.agentName ?? key;
   // «Submit as …» offers the ACTIVE catalogue by agent name — a retired status renders on old rows
@@ -79,7 +82,16 @@ export function TicketWindow({ id }: { id: string }) {
       </header>
 
       <div className="flex min-h-0 flex-1 gap-4">
-        <FieldsColumn detail={t.detail} />
+        <FieldsColumn
+          detail={t.detail}
+          labels={t.labels}
+          accountLabels={t.accountLabels}
+          mutation={t.mutation}
+          myOperatorId={me.operatorId ?? ''}
+          onTakeIt={t.takeIt}
+          onAttachLabel={t.attachLabel}
+          onDetachLabel={t.detachLabel}
+        />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Thread state={t.thread} truncated={t.threadTruncated} onRetry={t.refresh} />

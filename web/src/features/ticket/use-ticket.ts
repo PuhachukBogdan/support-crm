@@ -18,6 +18,9 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
   sendState: TicketState['send'];
   refresh: () => void;
   send: (input: { kind: 'reply' | 'note'; body: string; uploadIds?: string[]; statusTo?: string }) => void;
+  takeIt: (operatorId: string) => void;
+  attachLabel: (labelId: string) => void;
+  detachLabel: (labelId: string) => void;
 } {
   const dispatch = useDispatch<AppDispatch>();
   const state = useSelector((s: RootState) => s.ticket);
@@ -36,6 +39,19 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     [dispatch, id],
   );
 
+  const takeIt = useCallback(
+    (operatorId: string) => dispatch(ticketActions.takeIt({ id, operatorId })),
+    [dispatch, id],
+  );
+  const attachLabel = useCallback(
+    (labelId: string) => dispatch(ticketActions.attachLabel({ id, labelId })),
+    [dispatch, id],
+  );
+  const detachLabel = useCallback(
+    (labelId: string) => dispatch(ticketActions.detachLabel({ id, labelId })),
+    [dispatch, id],
+  );
+
   const { send: sendState, ...rest } = state;
-  return { ...rest, sendState, refresh, send };
+  return { ...rest, sendState, refresh, send, takeIt, attachLabel, detachLabel };
 }

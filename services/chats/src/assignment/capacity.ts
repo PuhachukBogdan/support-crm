@@ -1,6 +1,25 @@
 /**
  * Capacity in UNITS (feature 031, roadmap 4.21 / ADR 0042 §3).
  *
+ * ── ⚠️⚠️ THIS IS NOT A SECOND CAPACITY GATE, and the distinction is the whole reason for this note ──
+ * Capacity **already exists**: `group-pool.ts` counts each candidate's open conversations
+ * (`OPEN_STATUSES`) and compares them against `defaultCapacity()`, a flat per-deployment number, and
+ * the rotation already refuses an over-capacity operator. Found while wiring T013 — the router's own
+ * comment says *"never assigned to an over-capacity operator"*.
+ *
+ * So this module is deliberately **arithmetic, not a decision**: it is what `group-pool.ts` uses to
+ * turn "three conversations" into "three units, one of which is exclusive". There is exactly one place
+ * that decides whether somebody has room, and it is still the pool.
+ *
+ * ⇒ A parallel gate would have been the defect this project keeps catching: two mechanisms that both
+ * decide, diverging invisibly until somebody is handed a fifth conversation. Feature 030 was caught by
+ * a guard for the same shape one layer up.
+ *
+ * ── What 4.21 actually ADDS to what was already there ────────────────────────────────────────────
+ * The shipped version counts **conversations** against **one flat number**. ADR 0042 §3 asks for
+ * **units** (a conversation may cost more than one), **per-channel cost** (voice is exclusive), and a
+ * budget **per role × brand** rather than per deployment. That is what lives here.
+ *
  * ── What capacity is for ─────────────────────────────────────────────────────────────────────────
  * The router may hand somebody work only while they have room for it. Without this, "push routing"
  * means pushing a fifth live chat at a person already holding four, which is the outcome capacity

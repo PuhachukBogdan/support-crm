@@ -26,6 +26,9 @@ const CHANNEL: ChannelRow = {
   kind: 'api',
   key: 'api-key',
   address: null,
+  // W5: deliberately NOT push-routed — this spec is about identity, and a null desk keeps the
+  // enqueue leg out of its assertions (the intake spec owns that leg).
+  default_group_id: null,
 };
 
 function harness(opts: { playerId?: string; ambiguous?: boolean; identityDown?: boolean } = {}) {
@@ -76,6 +79,11 @@ function harness(opts: { playerId?: string; ambiguous?: boolean; identityDown?: 
       },
     } as never,
     realtime.publisher,
+    { enqueue: async () => undefined } as never,
+    {
+      conversationCreated: async () => 0,
+      messageReceived: async () => 0,
+    } as never,
   );
 
   return { service, audits, conversations, messages, asked, published: realtime.published };

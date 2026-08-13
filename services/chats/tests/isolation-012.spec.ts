@@ -8,6 +8,7 @@ import { FeedReadController } from '../src/feed/feed.grpc.controller';
 import type { PersonMembersClient } from '../src/person/person-members.client';
 import { TransitionRecorder } from '../src/transition/transition.recorder';
 import { fakeStatusRepository } from '../src/status/status.fixture';
+import { noOperatorIdentity, noReadMarks } from '../src/shared/operator-identity.fake';
 
 /**
  * T033 (feature 012) — consolidated cross-account isolation sweep (Principle I / SC-003). A store
@@ -92,7 +93,9 @@ describe('cross-account isolation sweep (SC-003)', () => {
     }) as unknown as PersonMembersClient;
 
   it('list by player_id returns only the caller account rows', async () => {
-    const res = await new ConversationReadController(repo(), noSla(), noMembers(), fakeStatusRepository()).listConversations(
+    const res = await new ConversationReadController(repo(), noSla(), noMembers(), fakeStatusRepository(),
+  noOperatorIdentity(),
+  noReadMarks(),).listConversations(
       { playerId: 'p1' },
       md('acc-1'),
     );
@@ -101,7 +104,9 @@ describe('cross-account isolation sweep (SC-003)', () => {
 
   it('open-by-id of another account row is NOT_FOUND', async () => {
     await expect(
-      new ConversationReadController(repo(), noSla(), noMembers(), fakeStatusRepository()).getConversation({ id: 'c2' }, md('acc-1')),
+      new ConversationReadController(repo(), noSla(), noMembers(), fakeStatusRepository(),
+  noOperatorIdentity(),
+  noReadMarks(),).getConversation({ id: 'c2' }, md('acc-1')),
     ).rejects.toBeInstanceOf(RpcException);
   });
 

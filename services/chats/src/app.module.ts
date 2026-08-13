@@ -17,6 +17,8 @@ import { ContactSummaryRepository } from './contact/contact-summary.repository';
 import { ChatsPersonModule } from './person/person-members.client';
 // Feature 033 (roadmap 6.4): chats → users for the reply envelope (research R9).
 import { ChatsChannelParticipantModule } from './channel/participant.client';
+import { ChatsOperatorIdentityModule } from './shared/operator-identity.client';
+import { ReadMarkRepository } from './conversation/read-mark.repository';
 import { ThreadResolver } from './channel/threading';
 // Feature 033 US4 (roadmap 6.5): the outbox, its sender, and the shared SMTP transport.
 import { OutboundRepository } from './channel/outbound.repository';
@@ -87,7 +89,14 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
 // ChatsReadService / ChatsWriteService over chats_db, account-scoped (forAccount) with a
 // service-tier RBAC guard (ChatsAccessGuard). US1 conversations + US2 messages; feed lands in US3.
 @Module({
-  imports: [ChatsAuthModule, ChatsUploadsModule, ChatsPersonModule, ChatsChannelParticipantModule],
+  imports: [
+    ChatsAuthModule,
+    ChatsUploadsModule,
+    ChatsPersonModule,
+    ChatsChannelParticipantModule,
+    // W5 (roadmap 5.11/4.19): "which operator is the caller" — the rail's mark write needs it.
+    ChatsOperatorIdentityModule,
+  ],
   controllers: [
     HealthGrpcController,
     ConversationReadController,
@@ -134,6 +143,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
   providers: [
     PrismaService,
     ConversationRepository,
+    // W5 (roadmap 4.19): "this operator OPENED this conversation" — the fact under the agent rail.
+    ReadMarkRepository,
     // Feature 032: read by the two write paths, both list filters, the macro/automation validators and
     // the two load counters. Everything that used to know four status words now asks this.
     StatusRepository,

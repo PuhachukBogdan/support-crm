@@ -56,6 +56,8 @@ import {
   SEED_CHANNEL_API_KEY,
   SEED_CHANNEL_EMAIL_KEY,
   SEED_CHANNEL_EMAIL_ADDRESS,
+  // W5 (subpoint 2.4): the desk both channels push to — the same constant auth seeds as routable.
+  SEED_GROUP_A_ID,
   // Feature 032 (roadmap 4.16): the nine configured statuses — the SAME constant the SQL migration's
   // backfill is written from, so a fresh database and a migrated one cannot disagree.
   SEEDED_STATUSES,
@@ -179,6 +181,14 @@ export function buildSeed() {
      * giving brand 2 its own channel would make the isolation test pass for the wrong reason.
      */
     channels: [
+      /**
+       * ⭐ W5 (subpoint 2.4): both channels push to Desk A — the one seeded desk that is `routable` and
+       * staffed (auth's seed makes that an explicit statement, not a default). This is what makes "a
+       * ticket from a channel reaches a specific agent" observable on a fresh database: intake enqueues
+       * to this desk, the drain assigns to its members. The value is an EXPLICIT choice here for the
+       * same reason `Group.routable` is: NULL is "not push-routed", and the seed must not leave the
+       * demo in an undecided state the live run would then read as a defect.
+       */
       {
         id: SEED_CHANNEL_API_ID,
         account_id: SEED_ACCOUNT_ID,
@@ -187,6 +197,7 @@ export function buildSeed() {
         key: SEED_CHANNEL_API_KEY,
         address: null as string | null,
         enabled: true,
+        default_group_id: SEED_GROUP_A_ID as string | null,
       },
       {
         id: SEED_CHANNEL_EMAIL_ID,
@@ -196,6 +207,7 @@ export function buildSeed() {
         key: SEED_CHANNEL_EMAIL_KEY,
         address: SEED_CHANNEL_EMAIL_ADDRESS as string | null,
         enabled: true,
+        default_group_id: SEED_GROUP_A_ID as string | null,
       },
     ],
     labels: [

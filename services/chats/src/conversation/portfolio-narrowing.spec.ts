@@ -6,6 +6,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import type { PersonMembersClient } from '../person/person-members.client';
 import type { SlaRepository } from '../sla/sla.repository';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 /**
  * T009/T010 — the narrowing itself, through the controller (feature 030, roadmap 4.14).
@@ -54,6 +55,8 @@ const ctrlWith = (rows: unknown[], person: PersonMembersClient) => {
       noSla(),
       person,
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     ),
   };
 };

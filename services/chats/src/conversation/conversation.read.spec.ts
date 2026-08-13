@@ -8,6 +8,7 @@ import { MAX_PAGE_SIZE } from '../shared/cursor';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 /** A fake account-scoped Prisma exposing only the conversation delegate used here (Track A). */
 function fakePrisma(rows: unknown[]) {
@@ -74,6 +75,8 @@ describe('ConversationReadController.listConversations (US1)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
 
     const res = await ctrl.listConversations(
@@ -104,6 +107,8 @@ describe('ConversationReadController.listConversations (US1)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     await ctrl.listConversations({}, md('acc-1')); // no brands metadata
     expect(findMany.mock.calls[0][0].where.brand_id).toBeUndefined();
@@ -120,6 +125,8 @@ describe('ConversationReadController.listConversations (US1)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     await ctrl.listConversations({ brandId: 'brand-z' }, md('acc-1'));
     expect(findMany.mock.calls[0][0].where.brand_id).toEqual({ in: ['brand-z'] });
@@ -136,6 +143,8 @@ describe('ConversationReadController.listConversations (US1)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     const res = await ctrl.listConversations({ pageSize: 10_000 }, md('acc-1'));
     expect(findMany.mock.calls[0][0].take).toBe(MAX_PAGE_SIZE + 1);
@@ -150,6 +159,8 @@ describe('ConversationReadController.listConversations (US1)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     await expect(ctrl.listConversations({ pageToken: 'garbage-$$$' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
@@ -176,6 +187,8 @@ describe('*** the channel filter (feature 029, FR-011) ***', () => {
         noSla(),
         noPortfolio(),
         fakeStatusRepository(),
+        noOperatorIdentity(),
+        noReadMarks(),
       ),
     };
   }
@@ -212,6 +225,8 @@ describe('*** the two orders, and the cursor that belongs to them (feature 029, 
         noSla(),
         noPortfolio(),
         fakeStatusRepository(),
+        noOperatorIdentity(),
+        noReadMarks(),
       ),
     };
   }

@@ -9,6 +9,12 @@ export interface ChannelRow {
   kind: ChannelKind;
   key: string;
   address: string | null;
+  /**
+   * W5 (subpoint 2.4): the DESK this channel's newly created tickets are pushed to — a soft ref to
+   * auth.Group.id. NULL = not push-routed; intake then leaves the ticket unowned exactly as before,
+   * which keeps "we have not decided where this channel routes" an honest state.
+   */
+  default_group_id: string | null;
 }
 
 /**
@@ -43,7 +49,15 @@ export class ChannelRepository {
     if (key.trim() === '') return null;
     const row = (await this.prisma.channel.findFirst({
       where: { key, enabled: true },
-      select: { id: true, account_id: true, brand_id: true, kind: true, key: true, address: true },
+      select: {
+        id: true,
+        account_id: true,
+        brand_id: true,
+        kind: true,
+        key: true,
+        address: true,
+        default_group_id: true,
+      },
     })) as (Omit<ChannelRow, 'kind'> & { kind: string }) | null;
 
     if (!row) return null;
@@ -57,7 +71,15 @@ export class ChannelRepository {
   /** The channels of one account — account-scoped, for the diagnostics and the live run. */
   async listForAccount(accountId: string): Promise<ChannelRow[]> {
     const rows = (await this.prisma.forAccount(accountId).channel.findMany({
-      select: { id: true, account_id: true, brand_id: true, kind: true, key: true, address: true },
+      select: {
+        id: true,
+        account_id: true,
+        brand_id: true,
+        kind: true,
+        key: true,
+        address: true,
+        default_group_id: true,
+      },
       orderBy: { key: 'asc' },
     })) as Array<Omit<ChannelRow, 'kind'> & { kind: string }>;
     return rows.filter((r): r is ChannelRow => isChannelKind(r.kind));

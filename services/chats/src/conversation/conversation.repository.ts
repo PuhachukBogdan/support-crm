@@ -197,6 +197,14 @@ export interface ListFilters {
    * hiding them would remove a fifth of the queue from the default view without looking broken.
    */
   channel?: string;
+  /**
+   * W5 (roadmap 4.19): only conversations this operator has a read mark on — the "he opened it" leg
+   * of the agent rail. An EXISTS over the relation, so the cost is one index probe per row.
+   *
+   * ⓘ The nested predicate names no account: the parent row is already under `forAccount`, and a mark
+   * can only ever carry its conversation's own account (the write path derives one from the other).
+   */
+  openedByOperatorId?: string;
   /** Feature 029: defaults to `updated_desc`. See ORDERS above for why there is no urgency order. */
   order?: ConversationOrderKey;
   limit: number;
@@ -270,6 +278,8 @@ export class ConversationRepository {
     if (f.assigneeOperatorId) where.assignee_operator_id = f.assigneeOperatorId;
     if (f.playerId) where.player_id = f.playerId;
     if (f.channel) where.channel = f.channel;
+    if (f.openedByOperatorId)
+      where.read_marks = { some: { operator_id: f.openedByOperatorId } };
     if (f.brandIn) where.brand_id = { in: f.brandIn };
     if (f.idIn) where.id = { in: f.idIn };
     if (f.membersIn) {

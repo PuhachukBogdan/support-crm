@@ -265,6 +265,9 @@ export class ExportService {
     // to the query. A channel filter forgotten here fails the same way and in the same direction: a file
     // with MORE customer rows than the caller asked for, which looks like a correct answer.
     if (typeof raw.channel === 'string') out.channel = raw.channel;
+    // W5: same hop, same hazard, for the rail filter. (The plural categories need no line here — the
+    // edge resolves them into `statusIn` before anything is stored.)
+    if (typeof raw.openedByOperatorId === 'string') out.openedByOperatorId = raw.openedByOperatorId;
     return out;
   }
 

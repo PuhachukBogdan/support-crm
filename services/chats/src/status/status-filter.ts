@@ -24,6 +24,12 @@ export interface StatusFilterWire {
   status?: string;
   statusKey?: string;
   statusCategory?: string;
+  /**
+   * W5 (R38): the plural — one rail bucket is a UNION («Ждут» = pending + on_hold), which the singular
+   * cannot say. Both fields may arrive; their categories union. Each entry is validated exactly like
+   * the singular: an unknown one refuses, because dropping it would widen the query.
+   */
+  statusCategories?: string[];
 }
 
 export async function resolveStatusFilter(
@@ -44,14 +50,25 @@ export async function resolveStatusFilter(
   }
 
   const key = f.statusKey || undefined;
-  const category = categoryFromWire(f.statusCategory);
-  if (category === null) {
+
+  // The singular and the plural collapse into ONE set of categories before anything is resolved, so
+  // there is exactly one code path after this line — two paths for "one category" and "categories"
+  // would be the same filter implemented twice, which is how the export vocabulary drifted.
+  const named: NonNullable<ReturnType<typeof categoryFromWire>>[] = [];
+  const singular = categoryFromWire(f.statusCategory);
+  if (singular === null) {
     // A category the closed catalogue does not define. Refused rather than ignored — ignoring it would
     // widen the query to every conversation, the opposite of what the caller asked for.
     throw new StatusFilterError('invalid status_category');
   }
+  if (singular) named.push(singular);
+  for (const entry of f.statusCategories ?? []) {
+    const c = categoryFromWire(entry);
+    if (!c) throw new StatusFilterError('invalid status_category');
+    if (!named.includes(c)) named.push(c);
+  }
 
-  if (!key && !category) return undefined;
+  if (!key && named.length === 0) return undefined;
 
   if (key && !(await statuses.existsKey(accountId, key))) {
     // Includes another account's key, which is tenant isolation answering rather than a validation quirk:
@@ -59,12 +76,19 @@ export async function resolveStatusFilter(
     throw new StatusFilterError('invalid status_key');
   }
 
-  if (key && !category) return [key];
-  const ofCategory = await statuses.keysOfCategory(accountId, category!);
-  if (!key) return ofCategory;
+  if (key && named.length === 0) return [key];
 
-  // Both: the intersection. A key that is not in the named category is a contradictory question, and an
-  // empty page is its honest answer — refusing would require this code to decide which half the caller
-  // "meant", which is a guess.
-  return ofCategory.includes(key) ? [key] : [];
+  // The UNION of the named categories' keys, deduplicated in catalogue order.
+  const ofCategories: string[] = [];
+  for (const c of named) {
+    for (const k of await statuses.keysOfCategory(accountId, c)) {
+      if (!ofCategories.includes(k)) ofCategories.push(k);
+    }
+  }
+  if (!key) return ofCategories;
+
+  // Both: the intersection. A key that is not in the named categories is a contradictory question, and
+  // an empty page is its honest answer — refusing would require this code to decide which half the
+  // caller "meant", which is a guess.
+  return ofCategories.includes(key) ? [key] : [];
 }

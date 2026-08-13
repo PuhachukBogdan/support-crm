@@ -60,4 +60,9 @@ export const SCOPED_MODELS = [
   // conversation that belongs to an account, so there is nothing here resembling the unscoped sweeps
   // above. A cross-account claim would send one tenant's reply through another tenant's channel.
   'OutboundMessage',
+  // MVP block W5 (roadmap 4.19): "this operator opened this conversation" — the fact the agent rail
+  // is a view over. Scoped with no method-level exception: every write and every read happens for a
+  // caller in that caller's account. A cross-account mark would put one tenant's reading habits into
+  // another tenant's unread arithmetic.
+  'ConversationReadMark',
 ] as const;

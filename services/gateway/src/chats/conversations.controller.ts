@@ -112,6 +112,13 @@ export class ConversationsController implements OnModuleInit {
        * `statusCategory` is the closed six, so it fails closed at this edge like `order`.
        */
       statusCategory?: string;
+      /**
+       * W5 (R38): the PLURAL — comma-separated (`statusCategories=pending,on_hold`), because one rail
+       * bucket is a union the singular cannot say. Each entry fails closed like the singular.
+       */
+      statusCategories?: string;
+      /** W5 (roadmap 4.19): only conversations this operator has OPENED — the rail's middle leg. */
+      openedByOperatorId?: string;
     },
     @Req() req: ChatsReq,
   ) {
@@ -121,8 +128,14 @@ export class ConversationsController implements OnModuleInit {
           // Feature 032: the retired `status` ENUM field is deliberately never sent — chats refuses it.
           statusKey: (q.status ?? '').trim(),
           statusCategory: toStatusCategoryWire(q.statusCategory),
+          statusCategories: (q.statusCategories ?? '')
+            .split(',')
+            .map((c) => c.trim())
+            .filter(Boolean)
+            .map((c) => toStatusCategoryWire(c)),
           priority: q.priority ?? '',
           assigneeOperatorId: q.assigneeOperatorId ?? '',
+          openedByOperatorId: q.openedByOperatorId ?? '',
           playerId: q.playerId ?? '',
           brandId: q.brandId ?? '',
           // Fail-closed like every other filter: an unknown value is a 400, never a silently widened

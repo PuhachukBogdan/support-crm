@@ -6,6 +6,7 @@ import { AssignmentRepository } from './assignment.repository';
 import { AssignmentWriteController } from './assignment.grpc.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { userActor } from '../transition/conversation-transitions';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T014 (feature 013, US1) — assign / reassign / unassign. Every path goes through the
@@ -70,7 +71,11 @@ function md(accountId = 'acc-1'): Metadata {
 
 const build = (prisma: PrismaService) => {
   const convRepo = new ConversationRepository(prisma, new TransitionRecorder());
-  return new AssignmentWriteController(new AssignmentRepository(prisma, new TransitionRecorder(), convRepo), convRepo);
+  return new AssignmentWriteController(
+    new AssignmentRepository(prisma, new TransitionRecorder(), convRepo),
+    convRepo,
+    fakeRealtime().publisher,
+  );
 };
 
 describe('AssignConversation (US1)', () => {

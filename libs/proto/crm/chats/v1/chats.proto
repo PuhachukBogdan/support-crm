@@ -366,6 +366,19 @@ message ListConversationsRequest {
   // which is the opposite of what the caller asked for (the 012 lesson).
   string status_key = 11;
   ConversationStatusCategory status_category = 12;
+  // ── MVP block W5 (roadmap 4.19 / R38) — two additive filters ────────────────────────────────────
+  //
+  // `status_categories` exists because one R38 rail bucket is a UNION: «Ждут» is `pending` + `on_hold`,
+  // and the singular field cannot say that. Resolved server-side into the account's keys exactly like
+  // the singular (union of the named categories; combined with `status_key` it intersects). The
+  // singular stays — every existing caller is unchanged — and sending both unions their categories.
+  // An unknown entry is REFUSED like the singular's, never dropped: dropping would widen the query.
+  repeated ConversationStatusCategory status_categories = 13;
+  // The agent rail (4.19) is a VIEW: assignee = me ∧ OPENED by me ∧ non-terminal category. This is the
+  // middle predicate — "conversations this operator has a read mark on". An operator id rather than a
+  // `me` boolean: a FILTER may name anyone (a teamlead reading an agent's rail reads facts the list
+  // already shows); only the mark's WRITE is self-scoped, which is what makes the fact trustworthy.
+  string opened_by_operator_id = 14;
 }
 
 message ConversationPage {
@@ -1154,6 +1167,10 @@ message ExportFilters {
   // to one category and exports must not receive the whole set (SEC-AP2). Same numbers as the list.
   string status_key = 11;
   ConversationStatusCategory status_category = 12;
+  // W5: the two new list filters, mirrored for the same SEC-AP2 reason as `channel` above — a screen
+  // narrowed to «Ждут» or to one operator's opened set must export exactly what it showed.
+  repeated ConversationStatusCategory status_categories = 13;
+  string opened_by_operator_id = 14;
 }
 
 message CreateExportRequest {

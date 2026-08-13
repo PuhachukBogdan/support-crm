@@ -7,6 +7,7 @@ import { RoundRobinStateRepository } from './round-robin-state.repository';
 import type { GroupPoolService } from './group-pool';
 import { TransitionRecorder } from '../transition/transition.recorder';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { fakeRealtime } from '../realtime/realtime.fake';
 import {
   AutoAssignController,
   GROUP_ROUTING_NOT_AVAILABLE,
@@ -116,6 +117,7 @@ const build = (prisma: PrismaService, pool: GroupPoolService = noPool) =>
       dequeue: jest.fn(async () => undefined),
       waiting: jest.fn(async () => []),
     } as unknown as BacklogRepository,
+    fakeRealtime().publisher,
   );
 
 const cand = (operatorId: string, capacity = 5, currentLoad = 0) => ({
@@ -313,11 +315,13 @@ describe('AutoAssignConversation — scope & access', () => {
    * `noPool` above, which THROWS if the pool is consulted on that path. So the property is still
    * asserted; it is asserted by behaviour now rather than by counting.
    */
-  it('takes exactly FOUR dependencies — and neither the pool nor the backlog is consulted on this path', () => {
-    // Feature 031 added the backlog as a fourth dependency. The count is pinned deliberately: a
-    // constructor that quietly grows is how a router acquires a second source of truth about capacity,
-    // and this is the cheapest place to notice.
-    expect(AutoAssignController.length).toBe(4);
+  it('takes exactly FIVE dependencies — and neither the pool nor the backlog is consulted on this path', () => {
+    // Feature 031 added the backlog as a fourth dependency; W5 added the realtime publisher as the
+    // fifth (a NOTIFIER, not a data source — it carries four ids out and reads nothing in, so it
+    // cannot become a second source of truth about capacity). The count stays pinned deliberately:
+    // a constructor that quietly grows is how a router acquires a second capacity source, and this
+    // is the cheapest place to notice — as it just did, which is why this line names its history.
+    expect(AutoAssignController.length).toBe(5);
     // The behavioural half: every case in this file runs through `noPool`, which throws on use, so a
     // handler that started resolving a group pool without being asked would fail the whole suite.
   });

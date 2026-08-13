@@ -7,6 +7,7 @@ import { BacklogSweepRepository, type WaitingConversation } from './backlog-swee
 import { GroupPoolService } from './group-pool';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import { AuditRepository } from '../audit/audit.repository';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 /**
  * Draining the backlog (feature 031, roadmap 4.20 / ADR 0042 §2).
@@ -54,6 +55,9 @@ export class BacklogMaintenanceController {
     @Inject(GroupPoolService) private readonly pool: GroupPoolService,
     @Inject(RoundRobinStateRepository) private readonly rotation: RoundRobinStateRepository,
     @Inject(AuditRepository) private readonly audit: AuditRepository,
+    // W5: a drain-assigned ticket must appear in its new owner's Inbox by itself — that is the whole
+    // point of the queue existing behind a 30-second tick rather than in front of a person's eyes.
+    @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
   ) {}
 
   @GrpcMethod('ChatsMaintenanceService', 'DrainBacklog')
@@ -157,6 +161,9 @@ export class BacklogMaintenanceController {
     if (operatorId === null) return 'skipped';
 
     await this.backlog.dequeue(item.account_id, item.id);
+    // W5: after the commit, best-effort by the publisher's own contract (it never throws). Per item and
+    // per its OWN account — this is the one publish site that fans out across tenants in one call.
+    await this.realtime.conversation('conversation.updated', item.account_id, item.id);
     return 'assigned';
   }
 

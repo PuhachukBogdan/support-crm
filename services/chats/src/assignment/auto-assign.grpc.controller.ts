@@ -7,6 +7,7 @@ import { RequiresChatsPermission } from '../security/requires-chats-permission.d
 import { readActorContext } from '../security/actor-context';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import { GroupPoolService } from './group-pool';
 import { BacklogRepository } from './backlog';
@@ -51,6 +52,8 @@ export class AutoAssignController {
     @Inject(ConversationRepository) private readonly conversations: ConversationRepository,
     @Inject(GroupPoolService) private readonly pool: GroupPoolService,
     @Inject(BacklogRepository) private readonly backlog: BacklogRepository,
+    // W5: whose queue a ticket is in is exactly what the Inbox renders, so it must move by itself.
+    @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'AutoAssignConversation')
@@ -167,6 +170,9 @@ export class AutoAssignController {
     // It has an owner now, so it is no longer waiting. Cleared here rather than inside the rotation's
     // transaction because it is true for EVERY route to an owner, not only this one (FR-010).
     await this.backlog.dequeue(ctx.accountId, conversationId);
+
+    // W5: after the commit, best-effort by the publisher's own contract (it never throws).
+    await this.realtime.conversation('conversation.updated', ctx.accountId, conversationId);
 
     const updated = await this.conversations.getById(ctx.accountId, conversationId);
     return {

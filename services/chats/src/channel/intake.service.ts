@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { isStatusCategory, type StatusCategory } from '@crm/common';
+import { BacklogRepository } from '../assignment/backlog';
 import { AuditRepository } from '../audit/audit.repository';
 import { CHANNEL_CONFIG, type ChannelConfig } from '../config';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { DomainEventPublisher } from '../events/events.publisher';
 import { MessageRepository } from '../message/message.repository';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { StatusRepository } from '../status/status.repository';
@@ -75,6 +77,9 @@ export class ChannelIntakeService {
     @Inject(AuditRepository) private readonly audit: AuditRepository,
     // Feature 034 (W4): the reason a ticket that arrived by itself also APPEARS by itself.
     @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
+    // ── W5 (subpoint 2.4): the reason a ticket that arrived by itself also gets an OWNER ──────────
+    @Inject(BacklogRepository) private readonly backlog: BacklogRepository,
+    @Inject(DomainEventPublisher) private readonly domainEvents: DomainEventPublisher,
   ) {}
 
   /**
@@ -205,7 +210,12 @@ export class ChannelIntakeService {
         resolved.playerId || null,
       );
       await this.recordIdentity(channel, conversation.id, message);
-      return { conversationId: conversation.id, messageId: created, created: true };
+      return {
+        conversationId: conversation.id,
+        messageId: created,
+        created: true,
+        customerBody: message.body,
+      };
     });
   }
 
@@ -432,7 +442,7 @@ export class ChannelIntakeService {
       // The class, never the address (FR-025). Recorded for the mail path too, and after the write, so an
       // audit failure cannot undo a customer's message.
       await this.recordIdentity(channel, produced.conversationId, normalised);
-      return produced;
+      return { ...produced, customerBody: body };
     });
   }
 
@@ -578,9 +588,20 @@ export class ChannelIntakeService {
   private async writeClaimed(
     channel: ChannelRow,
     intakeId: string,
-    write: () => Promise<{ conversationId: string; messageId: string; created: boolean }>,
+    write: () => Promise<{
+      conversationId: string;
+      messageId: string;
+      created: boolean;
+      /** Matched by automation conditions IN MEMORY only — never stored, logged or stamped (FR-020). */
+      customerBody: string;
+    }>,
   ): Promise<IntakeOutcome> {
-    let produced: { conversationId: string; messageId: string; created: boolean };
+    let produced: {
+      conversationId: string;
+      messageId: string;
+      created: boolean;
+      customerBody: string;
+    };
     try {
       produced = await write();
     } catch (err) {
@@ -588,11 +609,78 @@ export class ChannelIntakeService {
       throw err;
     }
 
-    await this.ledger.stampProduced(channel.account_id, intakeId, produced);
+    await this.ledger.stampProduced(channel.account_id, intakeId, {
+      conversationId: produced.conversationId,
+      messageId: produced.messageId,
+    });
 
     // The channel KIND and ids. No body, no address, no subject line (Principle IV).
     this.logger.log(
       `intake accepted kind=${channel.kind} account=${channel.account_id} conversation=${produced.conversationId}`,
+    );
+
+    /**
+     * ── W5 (subpoint 2.4) — a ticket that arrived by itself gets an OWNER by itself ───────────────
+     *
+     * ⭐ Enqueue, never assign. Assigning here would put two cross-service hops (desk membership from
+     * auth, presence from users) inside the one write path a stranger can reach — and intake's whole
+     * ordering exists to keep that path cheap. The queue write is one indexed UPDATE; the existing
+     * drain (feature 031, every worker tick) resolves the pool and routes with capacity re-read per
+     * item. "Reaches a specific agent" is therefore the queue's promise, kept within a tick, not a
+     * synchronous act of intake.
+     *
+     * Only NEWLY CREATED tickets: an append lands in a conversation that has its owner (or is already
+     * queued), and a reopen returns to whoever worked it — re-queueing either would tear work out of
+     * its history. Only channels that NAME a desk: a NULL `default_group_id` is "not push-routed",
+     * and inventing a desk for it would route work nobody decided to route (the `Group.routable`
+     * reasoning, one table over).
+     *
+     * ⚠️ Best-effort, like the realtime hook below: the ticket is durable and visible in the Inbox's
+     * `new` bucket by this line, so a failed enqueue must not refuse the customer's message — it costs
+     * push-routing for this one ticket, a human can still assign it, and the class is logged.
+     */
+    if (produced.created && channel.default_group_id) {
+      try {
+        await this.backlog.enqueue(
+          channel.account_id,
+          produced.conversationId,
+          new Date(),
+          channel.default_group_id,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `intake enqueue failed class=${err instanceof Error ? err.name : 'unknown'} conversation=${produced.conversationId}`,
+        );
+      }
+    }
+
+    /**
+     * ── W5: the domain events every OTHER write edge already publishes ────────────────────────────
+     *
+     * Until this block, a channel ticket triggered no automations at all (`DomainEventPublisher` was
+     * never injected here — recorded as a deliberate gap in W3 and closed now that routing makes it
+     * matter: a rule that sets priority changes the rail order the drain's work is read in). Publishing
+     * from HERE keeps the no-cascade invariant's actual meaning: this service method is the edge where
+     * an inbound channel caused the change — the same position the gRPC controllers hold for human
+     * writes — and nothing the automation engine can do ever calls intake.
+     *
+     * `messageReceived` fires on every acceptance (a customer wrote), `conversationCreated` only when a
+     * ticket came into existence. The reopen arm's status change deliberately publishes NO
+     * `statusChanged`: its event key needs the write's own timestamp, which `setStatus` does not
+     * surface — noted here rather than approximated, because a guessed timestamp would make a redelivery
+     * look like a new occurrence and fire the rule twice.
+     *
+     * The dispatcher swallows subscriber failures by contract, so a broken rule cannot refuse a
+     * customer's message.
+     */
+    if (produced.created) {
+      await this.domainEvents.conversationCreated(channel.account_id, produced.conversationId);
+    }
+    await this.domainEvents.messageReceived(
+      channel.account_id,
+      produced.conversationId,
+      produced.messageId,
+      produced.customerBody,
     );
 
     /**

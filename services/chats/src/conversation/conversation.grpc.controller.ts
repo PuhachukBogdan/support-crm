@@ -19,6 +19,8 @@ import { toSummaryWire, toDetailWire, wireToSlaOutcome, wireToConversationOrder 
 import { StatusRepository } from '../status/status.repository';
 import { resolveStatusFilter, StatusFilterError } from '../status/status-filter';
 import { SlaRepository } from '../sla/sla.repository';
+import { OperatorIdentityClient } from '../shared/operator-identity.client';
+import { ReadMarkRepository } from './read-mark.repository';
 import {
   ConversationRepository,
   DEFAULT_INBOX_ORDER,
@@ -45,6 +47,10 @@ interface ListConversationsRequestWire {
   channel?: string;
   /** Feature 029: '' / UNSPECIFIED = the default order (updated_desc), never "unordered". */
   order?: string;
+  /** W5 (R38): the plural category filter — «Ждут» is a UNION the singular cannot say. */
+  statusCategories?: string[];
+  /** W5 (roadmap 4.19): only conversations this operator has OPENED — the rail's middle predicate. */
+  openedByOperatorId?: string;
 }
 interface GetConversationRequestWire {
   id: string;
@@ -64,6 +70,9 @@ export class ConversationReadController {
     @Inject(SlaRepository) private readonly sla: SlaRepository,
     @Inject(PersonMembersClient) private readonly person: PersonMembersClient,
     @Inject(StatusRepository) private readonly statuses: StatusRepository,
+    // ── W5 (roadmap 4.19): the two halves of "he OPENED it" ────────────────────────────────────────
+    @Inject(OperatorIdentityClient) private readonly operatorIdentity: OperatorIdentityClient,
+    @Inject(ReadMarkRepository) private readonly readMarks: ReadMarkRepository,
   ) {}
 
   /**
@@ -161,6 +170,9 @@ export class ConversationReadController {
       ...(statusIn === undefined ? {} : { statusIn }),
       priority: req.priority || undefined,
       assigneeOperatorId: req.assigneeOperatorId || undefined,
+      // W5 (4.19): the rail's "he opened it" leg. A filter like any other — the WRITE is what is
+      // self-scoped (see getConversation below), so the fact is trustworthy whoever asks about it.
+      openedByOperatorId: req.openedByOperatorId || undefined,
       playerId: req.playerId || undefined,
       brandIn: resolveBrandIn(ctx, req.brandId),
       // '' means "no filter on channel", NOT "conversations that have no channel" — the rows with no
@@ -206,6 +218,31 @@ export class ConversationReadController {
     if (portfolioIn && !inPortfolio(row, portfolioIn)) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+
+    /**
+     * ── W5 (roadmap 4.19): opening a conversation IS the fact the agent rail stands on ─────────────
+     *
+     * Recorded only after every refusal above — a read that was denied did not happen. The subject is
+     * the CALLER's resolved operator identity, never a request field: this is the one write that makes
+     * the `opened_by_operator_id` filter a fact rather than a claim.
+     *
+     * ⚠️ Best-effort by construction. The caller asked for a conversation, and neither an unreachable
+     * `users` (identity → null, no mark) nor a mark write failure may turn that answer into an error —
+     * the next open simply tries again. And ⚠️ NOT under preview: view-as is read-only in effect, and
+     * an owner walking through a role's screens must not stamp "opened" onto their own rail.
+     */
+    if (!ctx.underPreview) {
+      const operatorId = await this.operatorIdentity.resolveCallerOperatorId(metadata);
+      if (operatorId) {
+        try {
+          await this.readMarks.recordRead(ctx.accountId, req.id, operatorId);
+        } catch {
+          // The read proceeds; the mark is one open behind. Nothing to log beyond the class the
+          // repository's own failure already carries.
+        }
+      }
+    }
+
     // Feature 014: the first-reply measurement rides on the detail so the UI needs no second call.
     const sla = await this.sla.getState(ctx.accountId, req.id);
     return {

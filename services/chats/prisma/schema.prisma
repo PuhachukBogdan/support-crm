@@ -163,6 +163,8 @@ model Conversation {
 
   messages Message[]
   labels   ConversationLabel[]
+  /// W5 (roadmap 4.19): who has OPENED this conversation — the fact under the agent rail.
+  read_marks ConversationReadMark[]
   /// Feature 032: `(account_id, status)` → `ConversationStatus(account_id, key)`. Composite on purpose —
   /// statuses are per-account configuration, so a bare `status` reference would let one tenant's ticket
   /// stand on another tenant's vocabulary.
@@ -241,6 +243,17 @@ model Channel {
   address    String?
   /// The stop button before the admin screen exists. A disabled channel refuses like an unknown one.
   enabled    Boolean  @default(true)
+  /// ── W5 (roadmap 2.4, subpoint): the DESK this channel's new tickets are pushed to ─────────────
+  ///
+  /// Soft ref to auth.Group.id. When set, intake enqueues every NEWLY CREATED conversation into the
+  /// one ordered backlog with this desk, and the existing drain (feature 031) routes it to a member
+  /// with capacity — that is the whole of "a ticket from a channel reaches a specific agent".
+  ///
+  /// ⚠️ NULL means "this channel is not push-routed", which is an honest state, not a default desk:
+  /// a deployment that has not decided must stay quiet (the same reasoning as `Group.routable`
+  /// defaulting to false in auth). The W15 admin screen is where a human sets it; until then the
+  /// seed does, explicitly.
+  default_group_id String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -798,4 +811,42 @@ model ConversationTransition {
   @@index([account_id, subject_id, occurred_at])
   /// "Every status change in this range" — SC-002.
   @@index([account_id, type, occurred_at])
+}
+
+/// ⭐ One operator READ one conversation — the fact under the agent rail (roadmap 4.19, MVP block W5).
+///
+/// ── Why a fact table and not a list ──────────────────────────────────────────────────────────────
+/// The operator's rule for his rail: a ticket enters it when it was ASSIGNED to him and he OPENED it,
+/// and leaves only when the work is finished — closing the window must change nothing. A stored list
+/// would need add/remove bookkeeping that can rot (the same reasoning that kept time out of
+/// `priority_rank`). So the rail is a VIEW over three durable facts — `assignee_operator_id = me`
+/// (already on Conversation) ∧ a row HERE (he opened it) ∧ a non-terminal status category — and there
+/// is no state machine to break: reassignment away removes it by predicate, solving it removes it by
+/// predicate, and nothing is ever deleted.
+///
+/// ── What the columns mean ────────────────────────────────────────────────────────────────────────
+/// `first_opened_at` is written once and never updated — "he opened it" is a one-time fact.
+/// `last_read_at` advances on every read; it is the half 9.12's unread badge will stand on
+/// (unread = a message newer than this), stored now because both facts arrive on the same event and
+/// splitting them into two tables would mean two upserts on every detail open.
+///
+/// ⚠️ `operator_id` is a soft ref to users.Operator.id, resolved from the CALLER's validated context
+/// (never a parameter — an agent must not be able to stamp "opened" as somebody else). NULL never
+/// appears: a reader without an operator profile simply writes no row.
+model ConversationReadMark {
+  id              String   @id @default(uuid())
+  account_id      String
+  conversation_id String
+  operator_id     String
+  first_opened_at DateTime @default(now())
+  last_read_at    DateTime @default(now())
+
+  /// The relation exists for ONE query: the rail's `read_marks: { some: { operator_id } }` EXISTS
+  /// predicate. Cascade mirrors Message's: a mark without its conversation is meaningless.
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  /// One mark per reader per conversation — the upsert key, and what makes a re-read idempotent.
+  @@unique([account_id, conversation_id, operator_id])
+  /// The rail's own lookup: "which conversations has THIS operator opened".
+  @@index([account_id, operator_id])
 }

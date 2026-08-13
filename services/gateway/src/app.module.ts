@@ -16,6 +16,7 @@ import { PlayersEdgeModule } from './players/players.module';
 // edge in this list gated by NO permission, deliberately: a preference may never decide what someone
 // is allowed to see (ADR 0035's hard boundary). NOT `Player.preferences_json`.
 import { UiPreferencesEdgeModule } from './preferences/ui-preferences.module';
+import { MeOperatorModule } from './operator/me-operator.module';
 // Feature 024 (roadmap 5.3): the groups edge — a thin proxy plus the cache invalidation that
 // makes a revoked group grant take effect on the very next request.
 import { GroupsEdgeModule } from './groups/groups.module';
@@ -49,6 +50,9 @@ import { AssignmentEdgeModule } from './assignment/assignment.module';
     ExportsEdgeModule,
     PlayersEdgeModule,
     UiPreferencesEdgeModule,
+    // Roadmap 5.11 (MVP block W5): "which operator am I?" — the self-scoped translation the Inbox's
+    // "Your work" and the agent rail stand on.
+    MeOperatorModule,
     GroupsEdgeModule,
     PresenceEdgeModule,
     AssignmentEdgeModule,

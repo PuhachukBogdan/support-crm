@@ -533,7 +533,8 @@ describe('chats seed — feature 033 (channels)', () => {
     expect(serialised).not.toMatch(/token/i);
     for (const ch of seed.channels) {
       expect(Object.keys(ch).sort()).toEqual(
-        ['account_id', 'address', 'brand_id', 'enabled', 'id', 'key', 'kind'].sort(),
+        // W5 added `default_group_id` — the desk a channel pushes to; an id, not key material.
+        ['account_id', 'address', 'brand_id', 'default_group_id', 'enabled', 'id', 'key', 'kind'].sort(),
       );
     }
   });

@@ -5,6 +5,7 @@ import type { BacklogSweepRepository } from './backlog-sweep.repository';
 import type { GroupPoolService } from './group-pool';
 import type { RoundRobinStateRepository } from './round-robin-state.repository';
 import type { AuditRepository } from '../audit/audit.repository';
+import { fakeRealtime } from '../realtime/realtime.fake';
 
 /**
  * T023/T024/T026 (feature 031, roadmap 4.20 / ADR 0042 §2) — draining the queue.
@@ -90,6 +91,7 @@ function build(opts: {
     { candidatesFor } as unknown as GroupPoolService,
     { selectAndAssign } as unknown as RoundRobinStateRepository,
     { append } as unknown as AuditRepository,
+    fakeRealtime().publisher,
   );
   return {
     controller,

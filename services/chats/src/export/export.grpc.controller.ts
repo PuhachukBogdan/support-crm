@@ -35,6 +35,10 @@ interface CreateWire {
     slaOutcome?: string;
     /** Feature 029: mirrors the list's channel filter — see `ExportFilters` in chats.proto. */
     channel?: string;
+    /** W5: mirrors the list's plural category filter; the shared resolver reads it (SEC-AP2). */
+    statusCategories?: string[];
+    /** W5: mirrors the list's rail filter — an export of "my opened set" is exactly that set. */
+    openedByOperatorId?: string;
   };
 }
 interface ListWire {
@@ -149,6 +153,8 @@ export class ExportController {
               return outcome ? { slaOutcome: outcome } : {};
             })(),
             ...(f.channel ? { channel: f.channel } : {}),
+            // W5: the rail filter, mirrored end to end for the SEC-AP2 reason the proto states.
+            ...(f.openedByOperatorId ? { openedByOperatorId: f.openedByOperatorId } : {}),
           },
           // The stored filter set, for production on a later tick. Stored DECODED, so `filtersOf` reads
           // DB values and no second decode step can be forgotten there.
@@ -163,6 +169,9 @@ export class ExportController {
               return outcome ? { slaOutcome: outcome } : {};
             })(),
             ...(f.channel ? { channel: f.channel } : {}),
+            // W5: stored too — `filtersOf` reads DB values, and a filter accepted here and absent
+            // there is the exact drop this file already paid for once with `slaOutcome`.
+            ...(f.openedByOperatorId ? { openedByOperatorId: f.openedByOperatorId } : {}),
           },
         },
         new Date(),

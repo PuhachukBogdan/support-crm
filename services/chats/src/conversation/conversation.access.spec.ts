@@ -10,6 +10,7 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import { PersonMembersClient } from '../person/person-members.client';
 import { fakeStatusRepository } from '../status/status.fixture';
 import { fakeRealtime } from '../realtime/realtime.fake';
+import { noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 function detailRow(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -102,6 +103,8 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     const res = await ctrl.getConversation({ id: 'c1' }, md('acc-1'));
     expect(forAccount).toHaveBeenCalledWith('acc-1');
@@ -115,6 +118,8 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     await expect(ctrl.getConversation({ id: 'other-acct' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
@@ -264,6 +269,8 @@ describe('*** account isolation holds for the new channel filter and both orders
         noSla(),
         noPortfolio(),
         fakeStatusRepository(),
+        noOperatorIdentity(),
+        noReadMarks(),
       ),
     };
   }
@@ -299,6 +306,8 @@ describe('*** account isolation holds for the new channel filter and both orders
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     const page = await ctrlA.listConversations({ pageSize: 50 }, md('acc-1'));
     expect(page.nextPageToken).not.toBe('');
@@ -309,6 +318,8 @@ describe('*** account isolation holds for the new channel filter and both orders
       noSla(),
       noPortfolio(),
       fakeStatusRepository(),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
     await ctrlB.listConversations({ pageToken: page.nextPageToken }, md('acc-2'));
     expect(b.forAccount).toHaveBeenCalledWith('acc-2');

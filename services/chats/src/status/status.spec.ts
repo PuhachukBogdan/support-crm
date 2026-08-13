@@ -13,6 +13,7 @@ import type { SlaRepository } from '../sla/sla.repository';
 import type { PersonMembersClient } from '../person/person-members.client';
 import type { DomainEventPublisher } from '../events/events.publisher';
 import { fakeRealtime } from '../realtime/realtime.fake';
+import { noOperatorIdentity, noReadMarks } from '../shared/operator-identity.fake';
 
 /**
  * T019 / T020 / T023 (feature 032, roadmap 4.16 — ADR 0040) — the status catalogue end to end.
@@ -363,6 +364,8 @@ describe('ListConversations — the two new filters, and what the row now carrie
       noSla(),
       noPortfolio(),
       repoOf(prisma),
+      noOperatorIdentity(),
+      noReadMarks(),
     );
 
   it('⭐ the row carries the KEY and the CATEGORY, and no longer the retired enum', async () => {
@@ -460,5 +463,72 @@ describe('SetConversationStatus — nine settable words instead of four', () => 
         md(A),
       ),
     ).rejects.toBeInstanceOf(RpcException);
+  });
+});
+
+describe('W5: the PLURAL category filter — one rail bucket is a union (R38)', () => {
+  const filter = (f: { statusKey?: string; statusCategory?: string; statusCategories?: string[] }) =>
+    resolveStatusFilter(repoOf(fakePrisma().prisma), A, f);
+
+  it('«Ждут» exists now: pending + on_hold resolve to the UNION of both categories’ keys', async () => {
+    await expect(
+      filter({
+        statusCategories: [
+          'CONVERSATION_STATUS_CATEGORY_PENDING',
+          'CONVERSATION_STATUS_CATEGORY_ON_HOLD',
+        ],
+      }),
+    ).resolves.toEqual([
+      'pending',
+      'vip_pending',
+      'in_progress',
+      'follow_up',
+      // Retired, and STILL here — same rule as the singular: an old ticket wearing a retired status
+      // must stay findable through its category, or retiring a word hides work.
+      'auto_ended_chat',
+      'supervisor_review',
+    ]);
+  });
+
+  it('the singular and the plural UNION rather than compete — no field wins over the other', async () => {
+    await expect(
+      filter({
+        statusCategory: 'CONVERSATION_STATUS_CATEGORY_NEW',
+        statusCategories: ['CONVERSATION_STATUS_CATEGORY_OPEN'],
+      }),
+    ).resolves.toEqual(['new', 'open']);
+  });
+
+  it('a category named twice contributes its keys once', async () => {
+    await expect(
+      filter({
+        statusCategory: 'CONVERSATION_STATUS_CATEGORY_PENDING',
+        statusCategories: ['CONVERSATION_STATUS_CATEGORY_PENDING'],
+      }),
+    ).resolves.toEqual(['pending', 'vip_pending']);
+  });
+
+  it('⚠️ an unknown entry in the plural REFUSES — dropping it would widen the query', async () => {
+    await expect(
+      filter({ statusCategories: ['CONVERSATION_STATUS_CATEGORY_BOGUS'] }),
+    ).rejects.toBeInstanceOf(StatusFilterError);
+  });
+
+  it('key AND categories = the intersection, exactly like the singular pair', async () => {
+    await expect(
+      filter({
+        statusKey: 'pending',
+        statusCategories: [
+          'CONVERSATION_STATUS_CATEGORY_PENDING',
+          'CONVERSATION_STATUS_CATEGORY_ON_HOLD',
+        ],
+      }),
+    ).resolves.toEqual(['pending']);
+  });
+
+  it('an empty plural is NOT a filter — [] on the wire must not mean "no status matches"', async () => {
+    // proto3 cannot tell an absent repeated field from an empty one, so empty MUST mean absent here;
+    // the "matches nothing" answer belongs to a category with no keys, never to an unset field.
+    await expect(filter({ statusCategories: [] })).resolves.toBeUndefined();
   });
 });

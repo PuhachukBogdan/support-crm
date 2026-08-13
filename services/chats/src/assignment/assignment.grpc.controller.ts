@@ -8,6 +8,7 @@ import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { AssignmentRepository } from './assignment.repository';
 
 interface AssignConversationRequestWire {
@@ -27,6 +28,8 @@ export class AssignmentWriteController {
   constructor(
     @Inject(AssignmentRepository) private readonly assignments: AssignmentRepository,
     @Inject(ConversationRepository) private readonly conversations: ConversationRepository,
+    // W5: whose queue a ticket is in is exactly what the Inbox renders, so it must move by itself.
+    @Inject(RealtimePublisher) private readonly realtime: RealtimePublisher,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'AssignConversation')
@@ -58,6 +61,10 @@ export class AssignmentWriteController {
       metadata,
     );
     if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    // W5: after the commit, best-effort by the publisher's own contract (it never throws). Four ids,
+    // no content — who a ticket went to travels as "re-read the list", never as a payload.
+    await this.realtime.conversation('conversation.updated', ctx.accountId, conversationId);
     return toDetailWire(updated);
   }
 }

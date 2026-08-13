@@ -47,12 +47,22 @@ async function run(): Promise<void> {
      * silently undo the one act available to somebody trying to stop a misbehaving integration. Same rule
      * the statuses follow one block above: a fixture may declare a starting state and may not overwrite
      * what a person has since decided.
+     *
+     * ⓘ `default_group_id` IS in the update, unlike `enabled` — deliberately. W5 introduces the column,
+     * so every stand this seed has ever run on holds channels with NULL there, and omitting it would
+     * leave routing dead on precisely the databases the live run uses. The moment W15 gives a human a
+     * screen to set it, this line moves up into the `enabled` rule — a decision recorded there.
      */
     for (const ch of seed.channels)
       await db.channel.upsert({
         where: { account_id_key: { account_id: ch.account_id, key: ch.key } },
         create: ch,
-        update: { brand_id: ch.brand_id, kind: ch.kind, address: ch.address },
+        update: {
+          brand_id: ch.brand_id,
+          kind: ch.kind,
+          address: ch.address,
+          default_group_id: ch.default_group_id,
+        },
       });
     for (const label of seed.labels)
       await db.label.upsert({ where: { id: label.id }, create: label, update: label });

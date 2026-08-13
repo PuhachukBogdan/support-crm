@@ -29,6 +29,8 @@ const CHANNEL: ChannelRow = {
   kind: 'email',
   key: 'mail-key',
   address: 'support@brand.test',
+  // W5: pushes to a desk — the enqueue-on-create leg is asserted in its own describe below.
+  default_group_id: 'desk-a',
 };
 
 interface Written {
@@ -136,6 +138,25 @@ function harness(
     },
   } as unknown as import('../audit/audit.repository').AuditRepository;
 
+  // W5: recording doubles for the routing leg — what reached the queue, and which events fired.
+  const enqueued: Array<{ accountId: string; conversationId: string; groupId?: string }> = [];
+  const backlog = {
+    enqueue: async (accountId: string, conversationId: string, _at: Date, groupId?: string) => {
+      enqueued.push({ accountId, conversationId, groupId });
+    },
+  } as unknown as import('../assignment/backlog').BacklogRepository;
+  const events: Array<{ kind: string; conversationId: string }> = [];
+  const domainEvents = {
+    conversationCreated: async (_a: string, conversationId: string) => {
+      events.push({ kind: 'conversation_created', conversationId });
+      return 0;
+    },
+    messageReceived: async (_a: string, conversationId: string) => {
+      events.push({ kind: 'message_received', conversationId });
+      return 0;
+    },
+  } as unknown as import('../events/events.publisher').DomainEventPublisher;
+
   const service = new ChannelIntakeService(
     { secrets: new Map(), replayWindowSeconds: 300 } as never,
     channels,
@@ -148,8 +169,10 @@ function harness(
     participants,
     audit,
     fakeRealtime().publisher,
+    backlog,
+    domainEvents,
   );
-  return { service, written };
+  return { service, written, enqueued, events };
 }
 
 const mail = (over: Partial<Parameters<ChannelIntakeService['acceptInboundEmail']>[0]> = {}) => ({
@@ -386,5 +409,34 @@ describe('no contact value reaches the log (FR-047)', () => {
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
+  });
+});
+
+/**
+ * ── W5 (subpoint 2.4): only a ticket that CAME INTO EXISTENCE is pushed to the desk ──────────────
+ *
+ * An append lands in a conversation that has its owner (or already waits); a reopen returns to
+ * whoever worked it. Re-queueing either would tear work out of its history — so the enqueue and the
+ * `conversation_created` event ride the same `created` bit, and these two tests pin them together.
+ */
+describe('W5: the mail path routes NEW tickets and leaves lived-in ones alone', () => {
+  it('a new ticket is enqueued with the desk AND fires both events', async () => {
+    const { service, written, enqueued, events } = harness();
+    await service.acceptInboundEmail(mail());
+    const conversationId = (written.conversations[0] as { id?: string }).id ?? 'conv-1';
+    expect(enqueued).toEqual([
+      { accountId: CHANNEL.account_id, conversationId, groupId: 'desk-a' },
+    ]);
+    expect(events.map((e) => e.kind)).toEqual(['conversation_created', 'message_received']);
+  });
+
+  it('an APPEND enqueues nothing and fires message_received only', async () => {
+    const { service, enqueued, events } = harness({
+      match: { conversationId: 'conv-live', status: 'pending_customer' },
+      category: 'pending',
+    });
+    await service.acceptInboundEmail(mail());
+    expect(enqueued).toHaveLength(0);
+    expect(events.map((e) => e.kind)).toEqual(['message_received']);
   });
 });

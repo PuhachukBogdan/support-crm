@@ -16,6 +16,7 @@ import { CannedRepository } from '../src/canned/canned.repository';
 import { CannedController } from '../src/canned/canned.grpc.controller';
 import { TransitionRecorder } from '../src/transition/transition.recorder';
 import { fakeStatusRepository } from '../src/status/status.fixture';
+import { fakeRealtime } from '../src/realtime/realtime.fake';
 
 /**
  * T036 (feature 013) — consolidated cross-account isolation sweep for the workflow layer
@@ -189,6 +190,7 @@ const assignment = () =>
   new AssignmentWriteController(
     new AssignmentRepository(prisma, new TransitionRecorder(), conversationRepo()),
     conversationRepo(),
+    fakeRealtime().publisher,
   );
 const autoAssign = () =>
   new AutoAssignController(
@@ -211,6 +213,7 @@ const autoAssign = () =>
       enqueue: jest.fn(async () => undefined),
       dequeue: jest.fn(async () => undefined),
     } as unknown as BacklogRepository,
+    fakeRealtime().publisher,
   );
 const labelsCtrl = () => new LabelsController(new LabelsRepository(prisma), conversationRepo());
 const macrosCtrl = () =>

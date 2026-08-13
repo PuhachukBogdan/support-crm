@@ -7,6 +7,7 @@ import type { GroupPoolService } from './group-pool';
 import type { BacklogRepository } from './backlog';
 import type { RoundRobinCandidate } from './round-robin';
 import { fakeStatusRepository } from '../status/status.fixture';
+import { fakeRealtime } from '../realtime/realtime.fake';
 import {
   AutoAssignController,
   GROUP_ROUTING_NOT_AVAILABLE,
@@ -109,6 +110,7 @@ function build(prisma: PrismaService, candidates: RoundRobinCandidate[] | Error)
       dequeue: jest.fn(async () => undefined),
       waiting: jest.fn(async () => []),
     } as unknown as BacklogRepository,
+    fakeRealtime().publisher,
   );
   return { controller, candidatesFor };
 }
@@ -336,6 +338,7 @@ describe('the router and the backlog', () => {
       new ConversationRepository(prismaFake.prisma, new TransitionRecorder()),
       { candidatesFor: jest.fn(async () => ({ candidates, reason: null })) } as unknown as GroupPoolService,
       backlog as unknown as BacklogRepository,
+      fakeRealtime().publisher,
     );
     return { controller, backlog };
   };

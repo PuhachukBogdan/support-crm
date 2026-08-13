@@ -121,6 +121,11 @@ interface ResolvedOperatorWire {
  */
 const decodeState = (raw: unknown): PresenceState => decodeWireState(raw) ?? 'offline';
 
+interface AssignmentWire {
+  brandId?: string;
+  playerId?: string;
+}
+
 interface UsersReadGrpc {
   listPersonMembers(
     d: { personId: string },
@@ -130,7 +135,22 @@ interface UsersReadGrpc {
     d: { accountId: string; authUserIds: string[] },
     md?: Metadata,
   ): Observable<{ operators?: ResolvedOperatorWire[] }>;
+  listAssignedPlayers(
+    d: { amAuthUserId: string; pageSize: number; pageToken: string },
+    md?: Metadata,
+  ): Observable<{ assignments?: AssignmentWire[]; nextPageToken?: string }>;
 }
+
+/**
+ * How many portfolio pages this client will follow before refusing (feature 030, research R5).
+ *
+ * ⚠️ **A truncated portfolio HIDES conversations, with nothing on screen saying so.** That is why the
+ * ceiling refuses instead of returning what it has: *"your portfolio is too large to display"* is a bad
+ * day, *"eleven of your players are invisible and nobody mentioned it"* is an incident. The bound also
+ * makes the spec's assumption — tens of players, not thousands — checkable instead of implied.
+ */
+const PORTFOLIO_PAGE_SIZE = 200;
+const PORTFOLIO_MAX_PAGES = 10;
 
 @Injectable()
 export class PersonMembersClient implements OnModuleInit {
@@ -199,6 +219,66 @@ export class PersonMembersClient implements OnModuleInit {
    * @throws MembershipUnavailableError when the answer cannot be established; a gRPC refusal is
    *         rethrown as-is so a 403 stays a 403.
    */
+  /**
+   * The CALLER's own attached players — their portfolio (feature 030, roadmap 4.14).
+   *
+   * ⭐ **`amAuthUserId` is sent EMPTY on purpose, and that is the whole design.** The users contract
+   * defines empty as *"the CALLING manager's own portfolio"* and requires `users.list.view` only to name
+   * **somebody else** — *"show me another manager's book of business"* is a supervisory question, not a
+   * self-service one. So this read needs no extra permission, and there is nothing to launder: the
+   * subject is not a parameter, so it cannot be pointed at anyone.
+   *
+   * ⚠️ **A member is `(brand, player)`, never a bare `player_id`.** Since feature 020 the same platform
+   * id under two brands is routinely two different human beings — matching on the id alone would put
+   * another person's conversations in this AM's queue, which is the collision ADR 0038 §3 already had to
+   * fix once. Half an identity is dropped rather than forwarded, exactly as {@link membersOf} does.
+   *
+   * ⚠️ **Paginated, and exhausted here.** See {@link PORTFOLIO_MAX_PAGES}: a partial portfolio is a
+   * narrowing that is too NARROW, which is worse than too wide because nothing tells the agent.
+   *
+   * @param metadata the CALLER's own metadata, forwarded unchanged so `users` answers for the real actor.
+   * @throws MembershipUnavailableError when the portfolio cannot be established — the caller must refuse
+   *         the read rather than answer from an unnarrowed list. A gRPC refusal is rethrown as-is so a
+   *         403 stays a 403.
+   */
+  async attachedPlayersOfCaller(metadata: Metadata): Promise<MemberIdentity[]> {
+    const out: MemberIdentity[] = [];
+    let pageToken = '';
+
+    for (let page = 0; page < PORTFOLIO_MAX_PAGES; page++) {
+      let res: { assignments?: AssignmentWire[]; nextPageToken?: string };
+      try {
+        res = await firstValueFrom(
+          this.users.listAssignedPlayers(
+            // Empty subject = "me". Never this service's identity, never a parameter.
+            { amAuthUserId: '', pageSize: PORTFOLIO_PAGE_SIZE, pageToken },
+            metadata,
+          ),
+        );
+      } catch (err) {
+        if (typeof (err as { code?: number })?.code === 'number') throw err;
+        // NEVER the caller, the page token or the target address (Principle IV / SEC-26).
+        throw new MembershipUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+      }
+
+      // proto3 omits an empty repeated field, so an ABSENT list means "no attachments" — a real answer.
+      // A non-array is a response we cannot read, and reading it as "none" would silently empty a queue.
+      const rows = res?.assignments;
+      if (rows !== undefined) {
+        if (!Array.isArray(rows)) throw new MembershipUnavailableError('unreadable response');
+        for (const row of rows) {
+          if (row?.brandId && row.playerId) out.push({ brandId: row.brandId, playerId: row.playerId });
+        }
+      }
+
+      pageToken = typeof res?.nextPageToken === 'string' ? res.nextPageToken : '';
+      if (!pageToken) return out;
+    }
+
+    // Still more pages after the ceiling: refuse rather than narrow to a subset (research R5).
+    throw new MembershipUnavailableError('portfolio exceeds page ceiling');
+  }
+
   async resolveOperators(
     accountId: string,
     authUserIds: readonly string[],

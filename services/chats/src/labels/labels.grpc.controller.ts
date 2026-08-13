@@ -6,6 +6,7 @@ import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext } from '../security/actor-context';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { assertNotShelved } from '../conversation/shelf';
 import { LabelsRepository, type LabelRow } from './labels.repository';
 
 interface ConversationIdRequestWire {
@@ -50,6 +51,8 @@ export class LabelsController {
     if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007) — covers attach AND detach.
+    assertNotShelved(existing);
     return { ctx, id };
   }
 

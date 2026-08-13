@@ -38,6 +38,8 @@ describe('⭐ W25 — the unseen count is DERIVED from one mark, scoped to the c
     expect(f.count.mock.calls[0]![0].where).toEqual({
       assignee_operator_id: 'op-1',
       status: { in: ['new', 'open'] },
+      // W27 / 036: a shelved arrival wakes nothing — the badge counts work, and shelved is not work.
+      shelved_state: null,
     });
     expect(res).toEqual({ count: 3, openedAt: null });
   });
@@ -53,6 +55,7 @@ describe('⭐ W25 — the unseen count is DERIVED from one mark, scoped to the c
     expect(f.count.mock.calls[0]![0].where).toEqual({
       assignee_operator_id: 'op-1',
       status: { in: ['new', 'open'] },
+      shelved_state: null,
       created_at: { gt: opened },
     });
     expect(res.openedAt).toEqual(opened);

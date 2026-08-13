@@ -7,6 +7,7 @@ import { RequiresChatsPermission } from '../security/requires-chats-permission.d
 import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
 import { isValidPriority, toDetailWire } from '../shared/wire';
+import { assertNotShelved, isShelfState, shelfTransition, type ShelfState } from './shelf';
 import { MAX_SUBJECT_LENGTH } from '../subject/subject.derive';
 import { DomainEventPublisher } from '../events/events.publisher';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
@@ -45,6 +46,11 @@ interface SetConversationSubjectRequestWire {
 interface SetConversationPriorityRequestWire {
   conversationId: string;
   priority?: string;
+}
+interface SetConversationShelfRequestWire {
+  conversationId: string;
+  /** '' = back to ordinary (release/restore) · 'suspended' · 'deleted'. */
+  state?: string;
 }
 
 /**
@@ -136,6 +142,8 @@ export class ConversationWriteController {
     if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
+    assertNotShelved(existing);
     const newStatus = target.key;
     // Feature 023: the human who did it, and one correlation id for this act. Note the deliberate
     // ordering below — the durable TRANSITION is written inside `setStatus`'s own transaction, while
@@ -200,6 +208,8 @@ export class ConversationWriteController {
     if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
+    assertNotShelved(existing);
     if (existing.brand_id === brandId) {
       throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'brand unchanged' });
     }
@@ -247,6 +257,8 @@ export class ConversationWriteController {
 
     const existing = await this.repo.getById(ctx.accountId, conversationId);
     if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
+    assertNotShelved(existing);
     if (existing.identity_state === 'identified') {
       throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: 'already identified — detach first' });
     }
@@ -298,6 +310,8 @@ export class ConversationWriteController {
 
     const existing = await this.repo.getById(ctx.accountId, conversationId);
     if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
+    assertNotShelved(existing);
     const detachedPlayerId = (existing.player_id ?? '').trim();
     if (existing.identity_state !== 'identified' || detachedPlayerId === '') {
       throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: 'nothing attached' });
@@ -377,6 +391,8 @@ export class ConversationWriteController {
     if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
+    assertNotShelved(existing);
 
     const updated = await this.repo.setSubject(
       ctx.accountId,
@@ -426,6 +442,8 @@ export class ConversationWriteController {
     // as the status and subject writes above do.
     const existing = await this.repo.getById(ctx.accountId, req.conversationId);
     if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007).
+    assertNotShelved(existing);
 
     const updated = await this.repo.setPriority(ctx.accountId, req.conversationId, priority);
     if (!updated) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
@@ -438,5 +456,66 @@ export class ConversationWriteController {
     // trigger. Publishing it would let a rule that sets a priority wake a rule that reads one — the
     // cascade feature 014 bounded by construction.
     return toDetailWire(updated);
+  }
+
+  /**
+   * ⭐ W27 / 036 (roadmap 9.16) — ONE rpc for all four shelf verbs; the audit action derives from the
+   * transition (`shelf.ts`, the only spelling of that table). Gated by `crm.conversation.shelf.manage`
+   * at both tiers — suspending and deleting are supervision acts, not everyday ticket work.
+   *
+   * Race note: the repository's `where` names the EXPECTED from-state, so a transition that lost a
+   * race is a 0-count refusal rather than a wrong write. The pre-read + batch-transaction shape is
+   * `setBrand`'s (see its comment for why the batch form is the one that cannot lose `this`).
+   */
+  @GrpcMethod('ChatsWriteService', 'SetConversationShelf')
+  @RequiresChatsPermission('crm.conversation.shelf.manage')
+  async setConversationShelf(req: SetConversationShelfRequestWire, metadata: Metadata) {
+    const ctx = readActorContext(metadata);
+    const raw = (req.state ?? '').trim();
+    if (raw !== '' && !isShelfState(raw)) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid shelf state' });
+    }
+    const to = raw === '' ? null : raw;
+
+    const existing = await this.repo.getById(ctx.accountId, req.conversationId);
+    if (!existing) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    const from = (existing.shelved_state as ShelfState | null) ?? null;
+    const transition = shelfTransition(from, to);
+    if (transition.kind === 'refused') {
+      throw new RpcException({ code: GrpcStatus.FAILED_PRECONDITION, message: transition.reason });
+    }
+    if (transition.kind === 'unchanged') {
+      // FR-010: the idempotent repeat — nothing written, no audit entry, and the caller can tell.
+      return { changed: false, conversation: toDetailWire(existing) };
+    }
+
+    const statement = this.audit.statement(ctx.accountId, {
+      actorUserId: ctx.userId,
+      actorKind: 'user',
+      underPreview: ctx.underPreview,
+      action: transition.action,
+      targetRef: req.conversationId,
+      detail: { fromState: from ?? '', toState: to ?? '' },
+    });
+
+    const count = await this.repo.setShelf(
+      ctx.accountId,
+      req.conversationId,
+      from,
+      to,
+      ctx.userId,
+      statement,
+    );
+    if (count === 0) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+
+    // Open Inboxes drop or regain the row on this — the same event every conversation write emits.
+    // ⓘ No `this.events.*`: the shelf is not an automation trigger (the 014 cascade rule); a future
+    // spam rule SETS it through this rpc, it does not react to it.
+    await this.realtime.conversation('conversation.updated', ctx.accountId, req.conversationId);
+
+    const fresh = await this.repo.getById(ctx.accountId, req.conversationId);
+    if (!fresh) throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    return { changed: true, conversation: toDetailWire(fresh) };
   }
 }

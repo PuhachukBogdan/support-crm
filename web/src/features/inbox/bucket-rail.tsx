@@ -1,7 +1,16 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { ARCHIVE_BUCKETS, ARCHIVE_HEADING, BUCKETS, type Bucket, type BucketId } from './buckets';
+import { useSession } from '@/session';
+import {
+  ARCHIVE_BUCKETS,
+  ARCHIVE_HEADING,
+  BUCKETS,
+  SHELF_BUCKETS,
+  SHELF_VIEW_PERMISSION,
+  type Bucket,
+  type BucketId,
+} from './buckets';
 
 /**
  * ⭐ The R39 rail: **four buttons on categories, then the archive as a SECTION** — Inbox · В работе ·
@@ -27,6 +36,16 @@ export function BucketRail({
   value: BucketId;
   onChange: (id: BucketId) => void;
 }) {
+  const session = useSession();
+  /**
+   * ⭐ W27 / 036: the shelf buckets render only for holders of the view key — RENDER-only, like
+   * every `permissionKeys` read (the refusal itself is the server's, at both tiers). For everyone
+   * else the section simply ends at «Весь архив», with no gap where a right would be.
+   */
+  const canSeeShelf =
+    session.state.kind === 'authenticated' &&
+    session.state.permissionKeys.includes(SHELF_VIEW_PERMISSION);
+
   return (
     <nav aria-label="Inbox sections" data-testid="bucket-rail" className="w-52 shrink-0 space-y-1">
       {BUCKETS.map((bucket) => (
@@ -43,6 +62,10 @@ export function BucketRail({
       {ARCHIVE_BUCKETS.map((bucket) => (
         <BucketButton key={bucket.id} bucket={bucket} active={bucket.id === value} onChange={onChange} />
       ))}
+      {canSeeShelf &&
+        SHELF_BUCKETS.map((bucket) => (
+          <BucketButton key={bucket.id} bucket={bucket} active={bucket.id === value} onChange={onChange} />
+        ))}
     </nav>
   );
 }

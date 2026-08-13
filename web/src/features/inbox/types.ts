@@ -37,6 +37,8 @@ export interface ConversationRow {
   subject: string;
   /** ⭐ W24 (R43): the ticket NUMBER — the Subject column renders `[1043] Тема` as ONE field. */
   reference?: string;
+  /** ⭐ W27 / 036: non-empty ONLY on the shelf buckets' rows (`suspended` | `deleted`). */
+  shelvedState?: string;
   /** Present on the detail read; absent from the summary today. Rendered as "not set". */
   category?: string;
 }

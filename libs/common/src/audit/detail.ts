@@ -38,6 +38,9 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   privilege: ['scope', 'permissionKey', 'roleKey', 'grant', 'affectedCount'],
   // `name` is the rule's own operator-authored name — not customer data.
   deletion: ['name', 'revision'],
+  // W27 / 036: the shelf transition — both STATES (`'' | suspended | deleted`), never a subject,
+  // never a status key, never a customer value. Two closed words per entry, nothing else fits here.
+  lifecycle: ['fromState', 'toState'],
   // `tier` = the most sensitive tier a read surfaced (never a field value).
   // `filters` = which fields a reader filtered on (names only, never their values).
   // W9 (ADR 0044 §4) — the lookup trio: `valueHash` = the SALTED sha256 of the searched contact

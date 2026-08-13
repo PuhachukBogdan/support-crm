@@ -121,6 +121,9 @@ export interface ConversationSummaryRow {
   subject: string | null;
   /** ⭐ W24 (R43): the ticket NUMBER — per-account sequential; null only on rows born before the backfill ran. */
   reference: string | null;
+  /** ⭐ W27 / 036: `suspended` | `deleted`; null = ordinary. Non-null reaches the wire ONLY from the
+   *  two bucket lists and the detail read — every work-feeding query excludes it by predicate. */
+  shelved_state: string | null;
 }
 export interface ConversationDetailRow extends ConversationSummaryRow {
   category: string | null;
@@ -163,6 +166,8 @@ export function toSummaryWire(r: ConversationSummaryRow) {
     subject: r.subject ?? '',
     // ⭐ W24 (R43): the ticket number — the list renders `[1043] Тема` as one field.
     reference: r.reference ?? '',
+    // ⭐ W27 / 036: the bucket row's badge; structurally '' on every ordinary list.
+    shelvedState: r.shelved_state ?? '',
   };
 }
 export interface MessageRow {
@@ -257,5 +262,7 @@ export function toDetailWire(r: ConversationDetailRow) {
     // at the call site, empty is a screen that quietly says "nobody wrote this".
     identityState: r.identity_state ?? '',
     continuesConversationId: r.continues_conversation_id ?? '',
+    // ⭐ W27 / 036: the window's banner fact — and the reason the shelf rpc's answer can be trusted.
+    shelvedState: r.shelved_state ?? '',
   };
 }

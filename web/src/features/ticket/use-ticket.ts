@@ -26,6 +26,8 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
   setSubject: (subject: string) => void;
   setStatus: (status: string) => void;
   setPriority: (priority: string) => void;
+  /** ⭐ W27 / 036: `suspended` | `deleted` | `''` (release/restore) — supervision verbs. */
+  setShelf: (state: string) => void;
   setBrand: (brandId: string) => void;
   /** 2026-08-10 — `operatorId: ''` unassigns (a real state, so it must be reachable). */
   setAssignee: (operatorId: string) => void;
@@ -77,6 +79,11 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     (priority: string) => dispatch(ticketActions.setPriority({ id, priority })),
     [dispatch, id],
   );
+  // ⭐ W27 / 036: `suspended` | `deleted` | `''` (release/restore) — one verb, like the one rpc.
+  const setShelf = useCallback(
+    (state: string) => dispatch(ticketActions.setShelf({ id, state })),
+    [dispatch, id],
+  );
   const setBrand = useCallback(
     (brandId: string) => dispatch(ticketActions.setBrand({ id, brandId })),
     [dispatch, id],
@@ -103,6 +110,7 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     setSubject,
     setStatus,
     setPriority,
+    setShelf,
     setBrand,
     setAssignee,
     setPlayerId,

@@ -271,6 +271,12 @@ export class ExportService {
     // ⭐ W24: same hop, same hazard — a search accepted at the edge and dropped here exports MORE
     // customer rows than the screen showed, in the direction that looks like a correct answer.
     if (typeof raw.search === 'string') out.search = raw.search;
+    // ⭐ W27 / 036: mirrored like every list filter — the parity guard (FR-027) is right and the
+    // first draft's "exports never see shelved" was the inverted half of the same lie: a supervisor
+    // exporting the Suspended bucket would have received a file with NONE of the rows on screen.
+    // The permission travelled with the filter at the accepting edge; absent = the exclusion default
+    // (the producer rides the same repository list).
+    if (typeof raw.shelved === 'string') out.shelved = raw.shelved as ExportFilterSet['shelved'];
     return out;
   }
 

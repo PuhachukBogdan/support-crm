@@ -54,6 +54,12 @@ export interface InboxFilters {
    * subject as a substring. An axis like channel: it survives a bucket switch and clear-all drops it.
    */
   search?: string;
+  /**
+   * ⭐ W27 / 036 (9.16): the shelf bucket. Owned by the bucket like `statusCategories` (it IS the
+   * bucket's narrowing) and cleared on every switch — left behind it would turn «Inbox» into the
+   * Suspended bucket silently. Absent = the server's work-feeding default (shelved rows excluded).
+   */
+  shelved?: string;
 }
 
 export interface InboxQueryState {
@@ -142,11 +148,22 @@ export function useInboxQuery(myOperatorId: string | undefined): UseInboxQuery {
   const query = useMemo<Query | null>(() => {
     // The scope IS the screen (see the header). Without it there is nothing safe to ask.
     if (!myOperatorId) return null;
+    /**
+     * ⭐ W27 / 036: the SHELF buckets are the one place the self-scope does NOT ride. They are a
+     * supervision surface behind `crm.conversation.shelf.view` — a suspended ticket is usually
+     * somebody ELSE's, and «my slice of the shelf» would show a supervisor an empty bucket while
+     * the account's held work sits invisible (the exact defect the buckets exist to fix). The
+     * operator's «только мои» instruction (2026-08-06) named the WORKING queue; the server still
+     * enforces the permission for everyone regardless of what this client asks.
+     */
+    const scoped = state.filters.shelved
+      ? { ...state.filters }
+      : { ...state.filters, assigneeOperatorId: myOperatorId };
     return {
       limit: PAGE_SIZE,
       order: state.order,
       cursor: state.cursor,
-      filters: { ...state.filters, assigneeOperatorId: myOperatorId },
+      filters: scoped,
     };
   }, [state, myOperatorId]);
 

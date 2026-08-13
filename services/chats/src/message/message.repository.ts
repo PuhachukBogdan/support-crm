@@ -160,6 +160,15 @@ export class MessageRepository {
     return c?.brand_id ?? null;
   }
 
+  /** W27 / 036: the one fact PostMessage's shelf guard needs — lean, like `conversationBrand`. */
+  async conversationShelved(accountId: string, conversationId: string): Promise<string | null> {
+    const c = (await this.prisma.forAccount(accountId).conversation.findFirst({
+      where: { id: conversationId },
+      select: { shelved_state: true },
+    })) as { shelved_state: string | null } | null;
+    return c?.shelved_state ?? null;
+  }
+
   async thread(
     accountId: string,
     conversationId: string,

@@ -18,7 +18,7 @@ import { Inbox } from './inbox';
 import { getDataAccess, setDataAccess } from '@/data/provider';
 import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { chooseOption, stubConversations } from './test-support';
-import { ALL_BUCKETS, ARCHIVE_BUCKETS, BUCKETS, BUCKET_OWNED_KEYS } from './buckets';
+import { ALL_BUCKETS, ARCHIVE_BUCKETS, BUCKETS, BUCKET_OWNED_KEYS, SHELF_BUCKETS } from './buckets';
 
 // jsdom mounts no Next app router — W7's row-open navigation asks for one (same move as shell.test).
 jest.mock('next/navigation', () => ({
@@ -137,17 +137,27 @@ describe('*** the R39 rail: four buttons on categories, then the archive section
     expect(rail.textContent).not.toMatch(/\d/);
   });
 
-  it('⭐⭐ every bucket narrows by CATEGORY, never by a status key — and the detector works', () => {
+  it('⭐⭐ every bucket narrows by CATEGORY or by the SHELF — never by a status key', () => {
     // ALL of them — the archive section's entries obey the same rule as the four working buckets.
+    // W27 widened the axis set by exactly one: a shelf bucket narrows by `shelved` alone (a shelved
+    // conversation keeps its status, so a category here would be a second answer to one question).
     for (const bucket of ALL_BUCKETS) {
-      expect(Object.keys(bucket.filters)).toEqual(['statusCategories']);
+      const keys = Object.keys(bucket.filters);
+      expect([['statusCategories'], ['shelved']]).toContainEqual(keys);
+      // The defect R38 died of, stated directly: no bucket may carry an exact status KEY.
+      expect(bucket.filters.status).toBeUndefined();
       // The six closed categories are the only words allowed here.
       for (const c of bucket.categories) {
         expect(['new', 'open', 'pending', 'on_hold', 'solved', 'closed']).toContain(c);
       }
-      expect(bucket.filters.statusCategories).toBe(bucket.categories.join(','));
+      if (keys[0] === 'statusCategories') {
+        expect(bucket.filters.statusCategories).toBe(bucket.categories.join(','));
+      } else {
+        expect(bucket.categories).toEqual([]); // the shelf's one axis is the shelf itself
+        expect(['suspended', 'deleted']).toContain(bucket.filters.shelved);
+      }
     }
-    expect(ALL_BUCKETS.length).toBe(BUCKETS.length + ARCHIVE_BUCKETS.length);
+    expect(ALL_BUCKETS.length).toBe(BUCKETS.length + ARCHIVE_BUCKETS.length + SHELF_BUCKETS.length);
     // Planted input: the shape the pre-R38 rail died of. If this stops matching, the guard above
     // has gone blind, not the codebase clean.
     const planted = { filters: { status: 'resolved' } };
@@ -261,5 +271,77 @@ describe('the Status column reads the model of record (feature 032), labelled by
     );
     renderInbox();
     await waitFor(() => expect(screen.getAllByText(/open/i).length).toBeGreaterThan(0));
+  });
+});
+
+/**
+ * ⭐⭐ W27 / 036 (9.16) — the SHELF buckets: permission-gated entries of the archive section.
+ *
+ * The gate here is RENDER-only (the server refuses the filter for everyone else at both tiers);
+ * what these tests pin is the composition — who sees the entries, WHAT question a click asks, and
+ * that the question is fully retracted on the way back (a `shelved` left behind would turn «Inbox»
+ * into the Suspended bucket silently — the same one-question rule as the exact-status key).
+ */
+describe('*** W27: the shelf buckets — Придержанные · Удалённые ***', () => {
+  const seed = (keys: string[]) =>
+    ({
+      kind: 'authenticated',
+      userId: 'u1',
+      accountId: 'a1',
+      roles: [],
+      permissionKeys: ['crm.inbox.view', ...keys],
+    }) as const;
+
+  function renderInboxAs(keys: string[]) {
+    return render(
+      <Providers dataAccess={getDataAccess()} sessionSeed={seed(keys) as never}>
+        <Inbox />
+      </Providers>,
+    );
+  }
+
+  it('render for a holder of the view key, in the archive section — and for nobody else', async () => {
+    setDataAccess(stubConversations({ count: 1 }));
+    const holder = renderInboxAs(['crm.conversation.shelf.view']);
+    await screen.findByText('Conversation 1');
+    const separator = screen.getByTestId('archive-separator');
+    const suspended = screen.getByTestId('bucket-suspended');
+    expect(screen.getByTestId('bucket-deleted')).toBeInTheDocument();
+    // Below the separator — entries of the archive SECTION, not a fifth working button.
+    expect(
+      separator.compareDocumentPosition(suspended) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    holder.unmount();
+
+    setDataAccess(stubConversations({ count: 1 }));
+    renderInboxAs([]);
+    await screen.findByText('Conversation 1');
+    expect(screen.queryByTestId('bucket-suspended')).toBeNull();
+    expect(screen.queryByTestId('bucket-deleted')).toBeNull();
+  });
+
+  it('⭐ a shelf bucket asks the SHELF question without the self-scope; switching back retracts it fully', async () => {
+    const stub = stubConversations({ count: 2 });
+    setDataAccess(stub);
+    renderInboxAs(['crm.conversation.shelf.view']);
+    await screen.findByText('Conversation 1');
+
+    fireEvent.click(screen.getByTestId('bucket-suspended'));
+    await waitFor(() => {
+      const last = stub.calls[stub.calls.length - 1]!.filters as Record<string, unknown>;
+      expect(last.shelved).toBe('suspended');
+      // A supervision surface: «my slice of the shelf» would show an empty bucket while the
+      // account's held work sits invisible — the self-scope stays on the WORKING buckets only.
+      expect(last.assigneeOperatorId).toBeUndefined();
+      expect(last.statusCategories).toBeUndefined();
+    });
+
+    fireEvent.click(screen.getByTestId('bucket-inbox'));
+    await waitFor(() => {
+      const last = stub.calls[stub.calls.length - 1]!.filters as Record<string, unknown>;
+      expect(last.shelved).toBeUndefined();
+      expect(last.statusCategories).toBe('new,open');
+      expect(last.assigneeOperatorId).toBeDefined();
+    });
   });
 });

@@ -14,6 +14,7 @@ import { UploadsClient, UploadsUnavailableError } from '../uploads/uploads.clien
 import type { AttachmentWire } from '../shared/wire';
 import { MessageRepository } from './message.repository';
 import { userActor } from '../transition/conversation-transitions';
+import { assertNotShelved } from '../conversation/shelf';
 
 interface GetThreadRequestWire {
   conversationId: string;
@@ -205,6 +206,13 @@ export class MessageWriteController {
     }
     const uploadIds = readUploadIds(req.uploadIds);
     await assertConversationAccess(this.repo, ctx, req.conversationId);
+    /**
+     * W27 / 036: while shelved, the only verb is the shelf rpc (FR-007). Checked HERE and deliberately
+     * NOT in `assertConversationAccess`: that helper also serves GetThread (a bucket viewer must read
+     * the thread) and RecordIncomingMessage (the delivery append is STORED on a shelved conversation —
+     * FR-012 — and wakes nothing, which the unseen/backlog predicates already make true).
+     */
+    assertNotShelved({ shelved_state: await this.repo.conversationShelved(ctx.accountId, req.conversationId) });
 
     /**
      * Feature 016 — everything that can refuse runs BEFORE the first write (research R8, the 013

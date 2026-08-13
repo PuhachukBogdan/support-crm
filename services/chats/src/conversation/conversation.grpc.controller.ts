@@ -5,7 +5,9 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
-import { readActorContext, resolveBrandIn } from '../security/actor-context';
+import { readActorContext, readActorPermissions, resolveBrandIn } from '../security/actor-context';
+import { hasPermission } from '@crm/common';
+import { isShelfState } from './shelf';
 import { PersonMembersClient, toPersonRpc } from '../person/person-members.client';
 import { inPortfolio, narrowsToPortfolio } from './portfolio-scope';
 import {
@@ -57,6 +59,8 @@ interface ListConversationsRequestWire {
   openedByOperatorId?: string;
   /** ⭐ W24 (R43): free text over `[номер] тема` — number exact OR subject substring. '' = no filter. */
   search?: string;
+  /** W27 / 036: '' = the exclusion default · 'suspended' | 'deleted' = that bucket (shelf.view). */
+  shelved?: string;
 }
 
 /**
@@ -146,6 +150,23 @@ export class ConversationReadController {
     const order = orderWire ?? DEFAULT_INBOX_ORDER;
 
     /**
+     * ⭐ W27 / 036: the shelf filter — the ONE filter where "" is not "no filter" but the
+     * work-feeding default (`shelved_state IS NULL`, applied by the repository unconditionally).
+     * A non-empty value asks for a BUCKET, which is a permission the ordinary list key does not
+     * imply — checked here from the forwarded metadata (the export-scope precedent), the second
+     * tier of the same rule the gateway enforces. Unknown value refused, never dropped (012).
+     */
+    const shelvedRaw = (req.shelved ?? '').trim();
+    if (shelvedRaw !== '') {
+      if (!isShelfState(shelvedRaw)) {
+        throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid shelved' });
+      }
+      if (!hasPermission(readActorPermissions(metadata), 'crm.conversation.shelf.view')) {
+        throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+      }
+    }
+
+    /**
      * ⚠️ Resolved BEFORE the page token is decoded, because the token is validated **against it**
      * (FR-014). A scope change is the order hazard by another door: same order, different row set, so a
      * token minted under the previous portfolio would page a sequence that no longer exists — silently.
@@ -206,6 +227,8 @@ export class ConversationReadController {
       search: cleanSearch(req.search),
       order,
       ...(idIn === undefined ? {} : { idIn }),
+      // W27 / 036: only ever a validated bucket value; absent = the repository's exclusion default.
+      ...(shelvedRaw === '' ? {} : { shelved: shelvedRaw as 'suspended' | 'deleted' }),
       limit: clampPageSize(req.pageSize),
       cursor,
     });
@@ -266,6 +289,20 @@ export class ConversationReadController {
      */
     const portfolioIn = await this.portfolioScope(metadata);
     if (portfolioIn && !inPortfolio(row, portfolioIn)) {
+      throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    }
+
+    /**
+     * ⭐ W27 / 036: a SHELVED conversation is readable only with the bucket permission — and the
+     * refusal is the same NOT_FOUND as the two above, for the same reason: "set aside by a
+     * supervisor" must be indistinguishable from "does not exist", or the refusal itself tells an
+     * agent their ticket was deleted rather than merely gone from the lists. Checked BEFORE the
+     * read-mark write below: a denied read did not happen.
+     */
+    if (
+      row.shelved_state &&
+      !hasPermission(readActorPermissions(metadata), 'crm.conversation.shelf.view')
+    ) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
 

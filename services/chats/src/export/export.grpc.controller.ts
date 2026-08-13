@@ -8,6 +8,8 @@ import {
   readActorPermissions,
   resolveBrandIn,
 } from '../security/actor-context';
+import { hasPermission } from '@crm/common';
+import { isShelfState } from '../conversation/shelf';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { wireToSlaOutcome } from '../shared/wire';
 import { StatusRepository } from '../status/status.repository';
@@ -44,6 +46,8 @@ interface CreateWire {
     openedByOperatorId?: string;
     /** ⭐ W24: mirrors the list's search — an export of a searched screen is exactly that screen (SEC-AP2). */
     search?: string;
+    /** ⭐ W27: mirrors the list's shelf filter WITH its permission — see `ExportFilters` in chats.proto. */
+    shelved?: string;
   };
 }
 interface ListWire {
@@ -123,6 +127,22 @@ export class ExportController {
       throw e;
     }
 
+    /**
+     * ⭐ W27 / 036: the shelf filter, mirrored with its PERMISSION — the list read this export
+     * mirrors is gated, so the mirror is gated identically (an export must never answer a question
+     * the screen would refuse). Unknown value refused, never dropped (the slaOutcome lesson,
+     * beside which this sits).
+     */
+    const shelved = (f.shelved ?? '').trim();
+    if (shelved !== '') {
+      if (!isShelfState(shelved)) {
+        throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'invalid shelved' });
+      }
+      if (!hasPermission(permissions, 'crm.conversation.shelf.view')) {
+        throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+      }
+    }
+
     try {
       const row = await this.service.create(
         {
@@ -165,6 +185,8 @@ export class ExportController {
               const search = cleanSearch(f.search);
               return search ? { search } : {};
             })(),
+            // ⭐ W27: validated + permission-checked above; absent = the exclusion default.
+            ...(shelved ? { shelved: shelved as 'suspended' | 'deleted' } : {}),
           },
           // The stored filter set, for production on a later tick. Stored DECODED, so `filtersOf` reads
           // DB values and no second decode step can be forgotten there.
@@ -187,6 +209,9 @@ export class ExportController {
               const search = cleanSearch(f.search);
               return search ? { search } : {};
             })(),
+            // ⭐ W27: stored too — a filter accepted here and absent from `filtersOf`'s read is the
+            // exact drop this file already paid for once with `slaOutcome`.
+            ...(shelved ? { shelved } : {}),
           },
         },
         new Date(),

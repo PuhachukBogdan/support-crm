@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { costOfChannel, type ChannelCost } from './capacity';
+import { NOT_SHELVED } from '../conversation/shelf';
 
 /**
  * The ONE ordered backlog (feature 031, roadmap 4.20 / ADR 0042 §1/§2).
@@ -70,7 +71,9 @@ export class BacklogRepository {
     routedGroupId?: string,
   ): Promise<void> {
     await this.prisma.forAccount(accountId).conversation.updateMany({
-      where: { id: conversationId, backlog_at: null, assignee_operator_id: null },
+      // W27 / 036: a shelved conversation never ENTERS the queue — the router must not see it
+      // (FR-003), and the front door is cheaper than a filter at every reader.
+      where: { id: conversationId, backlog_at: null, assignee_operator_id: null, ...NOT_SHELVED },
       data: { backlog_at: at, ...(routedGroupId ? { routed_group_id: routedGroupId } : {}) },
     });
   }
@@ -101,7 +104,9 @@ export class BacklogRepository {
   /** Waiting conversations, oldest first. Bounded: a drain does bounded work per freed unit. */
   async waiting(accountId: string, limit: number): Promise<BacklogItem[]> {
     return (await this.prisma.forAccount(accountId).conversation.findMany({
-      where: { backlog_at: { not: null }, assignee_operator_id: null },
+      // W27 / 036: the back door of the same rule as `enqueue` — work shelved WHILE queued keeps its
+      // `backlog_at` (restore returns it to its place in line) but the drain never offers it.
+      where: { backlog_at: { not: null }, assignee_operator_id: null, ...NOT_SHELVED },
       // The stable order. `id` is the tie-break, without which two rows enqueued in the same millisecond
       // could swap places between drains and one of them could be passed over for ever.
       orderBy: [{ backlog_at: 'asc' }, { id: 'asc' }],

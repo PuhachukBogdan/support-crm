@@ -40,7 +40,15 @@ import type { InboxFilters } from './use-inbox-query';
  * ⓘ **The whole screen is scoped to the signed-in agent** — see `use-inbox-query`. That is not a
  * bucket concern: every bucket shows *my* slice of its category.
  */
-export type BucketId = 'inbox' | 'inwork' | 'waiting' | 'solved' | 'archive';
+export type BucketId =
+  | 'inbox'
+  | 'inwork'
+  | 'waiting'
+  | 'solved'
+  | 'archive'
+  // W27 / 036 (9.16): the two shelf buckets — permission-gated entries of the archive section.
+  | 'suspended'
+  | 'deleted';
 
 export interface Bucket {
   readonly id: BucketId;
@@ -100,8 +108,24 @@ export const ARCHIVE_BUCKETS: readonly Bucket[] = [
   },
 ];
 
-/** Every narrowing the rail can select — the four working buckets plus the archive section's. */
-export const ALL_BUCKETS: readonly Bucket[] = [...BUCKETS, ...ARCHIVE_BUCKETS];
+/**
+ * ⭐ W27 / 036 (roadmap 9.16) — the SHELF buckets: the third place a conversation can be, out of
+ * every queue and not gone. They live in the archive section (the same "not the working rail"
+ * region R47 defined) and are offered ONLY to holders of `crm.conversation.shelf.view` — the rail
+ * hides them as a courtesy, the server refuses the filter for everyone else regardless.
+ *
+ * ⚠️ They narrow by the `shelved` filter, NOT by a status category: a shelved conversation keeps
+ * whatever status it had, so `categories` is empty and the funnel offers nothing to slice by —
+ * which is honest: the bucket's one axis is the shelf itself.
+ */
+export const SHELF_VIEW_PERMISSION = 'crm.conversation.shelf.view';
+export const SHELF_BUCKETS: readonly Bucket[] = [
+  { id: 'suspended', label: 'Придержанные', categories: [], filters: { shelved: 'suspended' } },
+  { id: 'deleted', label: 'Удалённые', categories: [], filters: { shelved: 'deleted' } },
+];
+
+/** Every narrowing the rail can select — the working buckets, the archive's, and the shelf's. */
+export const ALL_BUCKETS: readonly Bucket[] = [...BUCKETS, ...ARCHIVE_BUCKETS, ...SHELF_BUCKETS];
 
 export const DEFAULT_BUCKET: BucketId = 'inbox';
 
@@ -110,8 +134,10 @@ export const DEFAULT_BUCKET: BucketId = 'inbox';
  * bucket switch. `status` is here because an exact key picked inside one bucket contradicts the next
  * bucket's categories — the server would answer honestly (an empty page), but nothing on screen
  * would explain it. Channel and priority survive a switch: different axes.
+ * ⚠️ `shelved` is here for the sharper reason: left behind on a switch to «Inbox» it would silently
+ * turn the queue into the Suspended bucket — same rows requested, entirely different question.
  */
-export const BUCKET_OWNED_KEYS = ['statusCategories', 'status'] as const;
+export const BUCKET_OWNED_KEYS = ['statusCategories', 'status', 'shelved'] as const;
 
 export function bucketById(id: BucketId): Bucket {
   const found = ALL_BUCKETS.find((b) => b.id === id);

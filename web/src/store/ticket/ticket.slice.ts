@@ -178,6 +178,16 @@ export const ticketSlice = createSlice({
       },
       prepare: (payload: { id: string; priority: string }) => ({ payload }),
     },
+    /**
+     * ⭐ W27 / 036 (9.16): the shelf verb — `suspended` | `deleted` | `''` (release/restore). One
+     * action for all four verbs, like the one rpc it rides; the transition legality is the server's.
+     */
+    setShelf: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; state: string }) => ({ payload }),
+    },
     setBrand: {
       reducer: (state): void => {
         state.mutation = { status: 'busy' };

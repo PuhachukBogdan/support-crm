@@ -74,6 +74,21 @@ model Conversation {
   /// a fact on the row instead of a hope.
   unroutable_since     DateTime?
 
+  // ── W27 / feature 036 (roadmap 9.16): the THIRD place — out of every queue, not gone ───────────
+  //
+  /// `suspended` | `deleted`. NULL = ordinary (every existing row; no backfill). NOT a status: statuses
+  /// drive the R39 category rail, and this is orthogonal to that axis — every query that FEEDS WORK
+  /// (lists, unseen count, backlog, pool load, exports) excludes non-NULL via the one predicate in
+  /// `src/conversation/shelf.ts`. Named `shelved`, not `held`: `assignment/capacity.ts` already uses
+  /// "held" for an operator's open work, and one word with two meanings in one service is a trap.
+  ///
+  /// ⚠️ The trio is set and cleared TOGETHER (state=NULL ⇒ at=NULL ∧ by=NULL). Restore writes ONLY
+  /// these three columns back to NULL — that nothing else is written is what makes "returns exactly
+  /// as it was" structural. The single writer is `SetConversationShelf`.
+  shelved_state        String?
+  shelved_at           DateTime?
+  shelved_by           String? // operator id (soft ref to users.Operator.id) — who shelved it
+
   // ── Feature 033 (roadmap 6.1, ADR 0044 §1) — WHO WROTE, and the honest answer when we cannot tell ──
   //
   /// `identified` | `unidentified`. NULL for every conversation created before this feature.
@@ -217,6 +232,14 @@ model Conversation {
   // index on the largest table in the system; this one earns it because that read is foreseeable and
   // narrow, and because without it the query is a scan every time an agent opens the queue.
   @@index([account_id, identity_state])
+  // ── W27 / feature 036: the shelf buckets ────────────────────────────────────────────────────────
+  //
+  // Serves ONLY the two bucket lists (`shelved_state = 'suspended'|'deleted'`). The common path — the
+  // `shelved_state IS NULL` exclusion every work-feeding query adds — deliberately has no index: NULL
+  // is ~every row, and the existing (account_id, …) indexes already carry those queries. The shipped
+  // migration makes this PARTIAL (`WHERE shelved_state IS NOT NULL`); Prisma cannot express that, so
+  // the model declares the columns and the migration is the truth (the backlog_at precedent above).
+  @@index([account_id, shelved_state, shelved_at])
 }
 
 /// ⭐ A configured way in and out, for exactly one account and one brand (feature 033, roadmap 6.5).

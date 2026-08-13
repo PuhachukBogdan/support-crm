@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import type { Metadata } from '@grpc/grpc-js';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { NOT_SHELVED, type ShelfState } from './shelf';
 import {
   playerAttached,
   playerDetached,
@@ -130,6 +131,9 @@ const SUMMARY_SELECT = {
   // Feature 031: selected because the URGENCY order's page token has to carry it — a cursor cannot name
   // a row's position in a sequence whose leading column the query did not read. Not on the wire.
   priority_rank: true,
+  // ⭐ W27 / 036: on the SUMMARY because the bucket lists render it as the row's badge — and on every
+  // ordinary list it is structurally '' (the exclusion predicate), so the wire cost is one empty field.
+  shelved_state: true,
 } as const;
 
 const DETAIL_SELECT = {
@@ -227,6 +231,15 @@ export interface ListFilters {
   openedByOperatorId?: string;
   /** Feature 029: defaults to `updated_desc`. See ORDERS above for why there is no urgency order. */
   order?: ConversationOrderKey;
+  /**
+   * ⭐ W27 / 036 (roadmap 9.16): which shelf bucket to list — `suspended` | `deleted`.
+   *
+   * ⚠️ UNLIKE every other filter, `undefined` is not "no filter": it is THE work-feeding default,
+   * `shelved_state IS NULL`. There is no way to ask this repository for "everything regardless of
+   * shelf" — that view exists nowhere in the product, so the type cannot express it. The permission
+   * gate (`crm.conversation.shelf.view`) lives at the controller, both tiers.
+   */
+  shelved?: ShelfState;
   limit: number;
   cursor: OrderedCursor | null;
 }
@@ -290,7 +303,12 @@ export class ConversationRepository {
     const orderKey = f.order ?? DEFAULT_CONVERSATION_ORDER;
     const parts = ORDERS[orderKey];
 
-    const where: Record<string, unknown> = {};
+    // ⭐ W27 / 036: the shelf is decided FIRST and unconditionally — a bucket when asked, the
+    // exclusion otherwise. Spelled via the one shared value so `shelf.exclusion.spec.ts` can hold
+    // every work-feeding query to it.
+    const where: Record<string, unknown> = f.shelved
+      ? { shelved_state: f.shelved }
+      : { ...NOT_SHELVED };
     // Feature 032: `in` even for a single key, so "one status" and "a category's statuses" are one
     // predicate. An empty list narrows to nothing rather than widening to everything (the 012 lesson).
     if (f.statusIn) where.status = { in: f.statusIn };
@@ -505,6 +523,33 @@ export class ConversationRepository {
     const db = this.prisma.forAccount(accountId);
     const [res] = (await db.$transaction([
       db.conversation.updateMany({ where: { id }, data: { brand_id: brandId } }),
+      auditStatement,
+    ] as never)) as unknown as [{ count: number }];
+    return res.count;
+  }
+
+  /**
+   * ⭐ W27 / 036 — the shelf write: the TRIO together, the audit entry in the same transaction.
+   *
+   * ⚠️ The `where` names the EXPECTED from-state, so a concurrent transition makes this a 0-count
+   * no-op instead of an audit entry describing a change that lost the race — the controller re-reads
+   * and answers from what actually happened. Restore writes the three columns back to NULL and
+   * touches NOTHING else: that absence of writes is FR-006 ("exactly as it was") in structural form.
+   */
+  async setShelf(
+    accountId: string,
+    id: string,
+    from: ShelfState | null,
+    to: ShelfState | null,
+    shelvedBy: string,
+    auditStatement: unknown,
+  ): Promise<number> {
+    const db = this.prisma.forAccount(accountId);
+    const data = to
+      ? { shelved_state: to, shelved_at: new Date(), shelved_by: shelvedBy }
+      : { shelved_state: null, shelved_at: null, shelved_by: null };
+    const [res] = (await db.$transaction([
+      db.conversation.updateMany({ where: { id, shelved_state: from }, data }),
       auditStatement,
     ] as never)) as unknown as [{ count: number }];
     return res.count;

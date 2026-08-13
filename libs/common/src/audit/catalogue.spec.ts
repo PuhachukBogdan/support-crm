@@ -20,11 +20,13 @@ import {
  * for the same reason.
  */
 describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
-  it('covers every class ADR 0019 names, plus the 0032 extension', () => {
+  it('covers every class ADR 0019 names, plus the 0032 extension — plus 036’s lifecycle', () => {
     // exports · permission/role changes · deletions · access to customer records (0019)
     // + player↔AM assignment changes (0032/SEC-AP3) + retention (whatever can delete history)
+    // + lifecycle (W27/036: WHERE a conversation is — the shelf's four verbs; not a deletion,
+    //   because a shelved conversation exists, keeps its history and comes back)
     expect([...AUDIT_CLASSES].sort()).toEqual(
-      ['access', 'assignment', 'deletion', 'export', 'privilege', 'retention'].sort(),
+      ['access', 'assignment', 'deletion', 'export', 'lifecycle', 'privilege', 'retention'].sort(),
     );
   });
 
@@ -52,6 +54,13 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // later, as a customer card that quietly contains someone else.
     'player.link',
     'player.unlink',
+    // ⭐ W27 / 036 (9.16): the shelf's four verbs — written by `chats` inside the shelf write's own
+    // transaction. Criterion ④ in entry form: the DELETE removes a conversation from every list and
+    // removes nothing from this trail, and these four rows are what make that checkable.
+    'conversation.suspend',
+    'conversation.release',
+    'conversation.delete',
+    'conversation.restore',
     // Feature 024 (roadmap 5.3, ADR 0039): groups. All seven are `privilege`, because adding someone
     // to a group GRANTS ACCESS — that is the premise of the whole decision, and filing them anywhere
     // else would split "who gained rights, and how?" across two filters.

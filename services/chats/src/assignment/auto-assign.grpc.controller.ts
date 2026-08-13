@@ -7,6 +7,7 @@ import { RequiresChatsPermission } from '../security/requires-chats-permission.d
 import { readActorContext } from '../security/actor-context';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { assertNotShelved } from '../conversation/shelf';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
 import { GroupPoolService } from './group-pool';
@@ -73,6 +74,9 @@ export class AutoAssignController {
     if (!conversation) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: the router must not see shelved work (FR-003) — the queue and the pool are already
+    // blind to it by predicate; this closes the direct-call door with the same rule.
+    assertNotShelved(conversation);
 
     // Feature 024: a named group wins outright. `candidates` is not merged in — see the header.
     const groupId = (req.groupId ?? '').trim();

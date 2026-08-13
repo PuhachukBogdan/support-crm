@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { MoreHorizontal } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/composites/states';
 import { useStatuses } from '@/features/inbox/use-statuses';
@@ -68,6 +77,11 @@ export function TicketWindow({ id }: { id: string }) {
   const canSetBrand =
     session.state.kind === 'authenticated' &&
     session.state.permissionKeys.includes('crm.conversation.set_brand');
+  // ⭐ W27 / 036: the shelf verbs — RENDER-only like every permissionKeys read on this screen; the
+  // refusal itself is the server's, at both tiers.
+  const canShelve =
+    session.state.kind === 'authenticated' &&
+    session.state.permissionKeys.includes('crm.conversation.shelf.manage');
   const { brands } = useBrands();
 
   /**
@@ -146,6 +160,40 @@ export function TicketWindow({ id }: { id: string }) {
             {t.detail.data.channel && (
               <span className="shrink-0 text-xs text-muted-foreground">via {t.detail.data.channel}</span>
             )}
+            {/* ⭐ W27 / 036: the shelf verbs — supervision acts, offered only to holders of the
+                manage key and only on an ORDINARY ticket (a shelved one gets the banner's verb). */}
+            {canShelve && !t.detail.data.shelvedState && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="More actions"
+                    title="More actions"
+                    data-testid="ticket-more-actions"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors duration-fast hover:bg-muted motion-reduce:transition-none"
+                  >
+                    <MoreHorizontal className="h-4 w-4" aria-hidden />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" data-testid="ticket-more-menu">
+                  <DropdownMenuItem
+                    data-testid="ticket-suspend"
+                    disabled={t.mutation.status === 'busy'}
+                    onSelect={() => t.setShelf('suspended')}
+                  >
+                    Suspend ticket
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-testid="ticket-delete"
+                    disabled={t.mutation.status === 'busy'}
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => t.setShelf('deleted')}
+                  >
+                    Delete ticket
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </>
         ) : t.detail.status === 'error' ? (
           <div className="flex-1" data-testid="ticket-detail-error">
@@ -155,6 +203,41 @@ export function TicketWindow({ id }: { id: string }) {
           <Skeleton className="h-6 w-1/2" />
         )}
       </header>
+
+      {/* ⭐ W27 / 036: the shelf banner — the ONE writable thing on a shelved ticket is the way back.
+          Everything else on this screen still renders (the thread is readable through the bucket
+          permission that got the person here), and every other write answers the server's refusal —
+          the banner says so BEFORE someone types a reply that cannot be sent. */}
+      {t.detail.status === 'ready' && t.detail.data.shelvedState && (
+        <Alert
+          variant={t.detail.data.shelvedState === 'deleted' ? 'destructive' : 'default'}
+          className="mt-3 shrink-0"
+          data-testid="shelf-banner"
+        >
+          <AlertTitle>
+            {t.detail.data.shelvedState === 'deleted' ? 'Deleted (recoverable)' : 'Suspended'}
+          </AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>
+              {t.detail.data.shelvedState === 'deleted'
+                ? 'Out of every list and queue until restored. Nothing is erased — the history and audit trail stay.'
+                : 'Held out of every queue and list. It takes no replies and routes to nobody until released.'}
+            </span>
+            {canShelve && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="shelf-restore"
+                disabled={t.mutation.status === 'busy'}
+                onClick={() => t.setShelf('')}
+              >
+                {t.detail.data.shelvedState === 'deleted' ? 'Restore' : 'Release'}
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Шаг 1 (9.9): the seam is the library's Resizable now — keyboard-draggable, focus-visible,
           layout persisted by its own `autoSaveId`. Constraints are PERCENTAGES, which is the

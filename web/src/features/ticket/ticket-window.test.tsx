@@ -451,3 +451,71 @@ describe('the failed read', () => {
     expect(screen.queryByTestId('ticket-subject')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * ⭐⭐ W27 / 036 (9.16) — the SHELF on the window: the banner, its one verb, and the two ways in.
+ *
+ * The gates here are RENDER-only (`crm.conversation.shelf.manage`); the server refuses at both
+ * tiers regardless. What these tests pin: a shelved ticket SAYS so before anyone types into it,
+ * the way back is one visible act, and the way IN is offered only to holders — on ordinary
+ * tickets only (the banner owns the shelved state's verbs).
+ */
+describe('*** W27: suspend · delete · restore on the window ***', () => {
+  const seedWith = (keys: string[]) =>
+    ({
+      kind: 'authenticated',
+      userId: 'u1',
+      accountId: 'a1',
+      roles: [],
+      permissionKeys: ['crm.inbox.view', 'crm.conversation.reply', ...keys],
+    }) as const;
+
+  function renderAs(stub: TicketStub, keys: string[], id = 'c1') {
+    setDataAccess(stub);
+    return render(
+      <Providers dataAccess={getDataAccess()} sessionSeed={seedWith(keys) as never}>
+        <ContextPanelProvider><TicketWindow id={id} /></ContextPanelProvider>
+      </Providers>,
+    );
+  }
+
+  it('⭐ a manage-key holder suspends an ORDINARY ticket from the ⋮ menu — one PUT, the shelf route', async () => {
+    const stub = stubTicket();
+    renderAs(stub, ['crm.conversation.shelf.manage']);
+    fireEvent.keyDown(await screen.findByTestId('ticket-more-actions'), { key: 'Enter' });
+    fireEvent.click(await screen.findByTestId('ticket-suspend'));
+
+    await waitFor(() => {
+      const write = stub.writes.find((w) => w.resource === 'conversation-shelf');
+      expect(write).toMatchObject({ op: 'update', within: 'c1', payload: { state: 'suspended' } });
+    });
+  });
+
+  it('⭐ a SHELVED ticket wears the banner, and Restore is its one verb — the ⋮ menu yields', async () => {
+    const stub = stubTicket({ detail: { shelvedState: 'deleted' } });
+    renderAs(stub, ['crm.conversation.shelf.manage']);
+
+    const banner = await screen.findByTestId('shelf-banner');
+    expect(banner).toHaveTextContent('Deleted (recoverable)');
+    expect(banner).toHaveTextContent('Nothing is erased');
+    // The shelved state's verbs live on the banner; a second entry point would be two answers.
+    expect(screen.queryByTestId('ticket-more-actions')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('shelf-restore'));
+    await waitFor(() => {
+      const write = stub.writes.find((w) => w.resource === 'conversation-shelf');
+      expect(write).toMatchObject({ op: 'update', within: 'c1', payload: { state: '' } });
+    });
+  });
+
+  it('without the manage key: the banner still SAYS shelved, but offers no verb — and no ⋮ menu', async () => {
+    const stub = stubTicket({ detail: { shelvedState: 'suspended' } });
+    renderAs(stub, []);
+
+    const banner = await screen.findByTestId('shelf-banner');
+    expect(banner).toHaveTextContent('Suspended');
+    expect(screen.queryByTestId('shelf-restore')).toBeNull();
+    expect(screen.queryByTestId('ticket-more-actions')).toBeNull();
+    expect(stub.writes.filter((w) => w.resource === 'conversation-shelf')).toHaveLength(0);
+  });
+});

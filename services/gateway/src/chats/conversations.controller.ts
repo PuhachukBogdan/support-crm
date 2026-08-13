@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Inject,
   OnModuleInit,
@@ -89,6 +90,11 @@ interface ChatsWriteGrpc {
   ): Observable<ConversationWire>;
   // ⭐ W25 (R23/9.12): "I am looking at the Inbox NOW" — the badge's reset. Empty request.
   markInboxOpened(d: Record<string, never>, md?: unknown): Observable<unknown>;
+  // ⭐ W27 / 036 (roadmap 9.16): one rpc, four shelf verbs; '' = back to ordinary.
+  setConversationShelf(
+    d: { conversationId: string; state: string },
+    md?: unknown,
+  ): Observable<{ changed?: boolean; conversation?: ConversationWire }>;
 }
 
 type ChatsReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -152,9 +158,26 @@ export class ConversationsController implements OnModuleInit {
       openedByOperatorId?: string;
       /** ⭐ W24 (R43): free text over `[номер] тема` — the service edge cleans and caps it. */
       search?: string;
+      /**
+       * ⭐ W27 / 036 (roadmap 9.16): '' (absent) = the work-feeding default — the exclusion; a value
+       * (`suspended` | `deleted`) asks for a BUCKET and needs `crm.conversation.shelf.view` — a
+       * capability the route's own `crm.inbox.view` deliberately does not imply.
+       */
+      shelved?: string;
     },
     @Req() req: ChatsReq,
   ) {
+    const shelved = (q.shelved ?? '').trim();
+    if (shelved !== '') {
+      // Fail-closed vocabulary first (like `order`), then the dynamic key: the route's static
+      // decorator cannot express a parameter-dependent permission (the 016 lesson, exports' shape).
+      if (shelved !== 'suspended' && shelved !== 'deleted') {
+        throw new BadRequestException('invalid shelved');
+      }
+      if (!(req.effective?.permissionKeys ?? []).includes('crm.conversation.shelf.view')) {
+        throw new ForbiddenException('forbidden');
+      }
+    }
     return callChats(
       this.read.listConversations(
         {
@@ -183,6 +206,10 @@ export class ConversationsController implements OnModuleInit {
           // 9.6a), and an unrecognised one narrows to zero rather than widening. See `wire.ts`.
           channel: toChannelFilter(q.channel),
           order: toConversationOrderWire(q.order),
+          // W27 / 036: named in the FIXED DESTRUCTURE above or it silently vanishes — and here a
+          // vanished value narrows (the default excludes), so the failure is a bucket that lists
+          // nothing rather than a widened query. Still: named, validated, gated.
+          shelved,
           pageToken: q.pageToken ?? '',
           pageSize: q.pageSize ? Number(q.pageSize) : 0,
         },
@@ -281,6 +308,28 @@ export class ConversationsController implements OnModuleInit {
   @RequiresPermission('crm.inbox.view')
   async get(@Param('id') id: string, @Req() req: ChatsReq) {
     return callChats(this.read.getConversation({ id }, this.meta(req)));
+  }
+
+  /**
+   * ⭐ W27 / 036 (roadmap 9.16) — `PUT /conversations/:id/shelf`: one route, four verbs.
+   * `state: 'suspended' | 'deleted' | null` (null/'' = release/restore). Fail-closed vocabulary at
+   * this edge like `order`; the transition legality (deleted→suspended refused, same→same answers
+   * `changed:false`) is the owning service's. Gated by the manage key — supervision, not ticket work.
+   */
+  @Put(':id/shelf')
+  @RequiresPermission('crm.conversation.shelf.manage')
+  async setShelf(
+    @Param('id') id: string,
+    @Body() body: { state?: string | null },
+    @Req() req: ChatsReq,
+  ) {
+    const state = (body?.state ?? '').trim();
+    if (state !== '' && state !== 'suspended' && state !== 'deleted') {
+      throw new BadRequestException('invalid state');
+    }
+    return callChats(
+      this.write.setConversationShelf({ conversationId: id, state }, this.meta(req)),
+    );
   }
 
   @Patch(':id/status')

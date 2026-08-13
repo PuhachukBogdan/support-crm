@@ -30,6 +30,11 @@ export const AUDIT_CLASSES = [
   'export', // data exports (0019)
   'assignment', // player↔account-manager changes (0032/SEC-AP3)
   'retention', // trimming the trail — the one act that can destroy history
+  // W27 / 036 (9.16): WHERE a conversation is — the shelf's four verbs. Not `deletion`: that class
+  // records destructions and its detail identifies what stopped existing; a shelved conversation
+  // exists, keeps its history, and comes back. A class is added by decision, never by reflex — this
+  // one arrived with spec 036, whose criterion ④ is exactly that these acts stay readable.
+  'lifecycle',
 ] as const;
 
 export type AuditClass = (typeof AUDIT_CLASSES)[number];
@@ -257,6 +262,37 @@ export const AUDIT_ACTIONS = {
     writer: 'chats',
     status: 'live',
     label: 'Conversation detached from its player',
+  },
+
+  // ── W27 / feature 036 (roadmap 9.16) — the shelf: the four verbs of the third place ───────────
+  //
+  // ⚠️ The DELETE here is criterion ④'s subject: it removes a conversation from every list and it
+  // removes NOTHING from this trail — these four entries are what make that checkable. Detail
+  // carries {fromState, toState}; same→same writes no entry at all (the presence precedent).
+  // `lifecycle` class: they are facts about where the conversation IS, not about who works it.
+  'conversation.suspend': {
+    class: 'lifecycle',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation suspended (held out of every queue)',
+  },
+  'conversation.release': {
+    class: 'lifecycle',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation released from suspension',
+  },
+  'conversation.delete': {
+    class: 'lifecycle',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation soft-deleted (recoverable)',
+  },
+  'conversation.restore': {
+    class: 'lifecycle',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation restored from the deleted bucket',
   },
 
   /**

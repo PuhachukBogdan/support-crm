@@ -9,6 +9,7 @@ import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { assertNotShelved } from '../conversation/shelf';
 import { LabelsRepository } from '../labels/labels.repository';
 import { StatusRepository } from '../status/status.repository';
 import { MacrosRepository, type MacroRow } from './macros.repository';
@@ -138,6 +139,9 @@ export class MacrosController {
     if (!conversation) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007) — a macro is a bundle of
+    // exactly the writes refused above, and must not become the side door.
+    assertNotShelved(conversation);
 
     // 5. Every label referenced by an ADD_LABEL action must exist in the account — validated up
     //    front so the transaction cannot fail halfway on a foreign label id.

@@ -8,6 +8,7 @@ import { readActorContext } from '../security/actor-context';
 import { userActor } from '../transition/conversation-transitions';
 import { toDetailWire } from '../shared/wire';
 import { ConversationRepository } from '../conversation/conversation.repository';
+import { assertNotShelved } from '../conversation/shelf';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { AssignmentRepository } from './assignment.repository';
 
@@ -49,6 +50,9 @@ export class AssignmentWriteController {
     if (!existing) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
+    // W27 / 036: while shelved, the only verb is the shelf rpc (FR-007) — handing shelved work to
+    // somebody would put it on their rail while every list says it does not exist.
+    assertNotShelved(existing);
 
     // "" means unassign — store NULL, never an empty string (it would look like an operator id).
     const operatorId = (req.operatorId ?? '').trim() || null;

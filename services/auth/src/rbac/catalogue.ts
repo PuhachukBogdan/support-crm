@@ -84,6 +84,17 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
    * portfolio-scoped writes regardless of what any rail shows.
    */
   { category: 'crm', key: 'crm.vip.workspace', label: 'VIP workspace (AM portfolio tab)' },
+  // ── W27 / feature 036 (roadmap 9.16) — the shelf: Suspended / Deleted buckets ──────────────────
+  //
+  // TWO keys, one per scope (the 017 precedent): seeing what was set aside and setting it aside are
+  // different consequences. `view` gates the two bucket lists AND the detail read of a shelved
+  // conversation (without it a shelved id answers the same NOT_FOUND an absent id gets — no oracle).
+  // `manage` gates the one write rpc behind all four verbs (suspend/release/delete/restore).
+  //
+  // In `teamlead`'s defaults (supervision is the surface these buckets serve) and in NO agent
+  // role's; `admin`/`super_admin` receive both through the computed ALL_KEYS (the 011 R-2 corollary).
+  { category: 'crm', key: 'crm.conversation.shelf.view', label: 'View suspended & deleted buckets' },
+  { category: 'crm', key: 'crm.conversation.shelf.manage', label: 'Suspend, delete & restore conversations' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -227,6 +238,9 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'crm.sla.manage',
     // Feature 032 (R22): the supervisor who may correct a mis-branded ticket. Audited every time.
     'crm.conversation.set_brand',
+    // W27 (9.16): the shelf is a supervision surface — the same class of act as correcting a brand.
+    'crm.conversation.shelf.view',
+    'crm.conversation.shelf.manage',
   ],
   // admin gets everything EXCEPT the two super-admin exclusives: role management (FR-018) and
   // the view-as preview (US5 — God/super-admin only).

@@ -132,6 +132,10 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
       // exactly (brackets/# stripped server-side) OR the subject as a substring. This is the LIST's
       // own narrowing (bucket + agent scope still apply); the everything-search is W39's screen.
       search: 'search',
+      // ⭐ W27 / 036 (9.16): the shelf BUCKET (`suspended` | `deleted`). Absent = the work-feeding
+      // default (the server excludes shelved rows); a value requires `crm.conversation.shelf.view` —
+      // the rail offers these entries only to holders, and the server refuses everyone else anyway.
+      shelved: 'shelved',
     },
     required: [],
     pageSizeParam: 'pageSize',
@@ -606,6 +610,23 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
     ops: ['list'],
+  },
+  /**
+   * ⭐ W27 / 036 (9.16) — the shelf verb: `PUT /conversations/{id}/shelf` with
+   * `{ state: 'suspended' | 'deleted' | null }` (null = release/restore). One route, four verbs —
+   * the audit action derives from the transition server-side. `crm.conversation.shelf.manage`.
+   */
+  {
+    resource: 'conversation-shelf',
+    path: '/conversations/{within}/shelf',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['update'],
   },
   /**
    * ⭐ W25 (R23 / 9.12) — the unread badge, two singletons over one fact.

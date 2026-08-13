@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { NOT_SHELVED } from './shelf';
 
 /**
  * ⭐ W25 (R23 / roadmap 9.12) — the unread badge's TWO operations, and nothing else.
@@ -64,6 +65,8 @@ export class InboxUnseenRepository {
       where: {
         assignee_operator_id: operatorId,
         status: { in: inboxStatusKeys },
+        // W27 / 036: a shelved arrival wakes nothing — the badge counts work, and shelved is not work.
+        ...NOT_SHELVED,
         ...(mark ? { created_at: { gt: mark.opened_at } } : {}),
       },
     });

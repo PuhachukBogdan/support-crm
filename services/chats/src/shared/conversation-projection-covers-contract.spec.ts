@@ -46,6 +46,8 @@ const summaryRow = {
   subject: 'не пришёл депозит',
   // ⭐ W24: the ticket number rides the summary — `[1043] Тема` is one field on the list.
   reference: '1043',
+  // ⭐ W27 / 036: the shelf — null on every ordinary row; non-null only on the two bucket lists.
+  shelved_state: null,
 };
 
 const detailRow = {

@@ -182,7 +182,12 @@ function* detachLabel(action: ReturnType<typeof ticketActions.detachLabel>) {
  * one case and produce a field that can be set and never cleared.
  */
 function* setField(
-  resource: 'conversation-subject' | 'conversation-status' | 'conversation-priority' | 'conversation-brand',
+  resource:
+    | 'conversation-subject'
+    | 'conversation-status'
+    | 'conversation-priority'
+    | 'conversation-brand'
+    | 'conversation-shelf',
   id: string,
   body: Record<string, string>,
 ) {
@@ -209,6 +214,11 @@ function* setPriority(action: ReturnType<typeof ticketActions.setPriority>) {
 }
 function* setBrand(action: ReturnType<typeof ticketActions.setBrand>) {
   yield call(setField, 'conversation-brand', action.payload.id, { brandId: action.payload.brandId });
+}
+// ⭐ W27 / 036: the shelf verb rides the same PATCH-then-re-read contract — `''` (release/restore)
+// is a real value and travels verbatim, the `setPriority` clearing rule one field over.
+function* setShelf(action: ReturnType<typeof ticketActions.setShelf>) {
+  yield call(setField, 'conversation-shelf', action.payload.id, { state: action.payload.state });
 }
 
 /**
@@ -304,6 +314,7 @@ export function* ticketSaga() {
   });
   yield fork(function* () {
     yield takeLeading(ticketActions.setPriority.type, setPriority);
+    yield takeLeading(ticketActions.setShelf.type, setShelf);
   });
   yield fork(function* () {
     yield takeLeading(ticketActions.setBrand.type, setBrand);

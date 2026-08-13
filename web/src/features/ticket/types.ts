@@ -19,6 +19,8 @@ export interface ConversationDetail {
   assigneeOperatorId: string;
   channel: string;
   reference: string;
+  /** ⭐ W27 / 036: `suspended` | `deleted` | `''` (ordinary). The window's banner + restore verb. */
+  shelvedState?: string;
   category: string;
   subCategory: string;
   classifiedBy: string;

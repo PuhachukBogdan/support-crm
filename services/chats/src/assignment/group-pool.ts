@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Metadata } from '@grpc/grpc-js';
 import { PrismaService } from '../prisma.service';
 import { type HeldConversation, unitsUsed } from './capacity';
+import { NOT_SHELVED } from '../conversation/shelf';
 import { AuthorAuthorityClient } from '../auth/auth.client';
 import { PersonMembersClient } from '../person/person-members.client';
 import { StatusRepository } from '../status/status.repository';
@@ -268,6 +269,9 @@ export class GroupPoolService {
         assignee_operator_id: { in: [...operatorIds] },
         // Feature 032: the account's non-terminal statuses — see the note at the top of this file.
         status: { in: await this.statuses.nonTerminalKeys(accountId) },
+        // W27 / 036: shelved work occupies no capacity slot — an agent whose ticket a supervisor
+        // suspended gets the next arrival, not a phantom load (FR-003's second half).
+        ...NOT_SHELVED,
       },
       select: { assignee_operator_id: true, channel: true },
     });

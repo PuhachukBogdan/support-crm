@@ -240,6 +240,21 @@ export default function LoginPage() {
                   <Button type="submit" className="w-full">
                     Sign in
                   </Button>
+                  {/*
+                    ⭐ W36 / 041 — the way to recovery, and the ONLY visual change this protected screen
+                    takes. Without it the capability is unreachable, which is precisely how 8.6 shipped an
+                    invitation email with no link in it: the mechanism existed and nothing led to it.
+                    ⚠️ A text link, not a Button, so the frozen visual (FR-023) keeps its two buttons.
+                  */}
+                  <p className="text-center text-sm">
+                    <a
+                      href="/recover"
+                      data-testid="login-forgot-password"
+                      className="text-muted-foreground underline-offset-4 hover:underline"
+                    >
+                      Forgotten your password?
+                    </a>
+                  </p>
                   <Button
                     type="button"
                     variant="ghost"

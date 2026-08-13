@@ -97,6 +97,27 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
     'brandRef',
   ],
   retention: ['deletedCount', 'olderThan'],
+  /**
+   * ⭐ W36 / 041 — the account-takeover trail.
+   *
+   * `reasonClass` — the closed vocabulary in `libs/common/src/auth/recovery-reasons.ts`. It carries what
+   * the REQUESTER was deliberately not told (FR-001 answers a stranger identically whatever the truth
+   * is), so this key is the only place the difference between «no such address» and «that person cannot
+   * sign in» exists at all.
+   *
+   * `valueHash` — the salted sha256 of the lowercased address, the W9 precedent applied to a second
+   * surface: an investigator confirms «was this address targeted» by hashing it, and nobody reads an
+   * address out of the trail. 64 hex characters contain no `@` and no dialling shape, so the value guard
+   * below passes it while still refusing a raw address.
+   *
+   * `revokedCount` — how many renewable sessions the write killed. A NUMBER, because «signed out
+   * everywhere» has a bound (an access token already in a browser lives out its ~15 minutes) and a
+   * promise without a number is how that bound gets forgotten.
+   *
+   * ⛔ There is deliberately no key for the token, the password, or the policy failures: a failed rule is
+   * the person's business and the screen's, never the trail's.
+   */
+  authentication: ['reasonClass', 'valueHash', 'revokedCount'],
 };
 
 /**

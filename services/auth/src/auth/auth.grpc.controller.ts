@@ -8,6 +8,39 @@ import { OnboardingService } from './onboarding.service';
 import { InviteService } from './invite.service';
 import { RegistrationService } from './registration.service';
 import { OutboundEmailService } from './mail/outbound-email.service';
+// ⭐ W36 / 041 — password recovery and the signed-in change.
+import type { Metadata } from '@grpc/grpc-js';
+import { readActorContext } from '../security/actor-context';
+import { RecoveryService, type CompleteRecoveryOutcome } from './recovery.service';
+import { PasswordService } from './password.service';
+
+/**
+ * ⭐ W36 / 041 — outcome → wire, by NAME as well as by tag.
+ *
+ * ⚠️ proto-loader runs with `enums: String`, so the wire carries `"RECOVERY_OUTCOME_OK"` and not `1`.
+ * Feature 025 lost a live iteration to exactly this and it is written down four times now
+ * (`gotchas/grpc-wire-encoding-enums-longs`) — writes kept working while reads broke, and every unit
+ * test stayed green.
+ *
+ * `revokedCount` is always present: «signed out everywhere» is a NUMBER, not a promise.
+ */
+const RECOVERY_WIRE = (
+  outcome: CompleteRecoveryOutcome | { status: 'bad_token' } | { status: 'not_eligible' },
+) => {
+  const word: Record<string, string> = {
+    ok: 'RECOVERY_OUTCOME_OK',
+    bad_token: 'RECOVERY_OUTCOME_BAD_TOKEN',
+    expired: 'RECOVERY_OUTCOME_EXPIRED',
+    already_used: 'RECOVERY_OUTCOME_ALREADY_USED',
+    weak_password: 'RECOVERY_OUTCOME_WEAK_PASSWORD',
+    not_eligible: 'RECOVERY_OUTCOME_NOT_ELIGIBLE',
+  };
+  return {
+    outcome: word[outcome.status] ?? 'RECOVERY_OUTCOME_UNSPECIFIED',
+    revokedCount: 'revokedCount' in outcome ? outcome.revokedCount : 0,
+    failures: 'failures' in outcome ? outcome.failures : [],
+  };
+};
 
 // Request/response shapes as delivered by proto-loader (keepCase:false → camelCase;
 // longs:String → int64 fields are strings on the wire; enums:String → enum NAMES on the wire).
@@ -88,7 +121,65 @@ export class AuthGrpcController {
     @Inject(InviteService) private readonly invite: InviteService,
     @Inject(RegistrationService) private readonly registration: RegistrationService,
     @Inject(OutboundEmailService) private readonly outbox: OutboundEmailService,
+    // ⭐ W36 / 041 — recovery and the signed-in change.
+    @Inject(RecoveryService) private readonly recovery: RecoveryService,
+    @Inject(PasswordService) private readonly passwords: PasswordService,
   ) {}
+
+  /**
+   * ⭐ W36 / 041 — ask for a recovery link (roadmap 3.18).
+   *
+   * ⚠️ **One answer, always.** The service returns `void` precisely so this handler has nothing to
+   * branch on: there is no value here that could differ for a known and an unknown address, which is
+   * what makes «the form is not a staff directory» a property of the code rather than a discipline.
+   */
+  @GrpcMethod('AuthService', 'RequestPasswordRecovery')
+  async requestPasswordRecoveryRpc(req: { email?: string; sourceRef?: string }) {
+    await this.recovery.request(req?.email ?? '', req?.sourceRef ?? '');
+    return {};
+  }
+
+  /**
+   * ⭐ W36 / 041 — use the link. ⛔ Issues NO session (FR-009): the two-step login is not bypassed.
+   */
+  @GrpcMethod('AuthService', 'CompletePasswordRecovery')
+  async completePasswordRecoveryRpc(req: { token?: string; password?: string }) {
+    const outcome = await this.recovery.complete(req?.token ?? '', req?.password ?? '');
+    return RECOVERY_WIRE(outcome);
+  }
+
+  /**
+   * ⭐ W36 / 041 — change your own password.
+   *
+   * ⚠️ **The subject is the caller, taken from the validated metadata, and there is no field for anybody
+   * else** (the `EnsureOwnOperator` construction). A wrong current password is refused and counts toward
+   * the same lockout the login path uses — the grind against a change form is the same grind.
+   */
+  @GrpcMethod('AuthService', 'ChangeOwnPassword')
+  async changeOwnPasswordRpc(req: { currentPassword?: string; newPassword?: string }, metadata: Metadata) {
+    const actor = readActorContext(metadata);
+    if (!actor.userId || !actor.accountId) return RECOVERY_WIRE({ status: 'not_eligible' });
+
+    const current = req?.currentPassword ?? '';
+    const next = req?.newPassword ?? '';
+    if (!(await this.passwords.matchesCurrent(actor.userId, current))) {
+      return RECOVERY_WIRE({ status: 'bad_token' });
+    }
+    // A change that changes nothing is a false receipt — and it would revoke every session for no
+    // reason, which reads to the person as «something happened» when nothing did.
+    if (current === next) return RECOVERY_WIRE({ status: 'bad_token' });
+
+    const set = await this.passwords.setPassword({
+      accountId: actor.accountId,
+      userId: actor.userId,
+      newPassword: next,
+      action: 'password.changed',
+      actor: { userId: actor.userId },
+    });
+    if (set.status === 'weak') return RECOVERY_WIRE({ status: 'weak_password', failures: set.failures });
+    if (set.status === 'no_credential') return RECOVERY_WIRE({ status: 'not_eligible' });
+    return RECOVERY_WIRE({ status: 'ok', revokedCount: set.revokedCount });
+  }
 
   @GrpcMethod('AuthService', 'Login')
   async loginRpc(req: LoginRequest) {

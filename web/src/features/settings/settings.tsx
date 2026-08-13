@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/composites/page-header/page-header';
 import { useDataAccess } from '@/data/provider';
@@ -193,10 +194,115 @@ function AccountSection() {
       <Button size="sm" variant="outline" disabled={busy} data-testid="sign-out" onClick={() => void signOut()}>
         Sign out
       </Button>
-      {/* ⏳ Password change lands here with W36 — the surface does not exist anywhere yet. */}
-      <p className="text-xs text-muted-foreground">
-        Changing your password arrives with point 3.18 — reserved, not missing.
-      </p>
+      {/* ⭐ W36 / feature 041 (roadmap 3.18) — the reserved slot, filled. */}
+      <ChangePassword />
     </section>
+  );
+}
+
+/**
+ * ⭐ W36 / feature 041 (roadmap 3.18) — change your own password.
+ *
+ * ── Two things this form says before it does anything ────────────────────────────────────────────
+ * That it will sign you out everywhere, and that you will need the current password. Both belong on the
+ * screen rather than in a surprise afterwards: a person who discovers mid-flow that they have been signed
+ * out of three other tabs experiences a bug, not a security feature.
+ *
+ * ⚠️ **On success the person is SENT TO SIGN IN**, because their own session is among the revoked ones.
+ * Leaving them on a settings page whose every renewal is already dead is the worse of the two options —
+ * it looks like it worked and then fails at the next click.
+ *
+ * ⚠️ A wrong current password is `rejected`, the same word sign-in uses, and it counts toward the same
+ * lockout. This form is a password oracle if it answers faster or differently than the login page does.
+ */
+function ChangePassword() {
+  const router = useRouter();
+  const { session, refresh } = useSession();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [state, setState] = useState<'idle' | 'saving' | 'rejected' | 'weak' | 'failed'>('idle');
+  const [failures, setFailures] = useState<string[]>([]);
+
+  const RULES: Readonly<Record<string, string>> = {
+    min_length: 'at least 8 characters',
+    uppercase: 'an upper-case letter',
+    digit: 'a digit',
+    symbol: 'a symbol',
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!current || !next || state === 'saving') return;
+    setState('saving');
+    setFailures([]);
+    const outcome = await session.changePassword(current, next);
+    if (outcome.kind === 'ok') {
+      // The receipt is the sign-in page: the session that asked for this change no longer exists.
+      await refresh();
+      router.push('/login');
+      return;
+    }
+    if (outcome.kind === 'rejected') return setState('rejected');
+    if (outcome.kind === 'weak_password') {
+      setFailures(outcome.failures);
+      return setState('weak');
+    }
+    setState('failed');
+  };
+
+  return (
+    <form className="space-y-2 border-t border-border pt-3" onSubmit={submit} data-testid="change-password">
+      <h3 className="text-sm font-medium">Change password</h3>
+      <p className="text-xs text-muted-foreground">
+        You will be signed out everywhere and asked to sign in again.
+      </p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Current password"
+          aria-label="Current password"
+          data-testid="change-password-current"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          disabled={state === 'saving'}
+          className="h-8 text-sm"
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          placeholder="New password"
+          aria-label="New password"
+          data-testid="change-password-new"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          disabled={state === 'saving'}
+          className="h-8 text-sm"
+        />
+      </div>
+      {state === 'rejected' && (
+        <p role="alert" className="text-xs text-destructive" data-testid="change-password-rejected">
+          That is not your current password.
+        </p>
+      )}
+      {state === 'weak' && (
+        <p role="alert" className="text-xs text-destructive" data-testid="change-password-weak">
+          Add {failures.map((f) => RULES[f] ?? f).join(', ')}.
+        </p>
+      )}
+      {state === 'failed' && (
+        <p role="alert" className="text-xs text-destructive" data-testid="change-password-failed">
+          The password could not be changed. Try again.
+        </p>
+      )}
+      <Button
+        type="submit"
+        size="sm"
+        data-testid="change-password-submit"
+        disabled={state === 'saving' || !current || !next}
+      >
+        {state === 'saving' ? 'Changing…' : 'Change password'}
+      </Button>
+    </form>
   );
 }

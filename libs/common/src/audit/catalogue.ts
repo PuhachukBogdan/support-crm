@@ -43,6 +43,28 @@ export const AUDIT_CLASSES = [
   // by a different reader (HR reconciliation and an offboarding audit), and the one class where the
   // ACTOR is normally not a person at all.
   'staffing',
+  /**
+   * ⭐ W36 / 041 (roadmap 3.18) — **who tried to take over an account, and did they succeed.**
+   *
+   * ── Why a class, and why this one had to be added rather than reused ────────────────────────────
+   * Until now this catalogue had **no authentication actions at all**: its classes answer «who may do
+   * what» (`privilege`), «who looked at a customer» (`access`), «what was destroyed» (`deletion`), «where
+   * work went» (`assignment` / `lifecycle` / `staffing`), «what left» (`export`), «what was trimmed»
+   * (`retention`). None of them asks *«did somebody attempt to become this person?»* — and roadmap 3.18
+   * predicted exactly this: unlike `player.assign`, which feature 015 reserved so 026 only had to promote
+   * it, recovery actions are genuinely new entries.
+   *
+   * The bar this catalogue sets for a new class is tenants, not novelty — `presence.override` records that
+   * it wanted one and waited until 3.15/3.16 gave it three. This one arrives with **four**, and they are
+   * read together by one reader asking one question, which is what makes them a class rather than four
+   * strays in `access`.
+   *
+   * ⚠️ **The volume of REFUSALS is the signal here, not the successes** — the same reasoning W9 wrote for
+   * `contact.lookup`, and the reason `recovery.requested` is written even for an address that belongs to
+   * nobody. A trail that recorded only the completions would be blind to the attack and awake only to the
+   * recovery.
+   */
+  'authentication',
 ] as const;
 
 export type AuditClass = (typeof AUDIT_CLASSES)[number];
@@ -667,6 +689,51 @@ export const AUDIT_ACTIONS = {
     writer: 'chats',
     status: 'live',
     label: "A deactivated operator's open work was returned to the queue",
+  },
+
+  // ── ⭐ W36 / 041 (roadmap 3.18): the account-takeover path, and its ordinary sibling ────────────
+  //
+  // ⚠️ **`recovery.requested` is written for EVERY request, including one for an address that belongs to
+  // nobody.** That is not bookkeeping: the product answers a stranger identically whatever the truth is
+  // (FR-001), so the trail is the ONLY place the difference exists — and volume against unknown addresses
+  // is what an attack looks like from inside. `reasonClass` carries what the requester was never told.
+  //
+  // ⚠️ The address is expressible ONLY as `valueHash` (salted sha256), the W9 precedent: an investigator
+  // confirms «was this address targeted» by hashing it, and nobody reads an address out of the trail.
+  'recovery.requested': {
+    class: 'authentication',
+    writer: 'auth',
+    status: 'live',
+    label: 'A password recovery was requested',
+  },
+  'recovery.completed': {
+    class: 'authentication',
+    writer: 'auth',
+    status: 'live',
+    label: 'A password was set through a recovery link',
+  },
+  // Expired, already used, out of attempts, wrong secret, not eligible, or rate-capped — one action, the
+  // reason in `reasonClass`. Separate from `requested` because «somebody asked» and «somebody presented a
+  // link that did not work» are different events with different volumes.
+  'recovery.refused': {
+    class: 'authentication',
+    writer: 'auth',
+    status: 'live',
+    label: 'A password recovery attempt was refused',
+  },
+  /**
+   * The signed-in change — the same act without the emergency. Audited for the reason the recovery path
+   * is: it invalidates every session, and «why am I signed out?» must have an answer that is not a guess.
+   *
+   * ⓘ Deliberately NOT `credential.updated` or similar: there is exactly one credential type in this
+   * product and naming the mechanism instead of the act would make the trail harder to read, not more
+   * precise.
+   */
+  'password.changed': {
+    class: 'authentication',
+    writer: 'auth',
+    status: 'live',
+    label: 'A person changed their own password',
   },
 
   // ── retention (roadmap 7.3 + ADR 0015) ──

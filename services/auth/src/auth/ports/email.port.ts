@@ -30,6 +30,20 @@ export interface OutboundInvite {
 }
 
 /**
+ * ⭐ W36 / feature 041 — a recovery link addressed to somebody who cannot sign in. The token is secret.
+ *
+ * ⚠️ It carries NO flag saying whether the address was known: this message only exists when it was. The
+ * anti-enumeration property lives in the RESPONSE the requester gets (always the same), never here.
+ */
+export interface OutboundRecovery {
+  to: string;
+  /** "<recoveryTokenId>.<secret>" — secret; lives only in transit and in the outbox row. */
+  recoveryToken: string;
+  expiresAt: Date;
+  accountId: string;
+}
+
+/**
  * A Prisma transaction client, as much of it as the outbox needs (feature 028).
  *
  * ⚠️ Typed structurally rather than imported from Prisma so that this port — the seam the domain
@@ -53,6 +67,14 @@ export interface EmailPort {
   sendLoginCode(message: OutboundLoginCode, tx?: EmailTxClient): Promise<void>;
   /** Deliver an invitation link (feature 010). The token is secret — never logged. */
   sendInvite(message: OutboundInvite, tx?: EmailTxClient): Promise<void>;
+  /**
+   * ⭐ W36 / 041: deliver a password-recovery link. The token is secret — never logged.
+   *
+   * ⚠️ Called ONLY when the address belongs to somebody who may sign in. The caller answers a stranger
+   * identically whatever the truth is, so this method's existence in a call path is itself the fact the
+   * response withholds — which is why the decision to call it lives in `RecoveryService` and not here.
+   */
+  sendRecovery(message: OutboundRecovery, tx?: EmailTxClient): Promise<void>;
 }
 
 /** Nest DI token for the EmailPort (interfaces have no runtime token). */
@@ -75,6 +97,8 @@ export const EMAIL_PORT = Symbol('EMAIL_PORT');
 export class OutboxEmailAdapter implements EmailPort {
   readonly outbox: OutboundLoginCode[] = [];
   readonly inviteOutbox: OutboundInvite[] = [];
+  /** ⭐ W36 / 041 — what the enumeration spec counts: it must stay EMPTY for an unknown address. */
+  readonly recoveryOutbox: OutboundRecovery[] = [];
 
   async sendLoginCode(message: OutboundLoginCode): Promise<void> {
     // Copy so a later mutation of the caller's object can't rewrite history.
@@ -83,6 +107,10 @@ export class OutboxEmailAdapter implements EmailPort {
 
   async sendInvite(message: OutboundInvite): Promise<void> {
     this.inviteOutbox.push({ ...message });
+  }
+
+  async sendRecovery(message: OutboundRecovery): Promise<void> {
+    this.recoveryOutbox.push({ ...message });
   }
 
   /** The most recently delivered code (test convenience). */

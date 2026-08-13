@@ -70,9 +70,29 @@ describe('@Public() allow-list is closed (feature 009)', () => {
 
   it('*** ⭐ the complete set of unauthenticated surfaces, and nothing else ***', () => {
     expect(publicSurfaces()).toEqual([
-      // The auth-entry endpoints: reachable before a session exists, by definition.
+      /**
+       * The auth-entry endpoints: reachable before a session exists, by definition.
+       *
+       * ⭐ W36 / feature 041 adds the two recovery surfaces, public for the same reason `login` is — the
+       * person asking cannot sign in, which is the entire premise. What protects each is different, and
+       * neither is a session:
+       *
+       * · `requestRecovery` protects NOTHING, and needs to: it answers a stranger identically whatever
+       *   the truth is, so there is no information to guard. Its controls are the two rate limits (per
+       *   address and per source) and the fact that a successful call reveals nothing.
+       * · `completeRecovery` is authenticated BY THE TOKEN in the link — single-use, short-lived,
+       *   attempt-capped, verified in auth. ⛔ It issues NO session, so being public cannot become a way
+       *   in; the absent cookie is asserted separately.
+       *
+       * ⛔ The signed-in change (`changePassword`) is deliberately NOT here: knowing the current password
+       * is not authentication, and a public change endpoint would be a takeover primitive.
+       *
+       * (The list is sorted, so these sit alphabetically rather than by story.)
+       */
+      'auth/auth.controller.ts -> completeRecovery',
       'auth/auth.controller.ts -> login',
       'auth/auth.controller.ts -> refresh',
+      'auth/auth.controller.ts -> requestRecovery',
       'auth/auth.controller.ts -> verify',
       // The invited colleague binding their email and choosing a password. Public for the same
       // reason as login — the session they are about to have does not exist yet. Their protection is

@@ -67,6 +67,24 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env) {
         .default('true')
         .transform((v) => v === 'true'),
       // Feature 010 — invitation lifetime + rate limits (SEC-5 / SEC-14).
+      // ── ⭐ W36 / 041: password recovery (roadmap 3.18) ────────────────────────────────────────────
+      //
+      // ⚠️ **The TTL is 30 minutes, an order of magnitude shorter than an invite's 24 hours**, and the
+      // asymmetry is the point: an invitation is an appointment somebody may open tomorrow, a recovery
+      // link is a live key to an existing account and its window should be as narrow as a person can
+      // still use. `CODE_TTL`'s 10 minutes is the other neighbour — a code is typed immediately, a link
+      // may wait for a mail client to sync.
+      RECOVERY_TTL: z.coerce.number().int().positive().default(1_800), // 30 min
+      // Wrong secrets against ONE token before it dies. Mirrors `CODE_MAX_ATTEMPTS` deliberately: the
+      // same threat (a grind against one secret) deserves the same answer.
+      RECOVERY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+      // Per ADDRESS, so a stranger cannot use the form to flood somebody's mailbox — the reason the
+      // limit is tighter than the invite's 20/hour: a person recovering a password asks once or twice.
+      RECOVERY_RATE_MAX: z.coerce.number().int().positive().default(3),
+      RECOVERY_RATE_WINDOW: z.coerce.number().int().positive().default(3_600), // 1h
+      // Per SOURCE, so one client cannot walk a list of addresses through the form looking for which
+      // ones exist. Higher than the per-address cap because an office shares an address.
+      RECOVERY_SOURCE_RATE_MAX: z.coerce.number().int().positive().default(30),
       INVITE_TTL: z.coerce.number().int().positive().default(86_400), // 24h
       INVITE_RATE_MAX: z.coerce.number().int().positive().default(20),
       INVITE_RATE_WINDOW: z.coerce.number().int().positive().default(3_600), // 1h

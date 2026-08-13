@@ -58,6 +58,28 @@ export type InviteStartOutcome =
   | { kind: 'rejected' } // bad token OR wrong address — deliberately not separated
   | { kind: 'unreachable' };
 
+/**
+ * ⭐ W36 / feature 041 — asking for a recovery link.
+ *
+ * ⚠️ **There is deliberately NO `rejected` and no `sent_to_unknown`.** The endpoint answers a stranger
+ * identically whatever the truth is, so the only outcomes a client can observe are «the product accepted
+ * my request» and «I could not ask». A vocabulary with a rejection in it would invite a screen to render
+ * one, and that screen would be a directory of who works here.
+ */
+export type RecoveryRequestOutcome = { kind: 'accepted' } | { kind: 'unreachable' };
+
+/**
+ * ⭐ W36 / feature 041 — using the link. ⛔ Note the absence of an `ok` that carries a session: setting a
+ * password does not sign anybody in (FR-009), so there is no state here for a screen to mistake for one.
+ */
+export type RecoveryCompleteOutcome =
+  | { kind: 'ok'; revokedCount: number }
+  | { kind: 'gone' } // expired or already used — one fact to the person holding it: ask for another
+  | { kind: 'rejected' } // not a usable token
+  | { kind: 'weak_password'; failures: string[] }
+  | { kind: 'not_eligible' }
+  | { kind: 'unreachable' };
+
 export type InviteCompleteOutcome =
   | { kind: 'ok' }
   | { kind: 'weak_password' }
@@ -77,6 +99,19 @@ export interface Session {
    */
   resolve(): Promise<SessionState>;
   signIn(email: string, password: string): Promise<SignInOutcome>;
+  /** ⭐ W36 / 041 — ask for a recovery link. Answers the same thing whatever the truth is. */
+  requestRecovery(email: string): Promise<RecoveryRequestOutcome>;
+  /** ⭐ W36 / 041 — set a password from a link. ⛔ Never returns a session. */
+  completeRecovery(token: string, password: string): Promise<RecoveryCompleteOutcome>;
+  /**
+   * ⭐ W36 / 041 — change your own password, knowing the current one.
+   *
+   * ⓘ It REUSES `RecoveryCompleteOutcome` rather than declaring a twin, and that is honest rather than
+   * lazy: it is the same write with the same answers — `ok` with a session count, `rejected` for the wrong
+   * current password, `weak_password`, `not_eligible`, `unreachable`. Only `gone` cannot occur, and a
+   * variant that cannot occur is cheaper to leave unreachable than to fork a vocabulary over.
+   */
+  changePassword(currentPassword: string, newPassword: string): Promise<RecoveryCompleteOutcome>;
   submitCode(challengeId: string, code: string, rememberMe: boolean): Promise<CodeOutcome>;
   startInvite(token: string, email: string): Promise<InviteStartOutcome>;
   completeInvite(
@@ -128,12 +163,27 @@ export const INVITE_COMPLETE_OUTCOME_KINDS = [
   'unreachable',
 ] as const satisfies readonly InviteCompleteOutcome['kind'][];
 
-/** Every outcome vocabulary, so "each one offers `unreachable`" is one assertion over all of them. */
+export const RECOVERY_REQUEST_OUTCOME_KINDS = [
+  'accepted',
+  'unreachable',
+] as const satisfies readonly RecoveryRequestOutcome['kind'][];
+
+export const RECOVERY_COMPLETE_OUTCOME_KINDS = [
+  'ok',
+  'gone',
+  'rejected',
+  'weak_password',
+  'not_eligible',
+  'unreachable',
+] as const satisfies readonly RecoveryCompleteOutcome['kind'][];
+
 export const OUTCOME_KIND_SETS = {
   signIn: SIGN_IN_OUTCOME_KINDS,
   submitCode: CODE_OUTCOME_KINDS,
   startInvite: INVITE_START_OUTCOME_KINDS,
   completeInvite: INVITE_COMPLETE_OUTCOME_KINDS,
+  requestRecovery: RECOVERY_REQUEST_OUTCOME_KINDS,
+  completeRecovery: RECOVERY_COMPLETE_OUTCOME_KINDS,
 } as const;
 
 /**
@@ -159,6 +209,16 @@ export type KindListsAreComplete = {
   completeInvite: Missing<
     InviteCompleteOutcome['kind'],
     (typeof INVITE_COMPLETE_OUTCOME_KINDS)[number]
+  >;
+  // ⭐ W36 / 041 — the two recovery vocabularies join the same completeness assertion, so a variant
+  // added to either union without being listed stops compiling and NAMES itself.
+  requestRecovery: Missing<
+    RecoveryRequestOutcome['kind'],
+    (typeof RECOVERY_REQUEST_OUTCOME_KINDS)[number]
+  >;
+  completeRecovery: Missing<
+    RecoveryCompleteOutcome['kind'],
+    (typeof RECOVERY_COMPLETE_OUTCOME_KINDS)[number]
   >;
 } extends Record<string, never>
   ? true

@@ -7,6 +7,8 @@ import type {
   Session,
   SessionState,
   SignInOutcome,
+  RecoveryRequestOutcome,
+  RecoveryCompleteOutcome,
 } from './session';
 
 /**
@@ -45,6 +47,82 @@ export class GatewaySession implements Session {
     const res = await this.send({ path: '/auth/me' });
     this.current = this.stateFor(res);
     return this.current;
+  }
+
+  /**
+   * ⭐ W36 / feature 041 — ask for a recovery link.
+   *
+   * ⚠️ **`accepted` is the only success and there is no rejection**, because the endpoint answers a
+   * stranger identically whatever the truth is. A `rejected` here would be a vocabulary inviting a screen
+   * to render one, and that screen would tell the internet which addresses belong to staff. The only other
+   * outcome is «I could not ask», which is about the request and never about the address.
+   */
+  async requestRecovery(email: string): Promise<RecoveryRequestOutcome> {
+    const res = await this.send({ path: '/auth/recovery', method: 'POST', body: { email } });
+    if (this.failedToAsk(res)) return { kind: 'unreachable' };
+    return res.status === 202 ? { kind: 'accepted' } : { kind: 'unreachable' };
+  }
+
+  /**
+   * ⭐ W36 / feature 041 — set a password from the link.
+   *
+   * ⛔ Returns **no session**: recovery proves a mailbox and sets a password, and the two-step login still
+   * runs afterwards (FR-009). `revokedCount` travels so the screen can say how many sessions ended rather
+   * than promising «everywhere», which has a ~15-minute bound.
+   */
+  async completeRecovery(token: string, password: string): Promise<RecoveryCompleteOutcome> {
+    const res = await this.send({
+      path: '/auth/recovery/complete',
+      method: 'POST',
+      body: { token, password },
+    });
+    if (this.failedToAsk(res)) return { kind: 'unreachable' };
+    const body = res.body as { outcome?: unknown; revokedCount?: unknown; failures?: unknown };
+    if (res.status === 200 && body?.outcome === 'ok') {
+      return { kind: 'ok', revokedCount: typeof body.revokedCount === 'number' ? body.revokedCount : 0 };
+    }
+    // 410 covers both «expired» and «already used» — one fact to the person holding the link.
+    if (res.status === 410) return { kind: 'gone' };
+    if (res.status === 422) {
+      return {
+        kind: 'weak_password',
+        failures: Array.isArray(body?.failures) ? body.failures.map(String) : [],
+      };
+    }
+    if (res.status === 403) return { kind: 'not_eligible' };
+    if (res.status === 400) return { kind: 'rejected' };
+    return { kind: 'unreachable' };
+  }
+
+  /**
+   * ⭐ W36 / feature 041 — change your own password.
+   *
+   * ⚠️ The gateway clears the session cookies on success (the caller's own session is among the revoked),
+   * so the screen must send the person to sign in rather than show them a shell whose every renewal is
+   * already dead. A wrong CURRENT password arrives as 401 and maps to `rejected` — the same word a wrong
+   * password gets at sign-in, because it is the same fact.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<RecoveryCompleteOutcome> {
+    const res = await this.send({
+      path: '/auth/password',
+      method: 'POST',
+      body: { currentPassword, newPassword },
+    });
+    if (this.failedToAsk(res)) return { kind: 'unreachable' };
+    const body = res.body as { outcome?: unknown; revokedCount?: unknown; failures?: unknown };
+    if (res.status === 200 && body?.outcome === 'ok') {
+      this.current = { kind: 'anonymous' };
+      return { kind: 'ok', revokedCount: typeof body.revokedCount === 'number' ? body.revokedCount : 0 };
+    }
+    if (res.status === 401) return { kind: 'rejected' };
+    if (res.status === 422) {
+      return {
+        kind: 'weak_password',
+        failures: Array.isArray(body?.failures) ? body.failures.map(String) : [],
+      };
+    }
+    if (res.status === 403) return { kind: 'not_eligible' };
+    return { kind: 'unreachable' };
   }
 
   async signIn(email: string, password: string): Promise<SignInOutcome> {

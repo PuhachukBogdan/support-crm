@@ -19,6 +19,9 @@ import { RefreshService } from './refresh.service';
 import { LockoutService } from './lockout.service';
 import { OnboardingService } from './onboarding.service';
 import { InviteService } from './invite.service';
+import { AuditRepository } from '../audit/audit.repository';
+import { PasswordService } from './password.service';
+import { RecoveryService } from './recovery.service';
 import { RegistrationService } from './registration.service';
 import { RateLimiter } from './rate-limiter';
 import { AuthGrpcController } from './auth.grpc.controller';
@@ -59,6 +62,14 @@ import { AuthGrpcController } from './auth.grpc.controller';
     LockoutService,
     OnboardingService,
     InviteService,
+    // ⭐ W36 / 041: the ONE password writer and the recovery flow. Both registered here so the
+    // controller can be constructed at all — W31 shipped an auth service that would not BOOT because a
+    // provider was missing from a module and every spec builds its subject by hand.
+    // ⚠️ The trail's writer, provided HERE because the password write and its audit entry are one act
+    // — the boot spec caught its absence, which is exactly the failure W31 added that spec for.
+    AuditRepository,
+    PasswordService,
+    RecoveryService,
     RegistrationService,
     RateLimiter,
   ],

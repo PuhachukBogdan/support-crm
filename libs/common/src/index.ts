@@ -43,6 +43,11 @@ export * from './channels';
 // TICKET fields on `Conversation`, never `Player.custom_attributes` (the customer's tiered
 // portfolio data) — "the roadmap-4.15 failure shape" was exactly that confusion.
 export * from './fields';
+// Feature 041 (W36, roadmap 3.18): the closed vocabulary of why a password recovery ended as it did.
+// ⚠️ Shared because it is the ONE place that truth exists — the product answers a stranger identically
+// whatever happened, so the trail is the only witness, and a free-text reason would make it unqueryable
+// exactly where it is the only witness.
+export * from './auth';
 // Feature 040 (W35): the contact-shaped-text detector for player notes — the masking-bypass channel
 // R35 named. ⚠️ Deliberately NOT `looksLikePersonalData` from `./audit/detail.ts`: that one refuses a
 // write and must be conservative, this one warns an author and may be generous. Same subject, opposite

@@ -5,6 +5,7 @@ import type {
   EmailTxClient,
   OutboundInvite,
   OutboundLoginCode,
+  OutboundRecovery,
 } from '../ports/email.port';
 import { OutboundEmailService } from './outbound-email.service';
 
@@ -58,6 +59,23 @@ export class QueueingEmailAdapter implements EmailPort {
       to: message.to,
       purpose: 'invitation',
       payload: { inviteToken: message.inviteToken },
+      expiresAt: message.expiresAt,
+    });
+    this.fireAndForget(id);
+  }
+
+  /**
+   * ⭐ W36 / 041 — the recovery link. Third purpose through the SAME pipeline: an outbox row inside the
+   * caller's transaction, then a nudge. That sameness is what lets the block claim «the mechanism is
+   * complete, only the sender domain waits on Q38» — the interceptor and a real relay differ in nothing
+   * but destination.
+   */
+  async sendRecovery(message: OutboundRecovery, tx?: EmailTxClient): Promise<void> {
+    const id = await this.outbox.enqueue(tx ?? (this.prisma as unknown as EmailTxClient), {
+      accountId: message.accountId,
+      to: message.to,
+      purpose: 'recovery',
+      payload: { recoveryToken: message.recoveryToken },
       expiresAt: message.expiresAt,
     });
     this.fireAndForget(id);

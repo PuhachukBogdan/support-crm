@@ -38,6 +38,7 @@ model User {
   permissionSet     UserPermissionSet? // feature 011 — copy-on-write personalization state
   permissionEntries UserPermissionEntry[] // feature 011 — standalone snapshot rows
   groups            GroupMember[] // feature 024 — the units this person belongs to
+  recoveryTokens    RecoveryToken[] // W36 / 041 — mailbox-control proofs, one live at a time
 
   @@unique([account_id, email])
   @@index([account_id])
@@ -108,7 +109,14 @@ model LoginCode {
   user_id      String
   challenge_id String    @unique // opaque handle returned by Login; presented to VerifyLoginCode.
   code_hash    String // argon2id hash of the N-char code.
-  purpose      String    @default("login_2fa") // login_2fa | activation | registration (010); recovery reserved.
+  /// login_2fa | activation | registration (010).
+  ///
+  /// ⚠️ **`recovery` was reserved here and is now DEAD — do not take it up** (W36 / 041). This model's
+  /// verifier mints a session, so a recovery secret stored here would be one forgotten `purpose` check
+  /// away from a password-free login. Roadmap 3.18 requires a token *distinct from the login code*, and
+  /// it lives in `RecoveryToken`. Merging the two later would look like tidying and would be a
+  /// regression; the reason is recorded here so it is read before that happens.
+  purpose      String    @default("login_2fa")
   expires_at   DateTime // now + CODE_TTL; expired codes refused.
   attempts     Int       @default(0) // wrong entries; at CODE_MAX_ATTEMPTS the challenge is dead.
   consumed_at  DateTime? // set on success → single-use.
@@ -191,6 +199,53 @@ model SuperadminWhitelist {
 /// only in the emailed link; at rest we keep an argon2id hash. Registration email MUST match `email`.
 /// role_key is never "super_admin" (super-admins originate only from the whitelist). Lookup-by-token
 /// at registration is a pre-account bootstrap read via the RAW client.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// ⭐ W36 / feature 041 (roadmap 3.18) — PROOF OF MAILBOX CONTROL, and nothing else.
+///
+/// ⚠️ **Deliberately NOT `LoginCode` with `purpose: 'recovery'`**, although that value is reserved in
+/// that model's own comment (see it — the reservation is marked dead there now). `VerifyLoginCode`
+/// **MINTS A SESSION**; a recovery secret living in that table is one forgotten `purpose` check away
+/// from being a password-free login. A separate table makes it **inexpressible** to that verifier —
+/// the difference between a rule that is policed and one that cannot be broken. Roadmap 3.18 states
+/// it outright: *«a SECOND single-use emailed token… distinct from the login code — reusing that one
+/// would let a recovery link authenticate»*.
+///
+/// ⚠️ **No `email` column.** The address is reachable through `user_id`; a copy here would be a second
+/// place a contact value lives (SEC-26), and the trail carries only its salted hash.
+///
+/// ⚠️ **One live token per person is enforced by the WRITE, not by a unique index** — issuing voids the
+/// previous one. History stays, the same additive rule `PlayerAssignment` follows: a dead link must be
+/// able to say WHY it died, and a deleted row answers «there was never one».
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+model RecoveryToken {
+  id         String @id @default(uuid()) // public half of "<id>.<secret>"
+  account_id String
+  user_id    String
+
+  /// argon2id hash of the secret. The clear value exists in exactly one place — inside the emailed
+  /// link — and for exactly one journey (`render.ts`'s rule: the token appears ONLY in the link).
+  token_hash String
+
+  expires_at DateTime
+  /// Wrong secrets against THIS token. At the cap the token is dead — a per-address limiter cannot
+  /// express that, which is why the counter is on the row.
+  attempts   Int      @default(0)
+  /// Set when a password is actually set → single-use.
+  consumed_at DateTime?
+  /// Why it stopped being usable WITHOUT being consumed: `superseded` (a newer request) or `revoked`.
+  /// Never a reason a requester learns — this is for the trail's reader.
+  voided_at    DateTime?
+  voided_cause String?
+
+  created_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([account_id])
+  @@index([expires_at])
+}
+
 model Invitation {
   id          String    @id @default(uuid()) // public half of "<id>.<secret>".
   account_id  String // the account the invitee joins.

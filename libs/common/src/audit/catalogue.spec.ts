@@ -28,7 +28,19 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // + staffing (W31/038: acts upon a colleague's ACCOUNT by a machine holding a key — hiring,
     //   offboarding, the work handover and every refusal; the one class whose actor is not a person)
     expect([...AUDIT_CLASSES].sort()).toEqual(
-      ['access', 'assignment', 'deletion', 'export', 'lifecycle', 'privilege', 'retention', 'staffing'].sort(),
+      // + authentication (W36/041, roadmap 3.18: «who tried to become this person, and did they succeed»
+      //   — the catalogue had NO authentication actions at all, and no existing class asks that question)
+      [
+        'access',
+        'assignment',
+        'authentication',
+        'deletion',
+        'export',
+        'lifecycle',
+        'privilege',
+        'retention',
+        'staffing',
+      ].sort(),
     );
   });
 
@@ -144,6 +156,13 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // anyway. Live with its writer, like the 038 set above. ⚠️ An ORDINARY note writes nothing: the row
     // is append-only and signed, so it is its own record (the catalogue entry states the reasoning).
     'player.note_flagged',
+    // ⭐ W36 / 041 (roadmap 3.18) — the account-takeover path. All four live with their writer; the
+    // REFUSALS are the ones the trail exists for, since the product answers a stranger identically
+    // whatever the truth is.
+    'recovery.requested',
+    'recovery.completed',
+    'recovery.refused',
+    'password.changed',
   ];
 
   it('every action resolves to a class and a writer', () => {
@@ -289,6 +308,19 @@ describe('actionsOfClass', () => {
       // question is the same one — did a protected contact detail move somewhere usable — and a note is
       // simply the free-text route to it (R35). Splitting it off would split one reviewable filter.
       ['contact.reveal', 'record.open', 'audit.read', 'contact.lookup', 'player.note_flagged'].sort(),
+    );
+  });
+
+  /**
+   * ⭐ W36 / 041 — the new class, asserted as an exact set.
+   *
+   * Four members and one reader: *«did somebody attempt to become this person, and did they succeed?»*
+   * That is what makes them a class rather than four strays filed under `access` — and the assertion is
+   * exact so a fifth cannot arrive without somebody deciding it belongs to this question.
+   */
+  it('groups authentication (a request, a completion, a refusal — and the ordinary change)', () => {
+    expect(actionsOfClass('authentication').sort()).toEqual(
+      ['recovery.requested', 'recovery.completed', 'recovery.refused', 'password.changed'].sort(),
     );
   });
 

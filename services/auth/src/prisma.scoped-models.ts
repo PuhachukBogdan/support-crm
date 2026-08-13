@@ -15,6 +15,10 @@ export const SCOPED_MODELS = [
   // login lookup) — a scoped read would fail-closed with no account context.
   'SuperadminWhitelist',
   'Invitation',
+  // ⭐ W36 / 041: proof of mailbox control. Scoped for the same reason `LoginCode` is — it is a
+  // credential-adjacent secret belonging to one tenant's person, and a read that crossed the tenancy
+  // wall here would hand somebody another account's route to a password.
+  'RecoveryToken',
   // Feature 011 (RBAC). Only the tables that declare account_id are enrolled; the join/child
   // tables (RolePermission, UserPermissionEntry) carry no account_id and are scoped via their
   // in-schema parents (Role / User + Permission) — like UserRole.

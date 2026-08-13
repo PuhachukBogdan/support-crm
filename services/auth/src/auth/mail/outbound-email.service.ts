@@ -3,7 +3,7 @@ import { AUTH_CONFIG, type AuthConfig } from '../../config';
 import { PrismaService } from '../../prisma.service';
 import { CLOCK, type Clock } from '../ports/clock';
 import { MAIL_TRANSPORT, MailSendError, type MailTransport } from './mail-transport';
-import { renderInvitation, renderLoginCode, type RenderContext } from './render';
+import { renderInvitation, renderLoginCode, renderRecovery, type RenderContext } from './render';
 
 /**
  * The outbox (feature 028, data-model §2).
@@ -37,7 +37,7 @@ const STALE_CLAIM_MS = 120_000;
 export interface EnqueueInput {
   accountId: string;
   to: string;
-  purpose: 'login_code' | 'invitation';
+  purpose: 'login_code' | 'invitation' | 'recovery';
   payload: Record<string, unknown>;
   expiresAt: Date;
 }
@@ -207,6 +207,12 @@ export class OutboundEmailService {
     }
     if (row.purpose === 'invitation') {
       return renderInvitation({ inviteToken: String(payload.inviteToken), expiresAtMs }, ctx);
+    }
+    // ⭐ W36 / 041: the recovery link. Third purpose, same pipeline — the interceptor on the stand and a
+    // real relay differ in nothing but destination, which is what makes «the mechanism is complete while
+    // Q38 is open» an honest claim rather than a hope.
+    if (row.purpose === 'recovery') {
+      return renderRecovery({ recoveryToken: String(payload.recoveryToken), expiresAtMs }, ctx);
     }
     throw new Error(`unknown purpose: ${row.purpose}`);
   }

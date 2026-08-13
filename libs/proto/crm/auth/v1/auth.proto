@@ -42,6 +42,25 @@ service AuthService {
   // FAILS if the rpc ever gains a handler while the marker is still here.
   rpc ResendLoginCode(ResendLoginCodeRequest) returns (LoginChallenge);
 
+  // ── ⭐ W36 / feature 041 (roadmap 3.18 + 8.11): password recovery and change. ADDITIVE. ──────────
+  //
+  // ⚠️ **`RequestPasswordRecovery` ALWAYS answers the same thing** — the same shape for a known address,
+  // an unknown one, a person with no password yet, a deactivated person and a rate-capped request. A
+  // form that varies is a directory of who works here, published to the internet. The difference exists
+  // in the audit trail and nowhere else.
+  //
+  // ⚠️ **`CompletePasswordRecovery` RETURNS NO SESSION**, and that absence is the requirement, not an
+  // omission: the block's own «двухшаговый вход этим не обходится». A link that both set a password and
+  // issued a session would make the email a complete authentication factor by itself. It overrides
+  // roadmap 8.11's «and signs them in», deliberately and in writing (spec 041, FR-009).
+  rpc RequestPasswordRecovery(RequestPasswordRecoveryRequest) returns (RequestPasswordRecoveryResult);
+  rpc CompletePasswordRecovery(CompletePasswordRecoveryRequest) returns (CompletePasswordRecoveryResult);
+  // ⛔ There is deliberately NO `ResetPasswordFor(user_id)`. Re-invitation covers the operational need;
+  // a «set somebody's password» verb is the one capability that turns an administrator compromise into
+  // every account. Its absence is the control, and `tests/auth/password-single-writer.spec.ts` fails if
+  // one appears under any spelling.
+  rpc ChangeOwnPassword(ChangeOwnPasswordRequest) returns (ChangeOwnPasswordResult);
+
   // Exchange a refresh token for a new pair (token expiry — SEC-4/5); rotates the refresh.
   rpc Refresh(RefreshRequest) returns (TokenPair);
 
@@ -883,4 +902,69 @@ message DisabledStaffMember {
 
 message ListDisabledStaffResult {
   repeated DisabledStaffMember staff = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ⭐ W36 / feature 041 — password recovery and change (roadmap 3.18 + 8.11).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+message RequestPasswordRecoveryRequest {
+  string email = 1;
+  // The requester's address, for the per-source limit. Set by the GATEWAY from the connection, never by
+  // the caller — a client-supplied value would make the limit self-service.
+  string source_ref = 2;
+}
+
+// ⚠️ EMPTY ON PURPOSE, and the emptiness IS the security property.
+//
+// There is no `sent`, no `found`, no `existed`, and there must never be one: a field that varied with
+// whether the address exists would turn the form into a directory of who works here. The rpc answers «I
+// have handled your request» and answers it identically when it queued no mail, when the person has no
+// password yet, when they may no longer sign in, and when the rate limit refused them. The difference
+// lives in the audit trail (`recovery.requested` + `reasonClass`) and nowhere else.
+message RequestPasswordRecoveryResult {}
+
+message CompletePasswordRecoveryRequest {
+  string token = 1;    // "<id>.<secret>", exactly as it appeared in the emailed link
+  string password = 2; // the new one; validated against the existing policy
+}
+
+enum RecoveryOutcome {
+  // ⚠️ The wire drops zero values, so an absent outcome arrives as UNSPECIFIED and MUST be treated as a
+  // failure — never as success (`gotchas/grpc-wire-encoding-enums-longs`, the fourth instance).
+  RECOVERY_OUTCOME_UNSPECIFIED = 0;
+  RECOVERY_OUTCOME_OK = 1;
+  // Unknown id, wrong secret, or the attempt cap reached — one answer, because telling them apart
+  // narrows a guess.
+  RECOVERY_OUTCOME_BAD_TOKEN = 2;
+  RECOVERY_OUTCOME_EXPIRED = 3;
+  RECOVERY_OUTCOME_ALREADY_USED = 4;
+  RECOVERY_OUTCOME_WEAK_PASSWORD = 5; // `failures` names which rules, from the policy's own vocabulary
+  RECOVERY_OUTCOME_NOT_ELIGIBLE = 6;  // deactivated, or no credential to replace
+}
+
+message CompletePasswordRecoveryResult {
+  RecoveryOutcome outcome = 1;
+  // How many renewable sessions died. ⚠️ A NUMBER rather than a promise: «signed out everywhere» has a
+  // bound — an access token already in a browser lives out its ~15 minutes — and a promise without a
+  // number is how that bound gets forgotten.
+  int32 revoked_count = 2;
+  // Which policy rules failed (`min_length | uppercase | digit | symbol`). Never the password.
+  repeated string failures = 3;
+  // ⛔ NO session, NO access token, NO refresh token — see the rpc's comment. FR-009.
+}
+
+message ChangeOwnPasswordRequest {
+  // ⚠️ NO `user_id`, and the absence is the least-privilege bar — the same construction
+  // `EnsureOwnOperator` and `SetMyAvatar` use. The subject is the CALLER, taken from the validated
+  // metadata; a field naming somebody else would make this an administrator's password reset, which this
+  // product deliberately does not have.
+  string current_password = 1;
+  string new_password = 2;
+}
+
+message ChangeOwnPasswordResult {
+  RecoveryOutcome outcome = 1; // OK | BAD_TOKEN (wrong current password) | WEAK_PASSWORD | NOT_ELIGIBLE
+  int32 revoked_count = 2;     // includes the caller's own session — the screen must send them to sign in
+  repeated string failures = 3;
 }

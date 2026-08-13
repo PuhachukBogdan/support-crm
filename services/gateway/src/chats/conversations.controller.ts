@@ -40,6 +40,8 @@ interface ChatsReadGrpc {
   getConversation(d: { id: string }, md?: unknown): Observable<ConversationWire>;
   // Feature 032 (roadmap 4.16): the account's configured statuses, read once per screen.
   listConversationStatuses(d: Record<string, never>, md?: unknown): Observable<unknown>;
+  // Feature 033 (roadmap 6.6): the capability matrix. Product facts, no account in the request.
+  getChannelCapabilities(d: Record<string, never>, md?: unknown): Observable<unknown>;
 }
 interface ChatsWriteGrpc {
   setConversationStatus(
@@ -154,6 +156,24 @@ export class ConversationsController implements OnModuleInit {
   @RequiresPermission('crm.inbox.view')
   async statuses(@Req() req: ChatsReq) {
     return callChats(this.read.listConversationStatuses({}, this.meta(req)));
+  }
+
+  /**
+   * ⭐ Feature 033 (roadmap 6.6) — `GET /conversations/channel-capabilities`: what each channel kind can do.
+   *
+   * ⚠️ **ABOVE `:id`, for the reason the route above states**, and under `/conversations` rather than at
+   * `/channels/…` deliberately: `/channels/:key/inbound` is the PUBLIC intake route, which is `@Public()`
+   * and authenticated by a signature. Hanging an authenticated read off the same prefix would put two
+   * completely different authentication stories under one path — the arrangement in which somebody
+   * eventually makes the wrong one apply.
+   *
+   * Static product facts, not account configuration, and gated on `crm.inbox.view` like the catalogue
+   * above: reading the vocabulary the inbox is described with is the same fact class as reading the inbox.
+   */
+  @Get('channel-capabilities')
+  @RequiresPermission('crm.inbox.view')
+  async channelCapabilities(@Req() req: ChatsReq) {
+    return callChats(this.read.getChannelCapabilities({}, this.meta(req)));
   }
 
   @Get(':id')

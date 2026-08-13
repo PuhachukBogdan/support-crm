@@ -106,3 +106,28 @@ and font-size step. **Not** `Player.preferences_json`, which is customer data.
   the case. The decorator itself is pinned by a test, over a route list derived from the controller.
 - **Not "no authorization"**: the global AuthGuard still requires a session. What is absent is a
   *permission* check, because no permission gates a person's own font size (ADR 0035's hard boundary).
+
+## The channel intake route (feature 033, roadmap 6.1)
+
+`POST /channels/:key/inbound` - `@Public()`, and the only public write route in the product.
+
+**The gateway's entire job here is routing:** preserve the raw bytes, pass them plus the signature header
+and the channel key to chats, map the outcome to a status code. No parsing, no validation, no business
+logic - it holds no channel secret and performs no verification.
+
+⚠️ **`NestFactory.create(AppModule, { rawBody: true })` is a bootstrap change this route depends on.** A
+signature is over bytes; parse-then-re-serialise produces a different byte string and **every** signature
+fails - and the symptom reads as *"the provider signs wrongly"*. `channels/raw-body.spec.ts` asserts a
+byte-exact round trip.
+
+| Outcome | Status |
+|---|---|
+| accepted, durable before the response | `202` |
+| already accepted (a replay) | `200` - **not** an error, or the provider retries for ever |
+| signature absent, malformed or not verifying; outside the replay window | `401` |
+| unknown **or disabled** channel key | `404` - the same shape for both, so a retired key is not confirmable |
+| no derivable event id; missing what a ticket needs | `422` |
+
+`GET /conversations/channel-capabilities` is the authenticated counterpart (`crm.inbox.view`), kept under
+`/conversations` on purpose: hanging an authenticated read off `/channels/...` would put two different
+authentication stories under one path.

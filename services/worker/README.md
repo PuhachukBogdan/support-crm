@@ -119,3 +119,39 @@ watch the sweep on a test box: `SLA_SWEEP_INTERVAL_MS=5000` + `docker compose lo
   logs are therefore safe by construction, with no PII to scrub (Principle IV).
 - No outbound/external network calls exist here yet. When they arrive (email, webhooks — 7.3) they must go
   through the SSRF-protecting egress path and the allow-list (Principle III / roadmap 12.5).
+
+## The channel mailbox and the sender's clock (feature 033, roadmap 6.4/6.5)
+
+Two things live here, and they are different shapes:
+
+**`ImapReaderService` - a PERSISTENT connection, not a tick.** The mailbox *tells* us mail arrived (IMAP
+`IDLE`), because the operator asked for real time by name. A BullMQ repeatable job fires once across
+replicas, which is right for a tick and meaningless for a socket - every replica would open its own IDLE.
+So exactly one replica holds it, decided by a **Redis lease** (`SET NX PX`, renewed).
+
+⚠️ **The lease is an efficiency device, not the correctness device.** At-most-once is
+`@@unique([account_id, external_id])` on the message row: if two replicas ever race - a lock expiring
+under a long GC pause is the ordinary way - the second insert loses and the customer's message still
+appears once. The opposite design ("the lease guarantees single delivery") is how a lock expiry becomes a
+duplicated customer message, and it fails in production and never in a test.
+
+⚠️ **The egress guard runs before any socket is opened** (`MAIL_ALLOWED_HOSTS`) - the harm *is* the
+connection, so `imap-egress.spec.ts` counts constructions rather than errors.
+
+⚠️ **One poisonous message may never stop the intake.** Every message is handled inside its own `try`; an
+unparseable one is refused, counted, marked seen (so a loop is not re-read for ever) and the next is
+taken in. A refusal chats calls **retryable** is left UNREAD instead, so the next pass succeeds once the
+dependency is back.
+
+**`InboundMailSweepJob` - the safety net, never the delivery path.** For a dropped connection, a process
+that died mid-batch, or a message that landed during a restart. It sweeps the reader's **live** connection
+rather than opening a second one. Anything it takes in is a message the push path missed, so it logs at
+WARN: silence is the healthy state.
+
+**`OutboundTickJob`** says "now" and nothing else. chats holds the outbox, fetches the envelope and opens
+the connection; a batch size out, three counts back - never a recipient, a subject or a body.
+
+**`ResolveIntakeChannel`** is asked once per channel key: the worker knows only the key, and uploading a
+customer's attachment needs an ACCOUNT. Deliberately not a `CHANNEL_ACCOUNT_ID` env var - a configured
+copy of what the `Channel` row states can disagree with it, and the disagreement puts one tenant's files
+in another tenant's storage.

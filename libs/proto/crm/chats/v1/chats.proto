@@ -264,6 +264,12 @@ service ChatsReadService {
   // a conversation still sitting in a retired status would render with no label at all.
   rpc ListConversationStatuses(Empty) returns (ConversationStatusList);
 
+  // ⭐ Feature 033 (roadmap 6.6) — the capability matrix, as an answer. Static product facts rather than
+  // account configuration; W6's filters, W7's reply box and the analytics split all stand on it, and every
+  // future channel arrives as a ROW rather than a branch. Gated by `crm.inbox.view`, like the catalogue
+  // above and for the same reason.
+  rpc GetChannelCapabilities(Empty) returns (ChannelCapabilityList);
+
   // ── ⭐ Feature 033 (roadmap 6.6, subpoint 2.1e) — what each channel kind can do ──────────────────
   //
   // *"Can we send on this kind right now, and what kind of message?"* — asked BEFORE anything is offered,
@@ -300,6 +306,15 @@ message ChannelCapability {
   // (subpoint 2.1i, vendor question O1). A send is refused as unavailable — never a crash, never a
   // silent no-op.
   bool live_transport = 6;
+  /**
+   * ⭐ Added mid-feature, because `live_transport` turned out to mean two things (US4).
+   *
+   * `live_transport` answers *is this kind connected at all* — the API channel is, and takes work in every
+   * day. `outbound_transport` answers *can we carry a message OUT on it*, and for `api` that is FALSE: the
+   * transport back is the customer's open page, not an address we hold. The send gate reads THIS one; a
+   * consumer deciding whether to offer a reply box must too.
+   */
+  bool outbound_transport = 7;
 }
 
 // The closed channel vocabulary (`libs/common/src/channels/kinds.ts`).

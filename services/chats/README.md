@@ -678,3 +678,60 @@ and corrigible by a supervisor. `SetConversationBrand`, gated by **`crm.conversa
 
 ⚠️ Brand is still **not** an authorization wall (ADR 0038 §1) — nobody is refused a conversation because of
 its brand. This key gates the WRITE only.
+
+## Channels: intake, threading and the reply out (feature 033, roadmap 6.1/6.4/6.5/6.6)
+
+**The first write path in the product a stranger can reach.** Everything before it was reached by
+somebody holding a session; `POST /channels/:key/inbound` is reached by whoever knows the URL.
+
+**Three properties, each structural rather than procedural:**
+
+- **The credential decides the tenant.** Account and brand come from the `Channel` row the key named,
+  never from the payload. A body claiming a brand is data, not authority.
+- **At-most-once is a constraint, not care.** `@@unique([channel_id, external_event_id])` for a webhook,
+  `@@unique([account_id, external_id])` for an email's `Message-ID`, `@@unique([message_id])` for a
+  delivery. The ledger **inserts first** and reads `P2002` as *already accepted*.
+- **A refusal writes nothing** - no conversation, no message, no upload. Only a ledger row carrying a
+  refusal CLASS, because a refusal that leaves no trace is indistinguishable from a delivery that never
+  arrived, and those have opposite causes.
+
+⚠️ **Every deterministic refusal happens BEFORE the claim, and the ordering is load-bearing.** A claim
+followed by a refusal answers every later retry *"duplicate"* - so the customer's message is lost while
+the provider is satisfied and nothing is red. A write that throws after the claim **releases** it
+(`IntakeLedger.release`).
+
+### Where a reply belongs (`threading.ts`)
+
+Matched only on identifiers **we ourselves stored** - never on the subject line, the sender's address or
+recency. Those are the "nearest guess" FR-031 forbids, and each of them is *usually* right, which is what
+makes them dangerous: a missed stitch is a new ticket somebody notices, a wrong stitch puts one
+customer's words into another conversation and looks like it worked. Brand-scoped as well as
+account-scoped.
+
+### A reply on a finished ticket (`reopen.ts`)
+
+The **category** decides, never a status word: `solved` reopens into a non-terminal status from the
+account's own catalogue (and the reopen is audited - a state change nobody authorised); `closed` stays
+closed and the reply becomes a new ticket carrying `continues_conversation_id`. Read from
+`STATUS_CATEGORIES[c].reopenOnCustomerReply`, which is where that rule lives as data.
+
+### The customer's address is NOT here
+
+`users` owns it. This service holds an opaque `channel_participant_id`, fetches the envelope from
+`users` at send time, and has **no column an address could go into** -
+`tests/channels/constraints-033.spec.ts` asserts that, so the property survives the next schema edit.
+
+### The outbox (`outbound.repository.ts` / `outbound.service.ts`)
+
+Feature 028's claim-and-lease in this service's own store, with two deliberate deltas:
+**`next_attempt_at` exists** (028 retries on the very next tick with no growing gap) and **the recipient
+is neither stored nor logged** (028 logs `to=<address>` and is right to - that address is an operator's
+own; here it is a customer's). Sent rows are **deleted**: this is a queue, and the history is the message
+- which is why our `Message-ID` is written to the **message** before the send.
+
+Sending is gated on `canSend` from `libs/common/src/channels/capabilities.ts`, server-side. An interface
+that merely hid a reply box would leave the path reachable.
+
+**Contracts:** [`libs/proto/crm/chats/v1/chats.proto`](../../libs/proto/crm/chats/v1/chats.proto) ·
+**schema:** [`prisma/schema.prisma`](prisma/schema.prisma) ·
+**the matrix:** [`libs/common/src/channels/`](../../libs/common/src/channels/)

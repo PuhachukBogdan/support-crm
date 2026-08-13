@@ -148,11 +148,14 @@ export function canSend(kind: string | null | undefined, ctx: SendContext): Send
 
 /** The whole matrix, for the read RPC the Inbox and analytics will stand on. */
 export function listChannelCapabilities(): ReadonlyArray<
-  ChannelCapability & { kind: ChannelKind; liveTransport: boolean }
+  ChannelCapability & { kind: ChannelKind; liveTransport: boolean; outboundTransport: boolean }
 > {
   return CHANNEL_KINDS.map((kind) => ({
     kind,
     liveTransport: CHANNEL_KIND_SPECS[kind].liveTransport,
+    // ⭐ Both directions, because they differ for `api` and a consumer deciding whether to offer a reply
+    // box needs the OUT one — not the "is this kind connected" one (see `kinds.ts`).
+    outboundTransport: CHANNEL_KIND_SPECS[kind].outboundTransport,
     ...CHANNEL_CAPABILITIES[kind],
   }));
 }

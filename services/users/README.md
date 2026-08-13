@@ -437,3 +437,36 @@ written in the same transaction already says from/to/why.
 requires the absence not be added quietly): no aggregate, dashboard, adherence, occupancy or attendance
 calculation — WFM later *reads the stream*; and no session id, device id or screen/panel telemetry —
 the employee-surveillance question is separate and undecided.
+
+## The channel participant: who wrote, and where to answer (feature 033, roadmap 6.4)
+
+⭐ **This service owns the customer's channel address because it already owns contact values.** Replying
+to an email needs the address the customer wrote **from**; a salted hash cannot give it back, and the
+player's registered address must not stand in for it - they may differ, and answering the wrong one
+delivers a stranger's conversation to somebody.
+
+So `ChannelParticipant.address` is stored **in clear, deliberately**, here, where the masking regime, the
+field-tier policy and `CONTACT_HASH_SALT` already are. `chats` receives an opaque handle. The rejected
+alternative was storing it beside the conversation, which would have made a service with no masking
+regime the owner of a contact value.
+
+**Resolution is conservative by construction** (`channel-participant.service.ts`):
+
+- **brand-scoped** - the same address under another brand is another person until a `Person` link says
+  otherwise;
+- **more than one candidate means nobody**, flagged `ambiguous` so a reader can tell "nobody has this
+  address" from "several do and we declined";
+- **no match means unidentified, stated** - never a generated stand-in name, never `***`;
+- email/phone resolve against **feature 020's `ContactMatch` projection**, reused rather than
+  reimplemented, which is what makes *"no new matching surface over contact values in clear"* true by
+  construction. A platform id resolves by **existence** in `(account, brand)` and gets no envelope row.
+
+⚠️ **The salt is INJECTED (`CONTACT_HASH_SALT` provider), not read per message.** The first draft called
+`loadUsersConfig()` inside the resolution and caught the failure - which meant a deployment with no salt
+would answer every request correctly, keep every test green, and quietly mark every arriving conversation
+as belonging to nobody.
+
+⚠️⚠️ **`GetChannelEnvelope` is the one rpc in the product that returns an unmasked contact value.** Its
+terms: the outbound delivery path only, no gateway route, never logged, account-scoped - and a handle
+from another account answers `NOT_FOUND` rather than an empty envelope, because an empty answer could be
+swept to learn which handles exist elsewhere.

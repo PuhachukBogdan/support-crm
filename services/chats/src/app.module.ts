@@ -70,6 +70,9 @@ import { ChannelRepository } from './channel/channel.repository';
 import { IntakeLedger } from './channel/intake.ledger';
 import { ChannelIntakeService } from './channel/intake.service';
 import { ApiChannelAdapter } from './channel/adapters/api.adapter';
+// ⭐ Feature 033 US5 (roadmap 6.6): the third KIND — its contract and the read every later block stands on.
+import { MessengerChannelAdapter } from './channel/adapters/messenger.adapter';
+import { ChannelCapabilitiesController } from './channel/capabilities.grpc.controller';
 import { CHANNEL_CONFIG, loadChannelConfig } from './config';
 import { StatusReadController } from './status/status.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
@@ -120,6 +123,10 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // with no actor context to read — its caller holds no session, and its authentication is the
     // signature the intake service verifies against the channel's own secret.
     ChannelIngressController,
+    // ⭐ Feature 033 (roadmap 6.6): the capability matrix as an answer. W6's filters, W7's reply box and
+    // W20's analytics all stand on it — and a controller nobody registers answers UNIMPLEMENTED while
+    // looking perfectly healthy (feature 015's single live-only defect).
+    ChannelCapabilitiesController,
   ],
   providers: [
     PrismaService,
@@ -137,6 +144,9 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     ChannelRepository,
     IntakeLedger,
     ApiChannelAdapter,
+    // The kind and the contract ship; the transport does not (2.1i / O1). It states that it cannot send
+    // rather than throwing or silently succeeding — see the adapter's own header.
+    MessengerChannelAdapter,
     ChannelIntakeService,
     // US2 (roadmap 6.4): where a reply belongs, matched only on identifiers we ourselves stored.
     ThreadResolver,

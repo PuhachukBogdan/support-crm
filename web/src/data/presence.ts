@@ -21,8 +21,9 @@
  * §7, `GET /presence/labels`). This file originally wrote `label: 'Break'` for `away`, and
  * `tests/contracts/presence-label-never-branched-on.spec.ts` failed exactly as designed: *"The seed
  * may name them; the product may not. A literal here is how an editable word quietly becomes a
- * constant."* The wording below is therefore the STATE's own plain word — a fallback for an account
- * that has configured no label — and `usePresenceLabels()` overlays the account's real ones on top.
+ * constant."* The wording below is therefore the STATE's own plain word. The administrator's words
+ * reach the screen as their own menu entries (`usePresencePresets()`, W22-доп) — read at runtime,
+ * never compiled in, and never as a state's name.
  *
  * ⇒ If you are about to type one of those four words here, you are about to re-break that test, and
  * the guard is right: an admin renaming «Break» to «Обед» must change this product's screens, not
@@ -60,10 +61,10 @@ export const PRESENCE_TONE: Readonly<Record<string, string>> = {
  *  · renamed the routing state `transfers_only` to «Meeting» — a REASON standing in for a BEHAVIOUR
  *    («only handed-over work reaches you»), which is a different fact.
  *
- * ⇒ The four states keep their own neutral wording here, and offering the account's presets as extra
- * choices is a separate feature (noted on W22 in the plan), not something to smuggle into a rename.
- * The contract this file broke on its first day is satisfied by the wording above being the STATE's
- * own word rather than a seeded label — not by reading the table.
+ * ⇒ The four states keep their own neutral wording here. The account's presets are offered as extra
+ * choices BELOW them (`use-presence-presets.ts`, built as W22-доп) — each its own entry writing
+ * `{state, labelId}`, never a rename. The contract this file broke on its first day is satisfied by
+ * the wording above being the STATE's own word rather than a seeded label — not by reading the table.
  */
 export function presenceLabel(state: string): string {
   return PRESENCE_CHOICES.find((c) => c.state === state)?.label ?? '';

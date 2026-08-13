@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useDataAccess } from '@/data/provider';
 import { uploadThumbUrl } from '@/data/asset-url';
-import { PRESENCE_CHOICES, PRESENCE_TONE, type PresenceChoice } from '@/data/presence';
+import { PRESENCE_CHOICES, PRESENCE_TONE, presenceLabel, type PresenceChoice } from '@/data/presence';
+import { usePresencePresets, type PresencePreset } from '@/data/use-presence-presets';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,13 @@ import {
  * on the settings page — so this is not new capability, it is capability that had no control. The
  * router (031) reads the same store, which is what makes *«на перерыве — тикеты не приходят»* one
  * fact rather than two.
+ *
+ * ── Presets: the administrator's words, BELOW the states, never AS the states (W22-доп) ──────────
+ * A `PresenceLabel` row is a preset with a reason («Обед», «Совещание»), several per state — live
+ * data has two per state. The first build (2026-08-10) overlaid them onto the four states' names and
+ * was reverted the same day: it dropped one of each pair and renamed a routing behaviour after a
+ * reason. So the presets are their OWN entries: choosing one writes `{state, labelId}` — the router
+ * still reads only the state, and the label rides along as the recorded why (ADR 0042 §7).
  */
 interface OperatorWire {
   operatorId?: string;
@@ -46,6 +54,7 @@ interface OperatorWire {
 }
 interface PresenceWire {
   state?: string;
+  labelId?: string;
 }
 
 /**
@@ -56,8 +65,10 @@ const TONE = PRESENCE_TONE;
 
 export function UserMenu() {
   const dataAccess = useDataAccess();
+  const presets = usePresencePresets();
   const [operator, setOperator] = useState<OperatorWire | null>(null);
   const [presence, setPresence] = useState<string>('');
+  const [labelId, setLabelId] = useState<string>('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -68,7 +79,11 @@ export function UserMenu() {
       .catch(() => alive && setOperator({}));
     void dataAccess
       .get<PresenceWire>('my-presence', '')
-      .then((res) => alive && setPresence(res?.state ?? ''))
+      .then((res) => {
+        if (!alive) return;
+        setPresence(res?.state ?? '');
+        setLabelId(res?.labelId ?? '');
+      })
       .catch(() => alive && setPresence(''));
     return () => {
       alive = false;
@@ -79,26 +94,45 @@ export function UserMenu() {
    * ⚠️ The optimistic write is deliberate and bounded: the badge changes at once, and a failure puts
    * the previous state back. Presence decides whether work reaches this person, so a control that
    * silently kept its old value would be the worst kind of lie here.
+   *
+   * ⓘ A bare state CLEARS the label — the gateway turns the missing `labelId` into `null`, and the
+   * server persists a label-only change (its `unchanged` needs BOTH to match). So «Away» after
+   * «Обед» is a real write, not a no-op, and the ✓ moves with it.
    */
-  const choose = useCallback(
-    async (state: PresenceChoice) => {
-      const previous = presence;
+  const write = useCallback(
+    async (state: PresenceChoice, presetId: string) => {
+      const prev = { presence, labelId };
       setPresence(state);
+      setLabelId(presetId);
       setBusy(true);
       try {
-        await dataAccess.update('my-presence', '', { state });
+        await dataAccess.update(
+          'my-presence',
+          '',
+          presetId ? { state, labelId: presetId } : { state },
+        );
       } catch {
-        setPresence(previous);
+        setPresence(prev.presence);
+        setLabelId(prev.labelId);
       } finally {
         setBusy(false);
       }
     },
-    [dataAccess, presence],
+    [dataAccess, presence, labelId],
   );
+
+  const choose = useCallback((state: PresenceChoice) => write(state, ''), [write]);
+  const choosePreset = useCallback((p: PresencePreset) => write(p.state, p.id), [write]);
 
   const avatarId = operator?.avatarUploadId ?? '';
   const name = operator?.displayName ?? '';
   const current = PRESENCE_CHOICES.find((c) => c.state === presence);
+  /**
+   * Exactly ONE row carries the ✓: the preset when one is active, else its state. A deleted or
+   * unrecognised label falls back to the state row — the behaviour is still true when the reason
+   * has gone stale.
+   */
+  const activePreset = labelId ? presets.find((p) => p.id === labelId) : undefined;
 
   return (
     <DropdownMenu>
@@ -106,7 +140,11 @@ export function UserMenu() {
         <button
           type="button"
           data-testid="user-menu-trigger"
-          aria-label={`Your account${current ? ` — ${current.label}` : ''}`}
+          aria-label={`Your account${
+            current
+              ? ` — ${activePreset ? `${activePreset.name} (${current.label})` : current.label}`
+              : ''
+          }`}
           className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-accent"
         >
           {avatarId ? (
@@ -131,10 +169,15 @@ export function UserMenu() {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent side="right" align="end" className="w-56" data-testid="user-menu">
+      <DropdownMenuContent side="right" align="end" className="w-64" data-testid="user-menu">
         <DropdownMenuLabel className="font-normal">
           <div className="truncate text-sm font-medium">{name || 'Signed in'}</div>
-          <div className="text-xs text-muted-foreground">{current?.hint ?? 'Status unknown'}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {/* The reason first when there is one, the behaviour always — both facts, one line. */}
+            {activePreset
+              ? `${activePreset.name} — ${current?.hint ?? ''}`
+              : (current?.hint ?? 'Status unknown')}
+          </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {PRESENCE_CHOICES.map((c) => (
@@ -142,15 +185,50 @@ export function UserMenu() {
             key={c.state}
             disabled={busy}
             data-testid={`presence-${c.state}`}
-            aria-current={presence === c.state ? 'true' : undefined}
+            aria-current={presence === c.state && !activePreset ? 'true' : undefined}
             onSelect={() => void choose(c.state)}
             className="gap-2"
           >
             <span className={`h-2 w-2 shrink-0 rounded-full ${TONE[c.state]}`} />
             <span className="flex-1">{c.label}</span>
-            {presence === c.state && <span className="text-xs text-muted-foreground">✓</span>}
+            {presence === c.state && !activePreset && (
+              <span className="text-xs text-muted-foreground">✓</span>
+            )}
           </DropdownMenuItem>
         ))}
+        {presets.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            {/*
+             * The administrator's presets (W22-доп) — EVERY row, in the account's own order. Each
+             * shows the state it sets (the dot AND the muted word — colour alone is not information),
+             * because two presets sharing a state is the normal case, not a duplicate.
+             */}
+            <DropdownMenuLabel
+              data-testid="preset-header"
+              className="text-xs font-normal text-muted-foreground"
+            >
+              Quick statuses
+            </DropdownMenuLabel>
+            {presets.map((p) => (
+              <DropdownMenuItem
+                key={p.id}
+                disabled={busy}
+                data-testid={`status-preset-${p.id}`}
+                aria-current={activePreset?.id === p.id ? 'true' : undefined}
+                onSelect={() => void choosePreset(p)}
+                className="gap-2"
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${TONE[p.state]}`} />
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {activePreset?.id === p.id ? '✓ ' : ''}
+                  {presenceLabel(p.state)}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/settings" data-testid="user-menu-settings">

@@ -49,6 +49,10 @@ const SIGNED_IN = {
 
 interface StubOptions {
   presence?: string;
+  /** The label the server says is active — the reason behind the state (W22-доп). */
+  labelId?: string;
+  /** The account's presets, as `GET /presence/labels` would list them. Default: none. */
+  presets?: { id: string; name: string; state: string }[];
   displayName?: string;
   avatarUploadId?: string;
   /** `PUT /presence/me` fails — the optimistic badge must go BACK. */
@@ -64,7 +68,10 @@ interface Stub extends DataAccess {
 function stub(opts: StubOptions = {}): Stub {
   const s: Stub = {
     writes: [],
-    async list<T = unknown>(): Promise<PaginatedResult<T>> {
+    async list<T = unknown>(resource: ResourceName): Promise<PaginatedResult<T>> {
+      if (resource === 'presence-labels') {
+        return { items: (opts.presets ?? []) as T[], nextCursor: null, hasMore: false };
+      }
       return { items: [], nextCursor: null, hasMore: false };
     },
     async get<T = unknown>(resource: ResourceName): Promise<T> {
@@ -76,7 +83,9 @@ function stub(opts: StubOptions = {}): Stub {
           avatarUploadId: opts.avatarUploadId ?? '',
         } as unknown as T;
       }
-      if (resource === 'my-presence') return { state: opts.presence ?? 'online' } as unknown as T;
+      if (resource === 'my-presence') {
+        return { state: opts.presence ?? 'online', labelId: opts.labelId ?? '' } as unknown as T;
+      }
       throw new Error(`unexpected get: ${resource}`);
     },
     async create<T = unknown>(): Promise<T> {
@@ -237,6 +246,122 @@ describe('*** ⭐⭐ the statuses — all four the server accepts, and the write
     await waitFor(() =>
       expect(screen.getByTestId('presence-dot')).toHaveAttribute('data-state', 'online'),
     );
+  });
+});
+
+describe('*** ⭐ the presets — the administrator’s words BELOW the states, never AS them (W22-доп) ***', () => {
+  /**
+   * ⚠️ The fixture deliberately carries TWO presets pointing at ONE state. That cardinality is what
+   * live data taught on 2026-08-10: a `PresenceLabel` is a preset with a reason, several per state,
+   * and the first build — which used one as the state's NAME — dropped one of each pair and renamed
+   * a routing behaviour after a reason. It was reverted the same day; this section is the correct
+   * shape. (The names here are invented on purpose: the seeded words are admin-owned rows, and the
+   * label guard scans this file too.)
+   */
+  const PRESETS = [
+    { id: 'p1', name: 'Coffee', state: 'away' },
+    { id: 'p2', name: 'Deep work', state: 'away' },
+    { id: 'p3', name: 'Handover', state: 'transfers_only' },
+  ];
+
+  it('⭐ EVERY preset renders — both of a same-state pair — and below the four states', async () => {
+    renderMenu({ presets: PRESETS });
+    await screen.findByTestId('presence-dot');
+    open();
+
+    await screen.findByTestId('user-menu');
+    // Cardinality is the claim: two presets sharing `away` are two rows, not a first-one-wins pick.
+    for (const p of PRESETS) {
+      expect(await screen.findByTestId(`status-preset-${p.id}`)).toHaveTextContent(p.name);
+    }
+    // …and the section sits BELOW the states — the operator's words: «ниже четырёх базовых».
+    const lastState = screen.getByTestId('presence-offline');
+    const firstPreset = screen.getByTestId('status-preset-p1');
+    expect(
+      lastState.compareDocumentPosition(firstPreset) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('choosing one writes the PAIR — its state AND its labelId — and the badge follows', async () => {
+    const s = renderMenu({ presence: 'online', presets: PRESETS });
+    await screen.findByTestId('presence-dot');
+    open();
+
+    fireEvent.click(await screen.findByTestId('status-preset-p1'));
+
+    await waitFor(() => expect(s.writes).toHaveLength(1));
+    // The reason travels WITH the behaviour: the router reads the state, the label rides as the why.
+    expect(s.writes[0]).toEqual({
+      resource: 'my-presence',
+      payload: { state: 'away', labelId: 'p1' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('presence-dot')).toHaveAttribute('data-state', 'away'),
+    );
+  });
+
+  it('a bare state afterwards clears the label — the payload carries NO labelId', async () => {
+    const s = renderMenu({ presence: 'away', labelId: 'p1', presets: PRESETS });
+    await screen.findByTestId('presence-dot');
+    open();
+
+    fireEvent.click(await screen.findByTestId('presence-online'));
+
+    await waitFor(() => expect(s.writes).toHaveLength(1));
+    // The gateway turns the absent key into `null`; the server persists a label-only change too.
+    expect(s.writes[0]).toEqual({ resource: 'my-presence', payload: { state: 'online' } });
+  });
+
+  it('the server’s active preset carries the ✓ — and the state row yields it', async () => {
+    renderMenu({ presence: 'away', labelId: 'p1', presets: PRESETS });
+    await screen.findByTestId('presence-dot');
+    open();
+
+    await screen.findByTestId('user-menu');
+    // Exactly ONE row is "current": the preset (the exact fact), not the state it maps to.
+    expect(screen.getByTestId('status-preset-p1')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('status-preset-p2')).not.toHaveAttribute('aria-current');
+    expect(screen.getByTestId('presence-away')).not.toHaveAttribute('aria-current');
+    // The header names the reason next to the behaviour — «Coffee — Nothing new is routed to you».
+    expect(screen.getByTestId('user-menu')).toHaveTextContent('Coffee');
+  });
+
+  it('⚠️ a REFUSED preset write puts BOTH facts back — state and reason', async () => {
+    const s = renderMenu({
+      presence: 'online',
+      presets: PRESETS,
+      failPresenceWith: { message: 'no', retryable: true },
+    });
+    await screen.findByTestId('presence-dot');
+    open();
+
+    fireEvent.click(await screen.findByTestId('status-preset-p1'));
+    await waitFor(() => expect(s.writes).toHaveLength(1));
+
+    // The badge never lies about routing — and a stale ✓ would lie about the recorded reason.
+    await waitFor(() =>
+      expect(screen.getByTestId('presence-dot')).toHaveAttribute('data-state', 'online'),
+    );
+    open();
+    expect(screen.getByTestId('status-preset-p1')).not.toHaveAttribute('aria-current');
+  });
+
+  it('⛔ no presets → no section, and a row this build cannot vouch for is not offered', async () => {
+    renderMenu({
+      presets: [
+        // A state this client does not know: clicking it would set a behaviour we cannot even name.
+        { id: 'px', name: 'Ghost', state: 'sparkling' },
+        // A row without an id could never be written back correctly.
+        { id: '', name: 'Nameless target', state: 'away' },
+      ],
+    });
+    await screen.findByTestId('presence-dot');
+    open();
+
+    await screen.findByTestId('user-menu');
+    // Both rows failed the fail-closed filter, so the whole section is absent — same as no presets.
+    expect(screen.queryByTestId('preset-header')).toBeNull();
+    expect(screen.queryByTestId('status-preset-px')).toBeNull();
   });
 });
 

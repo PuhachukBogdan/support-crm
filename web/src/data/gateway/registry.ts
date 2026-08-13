@@ -588,6 +588,26 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['get', 'update'],
   },
   /**
+   * ⭐ W22-доп — the administrator's presence PRESETS (`GET /presence/labels`, any signed-in session).
+   *
+   * A row is a preset WITH A REASON («Обед», «Совещание»), several per state — on live data
+   * `Break`+`Lunch` are both `away`. The status menu offers them BELOW the four states, each setting
+   * its state via `PUT /presence/me {state, labelId}` — never as the state's name (that overlay was
+   * built and reverted 2026-08-10: it dropped one of each pair and renamed a behaviour after a
+   * reason). ⚠️ The words stay runtime data: `presence-label-never-branched-on.spec.ts` fails the
+   * build when a screen compiles one in.
+   */
+  {
+    resource: 'presence-labels',
+    path: '/presence/labels',
+    collection: 'labels',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  /**
    * ⭐ W25 (R23 / 9.12) — the unread badge, two singletons over one fact.
    *
    * `inbox-unseen` READS the derived state ({count, openedAt}); `inbox-opened` is the RESET act

@@ -78,3 +78,37 @@ the Track-B scripts — never hand-authored. See that directory's `README.md`.
 Live checks belong to `specs/027-auth-flow-ui/track-b.sh` on `beton-test`: that the cookie is really
 `httpOnly`, that the code step is really unskippable, and that the rotation really fires when a real
 access token really expires. A mocked transport passes all three whether or not they are true.
+
+## The Inbox: R38's rail and toolbar (MVP block W6)
+
+The screen's narrowing has three axes, and keeping them apart is the whole design:
+
+| Axis | Control | State |
+|---|---|---|
+| **which state** | the rail — five buttons on status CATEGORIES (`buckets.ts`) | where you ARE |
+| **which subset** | Status ▾ (an exact key) · channel chips | filters you APPLIED |
+| **whose** | «Мои» (roadmap 5.11) | a SCOPE |
+
+- ⭐⭐ **Buckets filter by `status_category`, NEVER by a status key.** Nine statuses collapse into five
+  buttons by themselves; a status configured later lands in the right button with no code change. The
+  previous rail spelled the retired key `resolved`, and every agent who clicked it got a 400 and a
+  blank screen — categories are the closed six, so there is no account-specific word here left to rot.
+  `buckets.test.tsx` re-proves the detector on planted input.
+- **Status ▾ options come from `GET /conversations/statuses`**, narrowed to the current bucket's
+  categories and to ACTIVE rows. A retired or renamed status is therefore unofferable while still
+  rendering on old rows, and a key-vs-category contradiction is unbuildable by UI.
+- **«Мои» survives bucket switches and "Clear filters"** (a scope is not a filter), and it is DISABLED
+  until `/me/operator` answers — "my tickets" silently meaning "all tickets" is the
+  confidently-wrong-answer shape this codebase keeps refusing.
+- ⛔ **No numbers on the rail** (R38): counts are 9.2a's, the unread badge 9.12's. A number that is
+  sometimes stale is worse than none.
+- **Nothing is red.** R38 freed the colour for one meaning — a new customer message (9.12) — so `open`
+  wears the neutral `foreground` token until that ships.
+- ⓘ The transient-filter rule (FR-013) is unchanged: nothing is persisted, because anything named and
+  kept is a *view* and views are granted by an admin. R38's "remember the channel chip per operator"
+  is a server-side preference and rides W18's settings machinery rather than a second mechanism here.
+
+**The screen check lives in `deploy/local/w6-browser-check.mjs`** and runs on the stand against the
+PUBLIC origin — the rail, the catalogue-derived options, «Мои» narrowing, the column's names, no red.
+⚠️ It documents a measured limit of its own container (real-input clicks wedge that Chromium at about
+the sixth) rather than skipping around it; read its header before adding interactions.

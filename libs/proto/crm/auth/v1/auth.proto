@@ -105,6 +105,10 @@ service AuthService {
   // RbacMutationResult already does for the RBAC mutations.
   rpc CreateGroup(CreateGroupRequest) returns (GroupMutationResult);
   rpc RenameGroup(RenameGroupRequest) returns (GroupMutationResult);
+  // ⭐ Feature 031 (ADR 0042): switch a desk into or out of AUTOMATIC DISTRIBUTION. Its own rpc rather
+  // than a field on RenameGroup — a rename changes a label nothing branches on, while this changes who
+  // receives customer conversations without anybody choosing.
+  rpc SetGroupRoutable(SetGroupRoutableRequest) returns (GroupMutationResult);
   rpc DeleteGroup(DeleteGroupRequest) returns (GroupMutationResult);
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
   rpc AddGroupMember(GroupMemberRequest) returns (GroupMutationResult);
@@ -443,6 +447,16 @@ message RenameGroupRequest {
   string name = 5;
 }
 
+message SetGroupRoutableRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
+  // ⚠️ Explicit, never inferred as a toggle. A toggle rpc means two administrators clicking at once can
+  // leave the desk in whichever state arrived last, and neither of them asked for it.
+  bool routable = 5;
+}
+
 message DeleteGroupRequest {
   string caller_account_id = 1;
   string caller_user_id = 2;
@@ -476,6 +490,13 @@ message ListGroupMembersResponse {
   // the caller must be able to tell apart from a failed call — hence the client fails closed with a
   // named error rather than returning an empty list, exactly as the authority client already does.
   repeated string user_ids = 1;
+  // ⭐ Feature 031 (ADR 0042): is this desk fed by AUTOMATIC DISTRIBUTION? Answered here rather than by a
+  // second call — the router asks "who staffs this desk" and "may I push work to it" in one breath, and a
+  // separate round trip would let the two answers describe different moments.
+  //
+  // ⚠️ proto3 omits a false bool, so an ABSENT value means NOT routable. That is the safe direction and it
+  // matches the column's default: a desk nobody has marked does not receive pushed work.
+  bool routable = 2;
 }
 
 message SetGroupPermissionRequest {

@@ -187,6 +187,20 @@ export class GroupService {
    * ⓘ Nothing to invalidate: the router reads this row per decision, and adding a cache here would let a
    * desk keep receiving work after being switched off — the failure that looks like a UI lag and is not.
    */
+  /**
+   * Is this desk fed by automatic distribution?
+   *
+   * ⚠️ Read per decision, never cached. A cached answer would let a desk keep receiving pushed work after
+   * an administrator switched it off — a failure that looks like a slow UI and is not one.
+   */
+  async isRoutable(accountId: string, groupId: string): Promise<boolean> {
+    const group = await this.prisma
+      .forAccount(accountId)
+      .group.findFirst({ where: { id: groupId }, select: { routable: true } });
+    // An absent desk is not routable. Fail-closed, and the same answer the column's default gives.
+    return group?.routable === true;
+  }
+
   async setRoutable(
     accountId: string,
     actor: Actor,

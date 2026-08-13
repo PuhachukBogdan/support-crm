@@ -42,6 +42,23 @@ import type { RoundRobinCandidate } from './round-robin';
  */
 export const ROUTING_DEFAULT_CAPACITY_ENV = 'ROUTING_DEFAULT_CAPACITY';
 
+/**
+ * ⭐ Feature 031: a desk that is not fed by automatic distribution.
+ *
+ * ⚠️ **Distinct from `GROUP_ROUTING_NOT_AVAILABLE`**, which means *"the pool could not be resolved"*.
+ * Conflating *"this desk is not a queue"* with *"this desk's staffing is unknown"* would send an
+ * administrator to look at rotas when the answer is a checkbox — the same reason feature 010 kept its
+ * onboarding refusals apart.
+ */
+export const DESK_NOT_ROUTABLE = 'DESK_NOT_ROUTABLE';
+
+/** What the pool answers: the candidates, and why there are none when there are none. */
+export interface PoolOutcome {
+  candidates: RoundRobinCandidate[];
+  /** `null` when the pool was resolved normally — even if it resolved to nobody. */
+  reason: string | null;
+}
+
 /** Statuses that count against an operator's load: work that is still theirs to finish. */
 const OPEN_STATUSES = ['open', 'pending'] as const;
 
@@ -73,12 +90,33 @@ export class GroupPoolService {
     groupId: string,
     metadata: Metadata,
     channel: string | null = null,
-  ): Promise<RoundRobinCandidate[]> {
-    const memberUserIds = await this.auth.listGroupMembers(accountId, groupId);
-    if (memberUserIds.length === 0) return [];
+  ): Promise<PoolOutcome> {
+    const desk = await this.auth.listGroupMembers(accountId, groupId);
+
+    /**
+     * ⭐ Feature 031 (roadmap 4.20/4.21, ADR 0042) — **is this desk fed by the router at all?**
+     *
+     * Asked FIRST, and asked about the desk rather than about the people on it. That is the whole of
+     * option C: the router never wanted to know anybody's role, it wanted to know whether this desk
+     * receives pushed work. Asking about the person was a proxy, and a proxy that needs an exception the
+     * moment an account manager legitimately belongs to a mixed desk.
+     *
+     * ⚠️ **This closes a real hole, not a hypothetical one.** Until now the pool was built from group
+     * MEMBERSHIP alone, so an account manager in a routed group could be auto-assigned — exactly what
+     * roadmap 4.14 promised would not happen. Feature 030's guard was green throughout and correctly so:
+     * it forbids routing modules from *naming* an AM role, and none of them did. **A guard against
+     * naming a thing is not a proof that the thing cannot happen.**
+     *
+     * ⓘ Refused with its own outcome rather than by returning an empty pool — see `DESK_NOT_ROUTABLE`.
+     * "Nobody staffs this desk" and "this desk is not a queue" send an administrator to different places.
+     */
+    if (!desk.routable) return { candidates: [], reason: DESK_NOT_ROUTABLE };
+
+    const memberUserIds = desk.userIds;
+    if (memberUserIds.length === 0) return { candidates: [], reason: null };
 
     const resolved = await this.users.resolveOperators(accountId, memberUserIds, metadata);
-    if (resolved.length === 0) return [];
+    if (resolved.length === 0) return { candidates: [], reason: null };
 
     // ── Feature 025 (roadmap 5.9): availability, and where the two "no"s differ ──────────────────
     //
@@ -105,7 +143,7 @@ export class GroupPoolService {
         blockedChannels: o.blockedChannels,
       }),
     );
-    if (operators.length === 0) return [];
+    if (operators.length === 0) return { candidates: [], reason: null };
 
     const load = await this.currentLoad(
       accountId,
@@ -116,13 +154,16 @@ export class GroupPoolService {
     // Sorted by operator id, deliberately: the rotation cursor is an INDEX into this list, so an
     // unstable order would make the cursor point at a different person between calls and quietly
     // break the fairness property feature 013 proved.
-    return operators
+    return {
+      reason: null,
+      candidates: operators
       .map((o) => ({
         operatorId: o.operatorId,
         capacity,
         currentLoad: load.get(o.operatorId) ?? 0,
       }))
-      .sort((a, b) => a.operatorId.localeCompare(b.operatorId));
+        .sort((a, b) => a.operatorId.localeCompare(b.operatorId)),
+    };
   }
 
   /**

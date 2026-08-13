@@ -44,6 +44,8 @@ interface ResolveResponseWire {
 }
 
 interface ListGroupMembersWire {
+  /** Feature 031: proto3 omits a false bool, so absent means NOT routable. */
+  routable?: boolean;
   userIds?: string[];
 }
 
@@ -111,7 +113,7 @@ export class AuthorAuthorityClient implements OnModuleInit {
    *
    * @throws AuthorityUnavailableError when the membership cannot be established (fail-closed).
    */
-  async listGroupMembers(accountId: string, groupId: string): Promise<string[]> {
+  async listGroupMembers(accountId: string, groupId: string): Promise<GroupDesk> {
     if (!accountId || !groupId) throw new AuthorityUnavailableError('missing group identity');
     let res: ListGroupMembersWire;
     try {
@@ -123,10 +125,27 @@ export class AuthorAuthorityClient implements OnModuleInit {
     const ids = res?.userIds;
     // proto3 omits an empty repeated field, so `undefined` here is the normal shape of "no members".
     // An unreadable response is a different thing and is caught by the array check.
-    if (ids === undefined || ids === null) return [];
+    // ⚠️ Feature 031: `routable` is read BEFORE the members check, because a desk that is not fed by the
+    // router is not routable whether it has members or not — and answering "no members" for it would send
+    // an administrator looking at staffing instead of at the desk's setting.
+    // proto3 omits a false bool, so an absent value means NOT routable: the safe direction, and the same
+    // answer the column's default gives.
+    const routable = res?.routable === true;
+    if (ids === undefined || ids === null) return { userIds: [], routable };
     if (!Array.isArray(ids)) throw new AuthorityUnavailableError('unreadable response');
-    return ids.filter((id) => typeof id === 'string' && id !== '');
+    return { userIds: ids.filter((id) => typeof id === 'string' && id !== ''), routable };
   }
+}
+
+/**
+ * A desk, as far as routing is concerned: who staffs it, and whether the router may feed it.
+ *
+ * ⚠️ Both facts in one answer on purpose. Two calls would let them describe different moments — a desk
+ * switched off between them would look staffed and routable when it is neither.
+ */
+export interface GroupDesk {
+  userIds: string[];
+  routable: boolean;
 }
 
 /** Registers the auth client for chats. `AUTH_GRPC_TARGET` is validated at boot (SEC-6). */

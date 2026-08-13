@@ -84,7 +84,9 @@ const cand = (operatorId: string, capacity = 5, currentLoad = 0): RoundRobinCand
 function build(prisma: PrismaService, candidates: RoundRobinCandidate[] | Error) {
   const candidatesFor = jest.fn(async () => {
     if (candidates instanceof Error) throw candidates;
-    return candidates;
+    // Feature 031: the pool answers WHY it is empty. `reason: null` = resolved normally, even when it
+    // resolved to nobody — the not-routable case is its own spec, where it is the subject.
+    return { candidates, reason: null };
   });
   const controller = new AutoAssignController(
     new RoundRobinStateRepository(prisma, new TransitionRecorder()),

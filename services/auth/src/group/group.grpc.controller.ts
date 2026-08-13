@@ -168,7 +168,10 @@ export class GroupGrpcController {
   @GrpcMethod('AuthService', 'ListGroupMembers')
   async listGroupMembersRpc(req: ListGroupMembersRequest) {
     const members = await this.groups.listMembers(req.accountId, req.groupId);
-    return { userIds: members ?? [] };
+    // Feature 031: the desk's routability travels with its membership. `listMembers` answers `null` for a
+    // desk that does not exist, and a desk that does not exist is certainly not routable.
+    const routable = members === null ? false : await this.groups.isRoutable(req.accountId, req.groupId);
+    return { userIds: members ?? [], routable };
   }
 
   /**

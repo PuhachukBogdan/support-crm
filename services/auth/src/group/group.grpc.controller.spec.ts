@@ -170,11 +170,17 @@ describe('GroupGrpcController — wire mapping', () => {
       ...SEED_ALLOWED,
       groupMembers: [{ groupName: 'A', user_id: 'u-1' }],
     });
+    // Feature 031: the desk's routability travels with its membership — one answer, one moment. A desk
+    // nobody has marked is NOT routable, which is the column's default and the safe direction.
     expect(await controller.listGroupMembersRpc({ accountId: 'acct-1', groupId: 'group-A' })).toEqual({
       userIds: ['u-1'],
+      routable: false,
     });
+    // ⚠️ An unknown desk answers an empty list rather than an error, and is certainly not routable —
+    // otherwise a typo'd group id would look like a queue with nobody on it.
     expect(await controller.listGroupMembersRpc({ accountId: 'acct-1', groupId: 'nope' })).toEqual({
       userIds: [],
+      routable: false,
     });
   });
 });

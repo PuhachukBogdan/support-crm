@@ -33,18 +33,20 @@ describe('*** the three states are visibly different (FR-003) ***', () => {
   it('an empty queue says the queue is empty', async () => {
     setDataAccess(stubConversations({ count: 0 }));
     renderInbox();
-    expect(await screen.findByText(/no tickets in your queue/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no tickets in this bucket/i)).toBeInTheDocument();
   });
 
   it('a filter that matches nothing says THAT, not that the queue is empty', async () => {
     setDataAccess(stubConversations({ count: 0 }));
     renderInbox();
-    await screen.findByText(/no tickets in your queue/i);
+    await screen.findByText(/no tickets in this bucket/i);
 
-    chooseOption('filter-status', 'pending');
+    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    await screen.findByTestId('filter-status');
+    chooseOption('filter-status', 'Pending');
 
     expect(await screen.findByText(/no tickets match these filters/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no tickets in your queue/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no tickets in this bucket/i)).not.toBeInTheDocument();
   });
 
   it('a failed load is distinct from both, and offers a retry', async () => {
@@ -67,14 +69,16 @@ describe('*** the three states are visibly different (FR-003) ***', () => {
 
     setDataAccess(stubConversations({ count: 0 }));
     const empty = renderInbox();
-    await screen.findByText(/no tickets in your queue/i);
+    await screen.findByText(/no tickets in this bucket/i);
     texts.push(empty.container.textContent ?? '');
     empty.unmount();
 
     setDataAccess(stubConversations({ count: 0 }));
     const filtered = renderInbox();
-    await screen.findByText(/no tickets in your queue/i);
-    chooseOption('filter-status', 'pending');
+    await screen.findByText(/no tickets in this bucket/i);
+    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    await screen.findByTestId('filter-status');
+    chooseOption('filter-status', 'Pending');
     await screen.findByText(/no tickets match these filters/i);
     texts.push(filtered.container.textContent ?? '');
     filtered.unmount();
@@ -131,7 +135,7 @@ describe('*** what the screen ASKS FOR (the request it composes) ***', () => {
     fireEvent.click(screen.getByRole('button', { name: /load more/i }));
     await waitFor(() => expect(stub.calls.length).toBeGreaterThan(1));
 
-    chooseOption('filter-channel', 'email');
+    fireEvent.click(screen.getByTestId('chip-channel-email'));
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ channel: 'email' }),
     );

@@ -1,43 +1,54 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PageHeader } from '@/components/composites/page-header/page-header';
 import { BulkActions, useMayExport } from './bulk-actions';
-import { FilterBar } from './filter-bar';
+import { InboxToolbar } from './inbox-toolbar';
 import { InboxList } from './inbox-list';
 import { BucketRail } from './bucket-rail';
+import { bucketById } from './buckets';
 import { SearchPlaceholder } from './coming-soon';
 import { useInboxQuery } from './use-inbox-query';
 import { useConversations } from './use-conversations';
 import { useLiveRefresh } from './use-live-refresh';
+import { useMyOperator } from './use-my-operator';
+import { useStatuses } from './use-statuses';
 
 /**
- * The Inbox — the agent's landing screen (feature 029, roadmap 9.2).
+ * The Inbox — the agent's landing screen (feature 029, roadmap 9.2; reshaped by W6 to R38).
  *
- * Signing in puts a person here, looking at their own queue. There is no homepage: *«Зарегистрировался
- * менеджер, зашёл, открыл, всё. У него сразу же открыта вкладочка Inbox»* (R14/R15).
+ * Signing in puts a person here, looking at the queue. *«Зарегистрировался менеджер, зашёл, открыл,
+ * всё. У него сразу же открыта вкладочка Inbox»* (R14/R15).
+ *
+ * ── The W6 arrangement, and where each piece is decided ──────────────────────────────────────────
+ * · the RAIL is R38's five buttons on **categories** (`bucket-rail.tsx` / `buckets.ts`);
+ * · the TOOLBAR is the operator's praised Zendesk shape — Status ▾ from the account's own catalogue,
+ *   channel chips, the «Мои» scope from 5.11 (`inbox-toolbar.tsx`);
+ * · the status COLUMN shows the catalogue's agent names, falling back to the key (`use-statuses`).
  *
  * ── What this screen deliberately does NOT have ──────────────────────────────────────────────────
- * ⛔ **A "Recommended" order.** Nothing computes urgency (roadmap 4.20 unbuilt), so the queue is not
- *    prioritised and does not claim to be.
- * ⛔ **Shared views.** No view entity, grant or count exists (roadmap 9.2a). And no placeholder for
- *    them either — an affordance for something that does not exist reads as a broken feature
- *    (FR-015b).
+ * ⛔ **Numbers on the rail.** Counts are 9.2a's, the unread badge is 9.12's (R38: "no numbers").
+ * ⛔ **Shared views.** No view entity, grant or count exists (roadmap 9.2a) — and no placeholder.
  * ⛔ **A requester name.** The product stores none (research R9).
  */
 export function Inbox() {
+  // "Which operator am I?" — resolves once; until it does, the «Мои» control stays disabled.
+  const { operatorId } = useMyOperator();
+  const { statuses } = useStatuses();
   const {
     query,
     filters,
     order,
     bucket,
+    mine,
     hasActiveFilters,
     setFilter,
     clearFilters,
     setOrder,
     setBucket,
+    setMine,
     loadMore,
-  } = useInboxQuery();
+  } = useInboxQuery(operatorId);
   const list = useConversations(query);
   /**
    * Feature 034 (W4): a ticket that arrives by itself appears by itself. The event carries ids only and
@@ -49,6 +60,12 @@ export function Inbox() {
   // checkboxes that lead nowhere.
   const mayExport = useMayExport();
 
+  // key → agent name, built once per catalogue arrival; the column renders words, stores keys.
+  const statusLabels = useMemo(
+    () => Object.fromEntries(statuses.map((s) => [s.key, s.agentName])),
+    [statuses],
+  );
+
   /**
    * Three states, three different sentences (FR-003).
    *
@@ -58,22 +75,11 @@ export function Inbox() {
    */
   const emptyLabel = hasActiveFilters
     ? 'No tickets match these filters.'
-    : 'No tickets in your queue.';
+    : 'No tickets in this bucket.';
 
   const nextCursor = list.status === 'ready' ? list.data.nextCursor : null;
 
   return (
-    /**
-     * ⭐ A full-height column: header and toolbar take what they need, the list takes the rest.
-     *
-     * ⚠️ This half of the fix matters as much as the composite's. The table can only fill a parent
-     * that has a height to give — `space-y-4` on a plain block gave it none, so a table asked to fill
-     * would collapse instead. The old 600 px box hid that: it looked deliberate at every size.
-     */
-    /**
-     * ⭐ Two columns, as Zendesk's Home is arranged: the bucket rail, then the work surface.
-     * `min-w-0` on the right column is what lets a wide table shrink instead of pushing the page.
-     */
     <div className="flex h-full min-h-0 gap-6">
       <BucketRail value={bucket} onChange={setBucket} />
 
@@ -81,16 +87,19 @@ export function Inbox() {
         <PageHeader title="Inbox" />
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          {/* Status and channel now live in their own column headers — see `column-filter.tsx`. */}
-          <FilterBar hasActiveFilters={hasActiveFilters} onClear={clearFilters} />
+          <InboxToolbar
+            bucket={bucketById(bucket)}
+            statuses={statuses}
+            filters={filters}
+            mine={mine}
+            mineAvailable={operatorId !== undefined}
+            hasActiveFilters={hasActiveFilters}
+            onFilterChange={setFilter}
+            onMineChange={setMine}
+            onClear={clearFilters}
+          />
           {/* The shape of the search to come, labelled so nobody mistakes it for a working one. */}
           <SearchPlaceholder />
-          {/**
-           * ⛔ The sort DROPDOWN is gone (2026-08-03). With triangles on the `Updated` header it was a
-           * second control for the same single action — and two controls for one thing are two places
-           * to disagree. Zendesk has a dropdown on Home only because its list has no arrows; ours has
-           * them, so the arrows win and the toolbar loses a row.
-           */}
           <BulkActions selectedCount={selected.length} />
         </div>
 
@@ -100,11 +109,9 @@ export function Inbox() {
           onRetry={list.refetch}
           onLoadMore={nextCursor ? () => loadMore(nextCursor) : undefined}
           rowSelection={mayExport ? { selected, onChange: setSelected } : undefined}
-          // Sorting AND filtering live on the column headers now — one control each, one place each.
           order={order}
           onOrderChange={setOrder}
-          filters={filters}
-          onFilterChange={setFilter}
+          statusLabels={statusLabels}
         />
       </div>
     </div>

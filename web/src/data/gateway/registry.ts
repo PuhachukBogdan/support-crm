@@ -57,6 +57,12 @@ export interface RouteRow {
   readonly orders?: readonly string[];
   /** Operations that exist. Anything absent fails loudly rather than silently doing nothing. */
   readonly ops: readonly Operation[];
+  /**
+   * W6: a SINGLETON has one instance per caller and its path names it whole — `get` takes no id and
+   * appends nothing. `/me/operator` is the first: the subject is the session, so an id would be a
+   * place to name somebody else, which is exactly what the server's route refuses to have.
+   */
+  readonly singleton?: true;
 }
 
 /**
@@ -88,6 +94,10 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
       // filter on channel", NOT "conversations with no channel" — ~1 in 6 rows have none and stay
       // reachable only because the parameter is absent.
       channel: 'channel',
+      // W6 (R38): the rail's buckets — comma-separated CATEGORIES («Ждут» is pending,on_hold), never
+      // status keys. The server resolves them against the account's own catalogue and REFUSES an
+      // unknown entry rather than widening.
+      statusCategories: 'statusCategories',
     },
     required: [],
     pageSizeParam: 'pageSize',
@@ -99,6 +109,42 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     orderParam: 'order',
     orders: ['updated_desc', 'updated_asc', 'urgency_desc'],
     ops: ['list', 'get'],
+  },
+  /**
+   * ⭐ W6 — the account's own status catalogue (`GET /conversations/statuses`, feature 032). The
+   * toolbar's Status filter derives its OPTIONS from this, per bucket, so an account that renames or
+   * retires a status never leaves the screen offering a word the server would refuse — the exact
+   * defect class the `resolved` bucket shipped once (see `buckets.ts`).
+   *
+   * ⓘ The route reads no query at all, so the pagination params `list()` always sends are inert
+   * there — harmless by the same one-directional rule the compose guard states: a parameter nobody
+   * reads is noise, a parameter silently DROPPED would be a defect.
+   */
+  {
+    resource: 'conversation-statuses',
+    path: '/conversations/statuses',
+    collection: 'statuses',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  /**
+   * ⭐ W6 — "which operator am I?" (`GET /me/operator`, roadmap 5.11). A SINGLETON: the subject is
+   * the session, there is no id to pass and no way to name anyone else — mirrored from the server
+   * route, whose spec asserts the same absence structurally.
+   */
+  {
+    resource: 'me-operator',
+    path: '/me/operator',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['get'],
+    singleton: true,
   },
   {
     resource: 'players',

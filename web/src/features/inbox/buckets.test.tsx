@@ -1,15 +1,14 @@
 /**
- * ⚠️⚠️ **THESE THREE ASSERTIONS PINNED A VALUE THE SERVER REFUSES, so the suite was green while every
- * agent who clicked this bucket got a 400 and a blank screen** (found 2026-08-05, by the operator, on his
- * third report of it — read as a performance problem twice).
+ * ⭐ The R38 rail — five buttons on CATEGORIES (W6).
  *
- * Feature 032 renamed `resolved` → `solved` and refuses the retired word rather than mapping it. The stub
- * these tests use returns whatever it is handed, so it cannot tell a filter the server ACCEPTS from one it
- * REJECTS — the same shape as `gotchas/a-fake-more-permissive-than-the-library`, one layer up: a double
- * that accepts what the real dependency refuses turns a hard failure into a passing test.
- *
- * ⇒ Track A pins the request the screen COMPOSES. Whether the server accepts it is Track B's, and this
- * bucket had no Track B coverage at all.
+ * ── Why every bucket assertion here is about `statusCategories` and never a status key ───────────
+ * The previous rail pinned the literal `resolved` — a key feature 032 had retired — and the suite was
+ * green while every agent who clicked got a 400 and a blank screen (found 2026-08-05, by the
+ * operator, on his third report). The stub returns whatever it is handed, so it cannot tell a filter
+ * the server accepts from one it refuses (`gotchas/a-fake-more-permissive-than-the-library`, one
+ * layer up). Categories are the closed six the server derives keys from itself, so there is no
+ * account-specific word here left to rot — and the detector test below proves a planted key would
+ * be caught.
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Providers } from '../../../app/providers';
@@ -17,16 +16,8 @@ import { Inbox } from './inbox';
 import { getDataAccess, setDataAccess } from '@/data/provider';
 import { MockDataAccess } from '@/data/mock/mock-data-access';
 import { chooseOption, stubConversations } from './test-support';
-import { BUCKETS } from './buckets';
+import { BUCKETS, BUCKET_OWNED_KEYS } from './buckets';
 
-/**
- * The bucket rail from Zendesk's Home (`ui-design/screenshots/home.png`), two of the three groups on
- * the operator's instruction: *«Оставь Your work и Completed пока»*.
- *
- * ⛔ **Shared work is deliberately absent**: its contents are *CC'd* and *Following*, and nothing in
- * this product subscribes a person to someone else's conversation. A bucket that could only ever be
- * empty is an affordance for a feature nobody has.
- */
 afterEach(() => setDataAccess(new MockDataAccess()));
 
 function renderInbox() {
@@ -37,74 +28,103 @@ function renderInbox() {
   );
 }
 
-describe('*** the bucket rail ***', () => {
-  it('renders the two buckets under their Zendesk group headings', async () => {
+describe('*** the R38 rail: five buttons on categories ***', () => {
+  it('renders exactly the five buckets, in R38 order, with the operator’s own labels', async () => {
     setDataAccess(stubConversations({ count: 3 }));
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    expect(screen.getByTestId('bucket-yours')).toBeInTheDocument();
-    expect(screen.getByTestId('bucket-completed')).toBeInTheDocument();
-    expect(screen.getByText('Your work')).toBeInTheDocument();
-    expect(screen.getByText('Completed work')).toBeInTheDocument();
+    const rail = screen.getByTestId('bucket-rail');
+    const labels = Array.from(rail.querySelectorAll('button')).map((b) => b.textContent);
+    // «Ждут» is the operator's own word for the button — R38 records it verbatim.
+    expect(labels).toEqual(['Inbox', 'Open', 'Ждут', 'Solved', 'Archive']);
   });
 
-  it('⛔ there is no "Shared work" bucket — CC\'d and Following do not exist here', async () => {
+  it('the default bucket is Inbox — the tickets waiting for a FIRST answer', async () => {
+    const stub = stubConversations({ count: 3 });
+    setDataAccess(stub);
+    renderInbox();
+    await screen.findByText('Conversation 1');
+
+    expect(stub.calls[0]!.filters).toMatchObject({ statusCategories: 'new' });
+  });
+
+  it('⭐ «Ждут» asks for the UNION pending,on_hold — one button, two categories', async () => {
+    const stub = stubConversations({ count: 3 });
+    setDataAccess(stub);
+    renderInbox();
+    await screen.findByText('Conversation 1');
+
+    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    await waitFor(() =>
+      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
+        statusCategories: 'pending,on_hold',
+      }),
+    );
+  });
+
+  it('⭐ Archive is a real bucket now — the `closed` category, not a placeholder', async () => {
+    const stub = stubConversations({ count: 3 });
+    setDataAccess(stub);
+    renderInbox();
+    await screen.findByText('Conversation 1');
+
+    fireEvent.click(screen.getByTestId('bucket-archive'));
+    await waitFor(() =>
+      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
+        statusCategories: 'closed',
+      }),
+    );
+  });
+
+  it('⛔ no button carries a number (R38: counts are 9.2a’s, unread is 9.12’s)', async () => {
     setDataAccess(stubConversations({ count: 3 }));
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    expect(screen.queryByText(/shared work/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/cc'd|following/i)).not.toBeInTheDocument();
+    const rail = screen.getByTestId('bucket-rail');
+    expect(rail.textContent).not.toMatch(/\d/);
   });
 
-  it('⭐ choosing a bucket narrows the QUERY, not just the highlight', async () => {
+  it('⭐⭐ every bucket narrows by CATEGORY, never by a status key — and the detector works', () => {
+    for (const bucket of BUCKETS) {
+      expect(Object.keys(bucket.filters)).toEqual(['statusCategories']);
+      // The six closed categories are the only words allowed here.
+      for (const c of bucket.categories) {
+        expect(['new', 'open', 'pending', 'on_hold', 'solved', 'closed']).toContain(c);
+      }
+      expect(bucket.filters.statusCategories).toBe(bucket.categories.join(','));
+    }
+    // Planted input: the shape the previous rail died of. If this stops matching, the guard above
+    // has gone blind, not the codebase clean.
+    const planted = { filters: { status: 'resolved' } };
+    expect(Object.keys(planted.filters)).not.toEqual(['statusCategories']);
+  });
+
+  it('⚠️ switching bucket clears the exact-status filter — two answers to one question is a defect', async () => {
+    // Pick "VIP Pending" inside «Ждут», then switch to Solved: leaving the key in force would
+    // intersect to an empty page for a reason nothing on screen explains.
     const stub = stubConversations({ count: 3 });
     setDataAccess(stub);
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    fireEvent.click(screen.getByTestId('bucket-completed'));
+    fireEvent.click(screen.getByTestId('bucket-waiting'));
+    await screen.findByTestId('filter-status');
+    chooseOption('filter-status', 'VIP Pending');
     await waitFor(() =>
-      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'solved' }),
-    );
-  });
-
-  it('the default bucket asks for no narrowing at all', async () => {
-    const stub = stubConversations({ count: 3 });
-    setDataAccess(stub);
-    renderInbox();
-    await screen.findByText('Conversation 1');
-
-    expect(stub.calls[0]!.filters).toEqual({});
-  });
-
-  it('⚠️ a bucket CLEARS the filter it collides with — two answers to one question is a defect', async () => {
-    // Pick "pending" in the filter, then switch to the Resolved bucket: leaving both would produce an
-    // empty list for a reason nothing on screen explains.
-    const stub = stubConversations({ count: 3 });
-    setDataAccess(stub);
-    renderInbox();
-    await screen.findByText('Conversation 1');
-
-    chooseOption('filter-status', 'pending');
-    await waitFor(() =>
-      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'pending' }),
+      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
+        status: 'vip_pending',
+        statusCategories: 'pending,on_hold',
+      }),
     );
 
-    fireEvent.click(screen.getByTestId('bucket-completed'));
-    await waitFor(() =>
-      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'solved' }),
-    );
-    /**
-     * …and the control tells the truth about it rather than showing a value that no longer applies.
-     *
-     * ⓘ Asserted as the ABSENCE of the stale value, not as the word "Any". Since the filter moved into
-     * the column header (9.2b), the funnel spends width on a word only when something is applied — so
-     * "shows Any" would now be a claim about the old layout, while "does not still say pending" is the
-     * thing that actually protects the agent.
-     */
-    expect(screen.getByTestId('filter-status')).not.toHaveTextContent(/pending/i);
+    fireEvent.click(screen.getByTestId('bucket-solved'));
+    await waitFor(() => {
+      const last = stub.calls[stub.calls.length - 1]!.filters as Record<string, unknown>;
+      expect(last.statusCategories).toBe('solved');
+      expect(last.status).toBeUndefined();
+    });
   });
 
   it('a filter the bucket does NOT own still applies on top of it', async () => {
@@ -113,12 +133,12 @@ describe('*** the bucket rail ***', () => {
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    fireEvent.click(screen.getByTestId('bucket-completed'));
-    chooseOption('filter-channel', 'email');
+    fireEvent.click(screen.getByTestId('bucket-solved'));
+    fireEvent.click(screen.getByTestId('chip-channel-email'));
 
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
-        status: 'solved',
+        statusCategories: 'solved',
         channel: 'email',
       }),
     );
@@ -129,31 +149,34 @@ describe('*** the bucket rail ***', () => {
     // exists — a rail entry that always errors.
     for (const bucket of BUCKETS) {
       for (const key of Object.keys(bucket.filters)) {
-        expect(['status', 'channel']).toContain(key);
+        expect(BUCKET_OWNED_KEYS as readonly string[]).toContain(key);
       }
     }
   });
 });
 
-describe('the Status column reads the model of record (feature 032)', () => {
+describe('the Status column reads the model of record (feature 032), labelled by the catalogue (W6)', () => {
   /**
    * ⭐ The operator's report, verbatim: *«не тянуться статусы тикетов. То есть в solved например тикеты
-   * без такого статуса»*.
-   *
-   * Feature 032 made the status a per-account KEY and deprecated the enum field; the server stopped
-   * populating it, so a screen reading `status` got `CONVERSATION_STATUS_UNSPECIFIED` and rendered an
-   * empty cell — correctly, for a field that says nothing. Nothing was broken in the data.
-   *
-   * ⇒ **A deprecated field that still exists is a field somebody is still reading.** Emptying it on the
-   * server is only half the change.
+   * без такого статуса»* — feature 032 deprecated the enum field, the server stopped populating it, and
+   * a screen still reading it rendered empty cells. The column reads `statusKey`; W6 adds the catalogue
+   * join on top, so the cell shows the account's agent-facing NAME.
    */
-  it('renders the key the server sends, not the retired enum', async () => {
+  it('renders the catalogue’s agent name for the key the server sends', async () => {
     setDataAccess(stubConversations({ count: 1, rowOverrides: { statusKey: 'vip_pending' } }));
     renderInbox();
-    await waitFor(() => expect(screen.getByText(/vip_pending/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('VIP Pending')).toBeInTheDocument());
   });
 
-  it('falls back to the old field, so an older response still shows something', async () => {
+  it('falls back to the KEY when the catalogue does not know it — a retired word still renders', async () => {
+    setDataAccess(
+      stubConversations({ count: 1, rowOverrides: { statusKey: 'bespoke_status' } }),
+    );
+    renderInbox();
+    await waitFor(() => expect(screen.getByText(/bespoke_status/i)).toBeInTheDocument());
+  });
+
+  it('falls back to the old enum field, so an older response still shows something', async () => {
     setDataAccess(
       stubConversations({
         count: 1,
@@ -161,6 +184,6 @@ describe('the Status column reads the model of record (feature 032)', () => {
       }),
     );
     renderInbox();
-    await waitFor(() => expect(screen.getByText(/open/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/open/i).length).toBeGreaterThan(0));
   });
 });

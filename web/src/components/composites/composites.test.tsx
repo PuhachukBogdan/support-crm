@@ -8,10 +8,10 @@ import { SidePanel } from './side-panel/side-panel';
 
 describe('supporting composites', () => {
   it('StatusBadge maps status & priority to token-driven variants (no inline color)', () => {
-    // ⚠️ `open` is RED since 2026-08-03 — it used to be blue. See the status-tone block below.
+    // ⚠️ `open` is the NEUTRAL foreground token since W6 (R38) — red is reserved. See below.
     const { rerender } = render(<StatusBadge kind="status" value="open" />);
     const openBadge = screen.getByText('open');
-    expect(openBadge.className).toMatch(/bg-destructive/);
+    expect(openBadge.className).toMatch(/bg-foreground/);
     expect(openBadge.getAttribute('style') ?? '').not.toMatch(/#|rgb\(/);
 
     rerender(<StatusBadge kind="priority" value="urgent" />);
@@ -32,8 +32,12 @@ describe('supporting composites', () => {
       return cls;
     };
 
-    it('open is red and pending is blue — the two an agent scans for', () => {
-      expect(toneOf('open')).toMatch(/bg-destructive/);
+    it('⭐ open is NEUTRAL and red is FREED (R38, W6) — pending stays blue', () => {
+      // R38 (operator, 2026-08-05): «Open moves to the neutral foreground token, and red is freed to
+      // mean exactly one thing: a new message from the customer» — the 9.12 unread marker. Until 9.12
+      // ships, NO status is red, so the colour cannot spend the interim meaning something else.
+      expect(toneOf('open')).toMatch(/bg-foreground/);
+      expect(toneOf('open')).not.toMatch(/bg-destructive/);
       expect(toneOf('pending')).toMatch(/bg-info/);
     });
 

@@ -50,61 +50,14 @@ export interface InboxColumn {
    */
   readonly sort?: { readonly asc: string; readonly desc: string };
   /**
-   * ⭐ The filter this column owns, opened from a **funnel in its own header** (operator, 2026-08-03:
-   * *«может их прям в эту плашку и впихнуть»*).
-   *
-   * This is the sanctioned kind of change: first the Zendesk copy, then our improvement on top. Zendesk
-   * keeps a filter bar above the list; a column that carries both its sort and its filter puts the
-   * control where the thing it narrows already is.
-   *
-   * ⛔ **Declared only where the filter genuinely IS this column** — otherwise the header would host a
-   * narrowing that has nothing to do with it, which is worse than a toolbar.
+   * ⛔ **The per-column filter funnel is GONE (W6), and the reason is the operator's own snapshots.**
+   * The 08-03 decision put filters into column headers; the 08-04 snapshot batch then showed Zendesk's
+   * toolbar — Status ▾, Channel — with his caption *«Отличная вещь — фильтры. Оставим»*. The newer,
+   * explicit word wins: filters live in `inbox-toolbar.tsx` now, one control per narrowing, and the
+   * Status dropdown's options come from the ACCOUNT'S OWN catalogue (`use-statuses`) narrowed to the
+   * bucket's categories — which the old hardcoded `['open', 'pending']` list never could.
    */
-  readonly filter?: {
-    readonly key: FilterKey;
-    readonly options: readonly string[];
-  };
 }
-
-/** The keys the transient filter state accepts. Kept structural so a renamed filter breaks the build. */
-type FilterKey = 'status' | 'channel';
-
-/**
- * ⚠️ Statuses are DATA, not code (cross-cutting conclusion D — custom statuses exist). These are the
- * ones the wire enum defines **and that something actually produces**; when custom statuses land they
- * come from the server and this constant goes away.
- *
- * ⛔ **`snoozed` was here and is removed.** The operator hit it and asked what it was for — the honest
- * answer is *nothing*: it exists in the schema comment and both wire maps, **no code path ever sets it**,
- * and the stand has zero such rows. It was in this list only because the enum was copied instead of
- * asking what fills it. A filter option that can only ever return an empty list teaches an agent that
- * the queue is empty when it is not.
- *
- * ⛔ **`resolved` is also gone**, on the operator's instruction: it has its own bucket in the rail, and
- * *«не вижу смысла отдельно в статус фильтре resolved выделять, если они будут в отдельной вкладке»*.
- * Two routes to the same set is how a bucket and a filter end up disagreeing.
- */
-const STATUSES = ['open', 'pending'] as const;
-
-/**
- * ⭐ **Corrected by feature 033 (2026-08-05): `'chat'` is gone.** The 033 migration typed the arrival
- * channel into the closed vocabulary `api | email | messenger` and folded `chat` into `api` — the widget
- * chat *is* the API channel (roadmap 6.1). Left in this list it would be a filter option matching zero
- * rows, which reads to an agent as "there are no widget tickets" rather than "that word is retired".
- *
- * ⚠️ **This paragraph replaces one claiming the list is deliberately NOT a closed catalogue.** That was
- * true when a channel was free text; it stopped being true when three subsystems began standing on the
- * column (SLA per channel, this filter, the analytics split). The values are now a catalogue in
- * `libs/common/src/channels/kinds.ts`, and `messenger` is deliberately absent HERE rather than absent
- * there: the kind exists so the vocabulary is complete, but no messenger is connected in the MVP, so
- * offering it would be the same empty-filter mistake in a new place. It arrives with the transport.
- *
- * ⛔ **There is no "no channel" option, and that is a real limitation worth stating.** About one in six
- * conversations carry no channel; the wire cannot express "unset" as a filter value (an empty string
- * means "no filter"). Those rows stay reachable by not filtering — so the filter narrows, and clearing
- * it is how you get back to everything (FR-011a).
- */
-const CHANNELS = ['api', 'email'] as const;
 
 /**
  * ⭐ **Order copied from Zendesk** (`ui-design/screenshots/views_1.png`, 2026-08-03):
@@ -125,7 +78,6 @@ export const INBOX_COLUMNS: readonly InboxColumn[] = [
     tier: 'essential',
     width: 96,
     // ⓘ No sort arrow: Zendesk shows none on Ticket status either — a status is a set, not a scale.
-    filter: { key: 'status', options: STATUSES },
   },
   // "Requested" is the creation instant. §2 makes *time-since* essential and that is `Updated` below;
   // when the queue is narrow, which one still matters is the one that moved.
@@ -149,13 +101,7 @@ export const INBOX_COLUMNS: readonly InboxColumn[] = [
     width: 120,
     sort: { asc: 'updated_asc', desc: 'updated_desc' },
   },
-  {
-    id: 'channel',
-    header: 'Channel',
-    tier: 'contextual',
-    width: 100,
-    filter: { key: 'channel', options: CHANNELS },
-  },
+  { id: 'channel', header: 'Channel', tier: 'contextual', width: 100 },
   { id: 'playerId', header: 'Player', tier: 'essential', width: 140 },
   // The reason feature 023 exists: a queue you can scan. Never shed; truncates instead.
   { id: 'subject', header: 'Subject', tier: 'essential', width: 220 },

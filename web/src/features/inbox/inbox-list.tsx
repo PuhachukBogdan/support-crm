@@ -5,15 +5,13 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { DataTable } from '@/components/composites/data-table';
 import { StatusBadge } from '@/components/composites/status-badge/status-badge';
 import { INBOX_COLUMNS, type InboxColumn } from './columns';
-import { ColumnFilter } from './column-filter';
-import type { InboxFilters } from './use-inbox-query';
 
-/** What a header needs to render its two controls. Passed down whole rather than as four props. */
+/** What a header and the status cell need. Passed down whole rather than as three props. */
 interface HeaderControls {
   readonly order: string;
   readonly onOrderChange: (order: string) => void;
-  readonly filters: InboxFilters;
-  readonly onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
+  /** key -> the account's agent-facing name, from the catalogue (`use-statuses`). May be empty. */
+  readonly statusLabels: Readonly<Record<string, string>>;
 }
 import { relativeTime, statusFromWire } from './wire-labels';
 import { SortableHeader } from './sortable-header';
@@ -58,22 +56,12 @@ function cellFor(col: InboxColumn, controls: HeaderControls): ColumnDef<Conversa
     // The screen's whole narrowing statement. `DataTable` sheds by it — see `density-spec.md` §2/§7.
     meta: { tier: col.tier },
     /**
-     * ⭐ The header carries BOTH of the column's controls — its sort and its own filter. Each renders
-     * only where the thing behind it exists: a triangle only where the server declares that order, a
-     * funnel only where the filter genuinely is this column.
-     *
-     * So `DataTable` needs no knowledge of either, and cannot turn every header into a control the
-     * server would not honour.
+     * ⭐ The header carries the column's ONE control — its sort, and only where the server declares
+     * that order. ⛔ The filter funnel is gone (W6): filters live in the toolbar, per the operator's
+     * own snapshots — see `columns.ts` for the record of the reversal.
      */
     header: () => (
-      <span className="flex items-center gap-1">
-        <SortableHeader column={col} order={controls.order} onOrderChange={controls.onOrderChange} />
-        <ColumnFilter
-          column={col}
-          value={col.filter ? controls.filters[col.filter.key] : undefined}
-          onChange={(next) => col.filter && controls.onFilterChange(col.filter.key, next)}
-        />
-      </span>
+      <SortableHeader column={col} order={controls.order} onOrderChange={controls.onOrderChange} />
     ),
   };
 
@@ -108,7 +96,13 @@ function cellFor(col: InboxColumn, controls: HeaderControls): ColumnDef<Conversa
            * it is a separate step, not something to fake here from a key.
            */
           const status = row.original.statusKey?.trim() || statusFromWire(row.original.status);
-          return status ? <StatusBadge kind="status" value={status} /> : <EmptyValue />;
+          if (!status) return <EmptyValue />;
+          /**
+           * ⭐ W6: the catalogue join 032 designed — the account's agent-facing NAME when the
+           * catalogue has arrived, the key as an honest fallback when it has not (or when an old row
+           * wears a key the catalogue no longer lists; a retired status must still render).
+           */
+          return <StatusBadge kind="status" value={controls.statusLabels[status] ?? status} />;
         },
       };
     case 'priority':
@@ -172,8 +166,7 @@ export function InboxList({
   rowSelection,
   order,
   onOrderChange,
-  filters,
-  onFilterChange,
+  statusLabels = {},
 }: {
   state: AsyncState<PaginatedResult<ConversationRow>>;
   onLoadMore?: () => void;
@@ -184,14 +177,13 @@ export function InboxList({
   /** The order in force, so a sortable header can show which way it points. */
   order: string;
   onOrderChange: (order: string) => void;
-  /** The filters in force — a header funnel renders the APPLIED value, never one it remembers itself. */
-  filters: InboxFilters;
-  onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
+  /** key → agent-facing name from the account's catalogue; the status cell falls back to the key. */
+  statusLabels?: Readonly<Record<string, string>>;
 }) {
   // Every declared column, every time. Which of them fits is the composite's answer, not this screen's.
   const columns = useMemo(
-    () => INBOX_COLUMNS.map((col) => cellFor(col, { order, onOrderChange, filters, onFilterChange })),
-    [order, onOrderChange, filters, onFilterChange],
+    () => INBOX_COLUMNS.map((col) => cellFor(col, { order, onOrderChange, statusLabels })),
+    [order, onOrderChange, statusLabels],
   );
 
   return (

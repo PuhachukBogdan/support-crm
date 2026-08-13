@@ -60,6 +60,13 @@ export class GatewayDataAccess implements DataAccess {
 
   async get<T = unknown>(resource: ResourceName, id: string): Promise<T> {
     const row = this.rowWith(resource, 'get');
+    // W6: a singleton's path names the whole resource — no id segment exists to append, and passing
+    // one is a programming error, not a request (there is nobody else the path could name).
+    if (row.singleton) {
+      if (id !== '') throw clientRefusal(`"${resource}" is a singleton and takes no id`);
+      const res = await this.http({ path: row.path });
+      return this.okBody(res) as T;
+    }
     const res = await this.http({ path: `${row.path}/${encodeURIComponent(id)}` });
     return this.okBody(res) as T;
   }

@@ -24,7 +24,41 @@ export interface StubOptions {
   failWith?: DataError | null;
   /** Overrides applied to every generated row. */
   rowOverrides?: Partial<ConversationRow>;
+  /**
+   * W6: the caller's own operator id (`GET /me/operator`). `null` = the read FAILS — how every test
+   * written before 5.11 implicitly ran, and the state the «Мои» control must stay disabled in.
+   */
+  myOperatorId?: string | null;
+  /** W6: the status catalogue. Defaults to a seeded-nine-shaped set; `[]` = the read fails. */
+  statuses?: readonly StatusWireRow[];
 }
+
+/** The catalogue row as the WIRE spells it (`GET /conversations/statuses`, feature 032). */
+export interface StatusWireRow {
+  key: string;
+  category: string;
+  agentName: string;
+  endUserName: string;
+  active: boolean;
+  order: number;
+}
+
+/**
+ * The seeded nine, in wire shape — the same set `@crm/common` seeds, restated here because `web/`
+ * deliberately imports nothing from the services' shared library (the same rule as `RealtimeEvent`).
+ */
+export const WIRE_STATUSES: readonly StatusWireRow[] = [
+  { key: 'new', category: 'CONVERSATION_STATUS_CATEGORY_NEW', agentName: 'New', endUserName: 'Open', active: true, order: 10 },
+  { key: 'open', category: 'CONVERSATION_STATUS_CATEGORY_OPEN', agentName: 'Open', endUserName: 'Open', active: true, order: 20 },
+  { key: 'pending', category: 'CONVERSATION_STATUS_CATEGORY_PENDING', agentName: 'Pending', endUserName: 'Open', active: true, order: 30 },
+  { key: 'vip_pending', category: 'CONVERSATION_STATUS_CATEGORY_PENDING', agentName: 'VIP Pending', endUserName: 'Open', active: true, order: 40 },
+  { key: 'in_progress', category: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD', agentName: 'In progress', endUserName: 'Open', active: true, order: 50 },
+  { key: 'follow_up', category: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD', agentName: 'Follow-up', endUserName: 'Open', active: true, order: 60 },
+  // Retired: still on old rows, never offered as a filter option.
+  { key: 'auto_ended_chat', category: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD', agentName: 'Auto-Ended Chat', endUserName: 'Open', active: false, order: 70 },
+  { key: 'supervisor_review', category: 'CONVERSATION_STATUS_CATEGORY_ON_HOLD', agentName: 'Supervisor Review – In Progress', endUserName: 'Open', active: true, order: 80 },
+  { key: 'solved', category: 'CONVERSATION_STATUS_CATEGORY_SOLVED', agentName: 'Solved', endUserName: 'Solved', active: true, order: 90 },
+];
 
 export function makeConversationRows(
   count: number,
@@ -75,7 +109,15 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
 
   const stub: ConversationsStub = {
     calls,
-    async list<T = unknown>(_resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
+    async list<T = unknown>(resource: ResourceName, query: Query): Promise<PaginatedResult<T>> {
+      // W6: the status catalogue rides the same port. Not recorded in `calls` — those are the
+      // CONVERSATION requests the assertions count, and a catalogue read among them would make
+      // "re-read once" flaky on mount order.
+      if (resource === 'conversation-statuses') {
+        const statuses = opts.statuses ?? WIRE_STATUSES;
+        if (statuses.length === 0) throw { kind: 'unavailable' };
+        return { items: statuses as unknown as T[], nextCursor: null, hasMore: false };
+      }
       calls.push(query);
       if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
       if (opts.failWith) throw opts.failWith;
@@ -90,7 +132,12 @@ export function stubConversations(opts: StubOptions = {}): ConversationsStub {
         hasMore,
       };
     },
-    async get<T = unknown>(): Promise<T> {
+    async get<T = unknown>(resource: ResourceName): Promise<T> {
+      // W6: "which operator am I?" (5.11). `null` = the read fails, the scope stays disabled.
+      if (resource === 'me-operator') {
+        if (opts.myOperatorId === null) throw { kind: 'unavailable' };
+        return { operatorId: opts.myOperatorId ?? 'op-me', active: true } as unknown as T;
+      }
       throw new Error('not used by the inbox');
     },
     async create<T = unknown>(): Promise<T> {

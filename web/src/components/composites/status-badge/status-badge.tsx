@@ -24,7 +24,13 @@ export type StatusKind = 'status' | 'priority';
  * a token, which white-label requires (rule 6 / ADR 0028).
  */
 const STATUS_TONES: Record<string, string> = {
-  open: 'bg-destructive text-destructive-foreground',
+  /**
+   * ⭐ R38 (2026-08-05): **Open moved to the neutral `foreground` token, and red is FREED to mean
+   * exactly one thing — a new message from the customer** (the 9.12 unread marker, when it lands).
+   * Until 9.12 ships, nothing on this screen is red, deliberately: a colour that means one thing
+   * must not spend the interim meaning another.
+   */
+  open: 'bg-foreground text-background',
   pending: 'bg-info text-info-foreground',
   // Our wire calls it `resolved`; Zendesk calls it `Solved`. Same state, both spellings mapped so a
   // rename on either side does not silently fall through to the neutral tone.

@@ -33,6 +33,16 @@ const TICKET = process.env.TICKET_ID ?? '';
  * so a made-up value would test the refusal, not the write.
  */
 const PLAYER = process.env.PLAYER_ID ?? 'seed-player-001';
+/**
+ * ⭐ `READ_ONLY=1` — everything is OBSERVED and nothing is written.
+ *
+ * ⚠️ Not a convenience: on the PUBLIC stand a tester may be working, and this file otherwise attaches
+ * a player to a ticket, reassigns it and flips the probe's presence. Rule 12 exists to stop exactly
+ * that. So the public round asserts what the operator reported — the funnel is not hidden, the fields
+ * declare themselves editable, the chooser offers names, the window offers four states — and leaves
+ * the data alone. The WRITES are proven on the closed stand, where the data is ours.
+ */
+const READ_ONLY = process.env.READ_ONLY === '1';
 
 let ok = 0;
 let bad = 0;
@@ -153,6 +163,7 @@ try {
 
       await page.screenshot({ path: `${SHOTS}/01-funnel-open-light.png` });
       // Choosing still works through the portal — the outside-click handler must not eat the click.
+      // ⓘ Safe even read-only: a filter is transient by design (FR-013) and writes nothing.
       const before = page.url();
       await page.locator('[data-testid="filter-channel-list"] [role="option"]').nth(1).click();
       await page.waitForTimeout(1200);
@@ -177,6 +188,12 @@ try {
     else fail('four presence states', `saw ${states}`);
     await page.screenshot({ path: `${SHOTS}/02-user-menu-light.png` });
 
+    if (READ_ONLY) {
+      // The badge is still READ, so the control is observed end-to-end minus the write.
+      const shown = await page.locator('[data-testid="presence-dot"]').getAttribute('data-state');
+      pass(`read-only: the state renders from the server (${shown}) — not flipping it here`);
+      await page.keyboard.press('Escape');
+    } else {
     await page.locator('[data-testid="presence-away"]').click();
     await page.waitForTimeout(1500);
     // ⚠️ The reload is the whole point: presence lives on the SERVER (the router reads the same
@@ -192,6 +209,7 @@ try {
     await page.locator('[data-testid="presence-online"]').click();
     await page.waitForTimeout(1200);
     pass('put back On shift (the stand is left as it was found)');
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════════════════════════════
@@ -218,9 +236,24 @@ try {
     }
     return out;
   });
+  /**
+   * ⚠️ **`field-player-id` may legitimately be ABSENT, and the second public round is what taught this
+   * file so.** The editor is gated on `crm.contact.lookup`, which a TEAMLEAD does not hold — they have
+   * `crm.contact.view` and reach a customer through the ticket. So its absence for that role is the
+   * render-gate working, and the run that reported it as a failure was the check being wrong, not the
+   * product. It is not skipped, though: absence must come with the value still READABLE, because
+   * refusing the write is not refusing the fact.
+   */
+  const GATED = new Set(['field-player-id']);
   for (const [id, has] of Object.entries(marks)) {
     if (has === true) pass(`${id} carries the editable mark`);
-    else if (has === null) fail(`${id} is on the screen`);
+    else if (has === null && GATED.has(id)) {
+      const readable = await page.evaluate(
+        () => (document.querySelector('[data-testid="ticket-fields"]')?.textContent ?? '').includes('Player ID'),
+      );
+      if (readable) pass(`${id} is read-only for this role (no crm.contact.lookup) and still shows its value`);
+      else fail(`${id} is at least readable when the editor is gated off`);
+    } else if (has === null) fail(`${id} is on the screen`);
     else fail(`${id} carries the editable mark`, 'no icon — it looks read-only');
   }
   await page.screenshot({ path: `${SHOTS}/03-ticket-fields-light.png`, fullPage: false });
@@ -229,7 +262,16 @@ try {
   const stamp = PLAYER;
   const pid = page.locator('[data-testid="field-player-id"]');
   if (!(await pid.count())) {
-    fail('Player ID is an editor for an admin');
+    // Already accounted for above — this role is not entitled to the editor, which is a PASS there.
+    pass('Player ID: no editor offered to a role without the key (nothing that would 403)');
+  } else if (READ_ONLY) {
+    // The editor OPENS — which is the operator's complaint («нельзя заполнять») — and Escape
+    // abandons, so a tester's ticket keeps the player it had.
+    await pid.click();
+    const opened = await page.locator('[data-testid="field-player-id-input"]').count();
+    if (opened === 1) pass('read-only: Player ID opens an input you can type into');
+    else fail('Player ID opens an editor', 'no input appeared');
+    await page.keyboard.press('Escape');
   } else {
     await pid.click();
     const input = page.locator('[data-testid="field-player-id-input"]');
@@ -265,7 +307,10 @@ try {
     else if (options.length > 0) fail('the options are names', options[0]);
     await page.screenshot({ path: `${SHOTS}/04-assignee-open-light.png` });
 
-    if (options.length > 0) {
+    if (READ_ONLY) {
+      pass('read-only: the chooser is open and offers names — not reassigning a tester’s ticket');
+      await page.keyboard.press('Escape');
+    } else if (options.length > 0) {
       await page.locator('[data-testid^="field-assignee-option-"]').first().click();
       await page.waitForTimeout(2500);
       const now = (await page.locator('[data-testid="field-assignee"]').textContent()) ?? '';

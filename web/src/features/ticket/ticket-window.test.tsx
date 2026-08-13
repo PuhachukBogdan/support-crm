@@ -105,6 +105,25 @@ describe('the composer composes the request (and only the request)', () => {
     });
   });
 
+  it('a picked file becomes a CHIP (wire field `id`), and the message carries its uploadId', async () => {
+    const stub = stubTicket();
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' });
+    fireEvent.change(screen.getByTestId('composer-file-input'), { target: { files: [file] } });
+    // The chip — not the block, which also renders the error line (the first live run passed on
+    // an upload that had failed into an error message; this selector cannot).
+    await screen.findByLabelText('Remove attachment shot.png');
+
+    fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'see attached' } });
+    fireEvent.click(screen.getByTestId('composer-send'));
+    await waitFor(() => expect(stub.writes.filter((w) => w.resource === 'conversation-messages')).toHaveLength(1));
+    expect(stub.writes.find((w) => w.resource === 'conversation-messages')).toMatchObject({
+      payload: { body: 'see attached', uploadIds: ['u-1'] },
+    });
+  });
+
   it('a failed send names itself and composes NOTHING further (the refusal)', async () => {
     const stub = stubTicket({ failSendWith: { message: 'The server refused this message.', retryable: false } });
     renderWindow(stub);

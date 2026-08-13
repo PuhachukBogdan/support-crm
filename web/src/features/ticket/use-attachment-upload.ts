@@ -38,11 +38,11 @@ export function useAttachmentUpload() {
         for (const file of Array.from(files)) {
           const form = new FormData();
           form.append('file', file, file.name);
-          const res = await dataAccess.create<{ uploadId?: string }>(
-            'message-attachment-uploads',
-            form,
-          );
-          const uploadId = typeof res?.uploadId === 'string' ? res.uploadId : '';
+          // The route answers the proto's `Upload` message — the field is `id` (users.proto:287).
+          // The first live run failed EXACTLY here: this read `uploadId`, a field the wire never
+          // had, and every upload "succeeded" into an empty string.
+          const res = await dataAccess.create<{ id?: string }>('message-attachment-uploads', form);
+          const uploadId = typeof res?.id === 'string' ? res.id : '';
           if (uploadId === '') {
             // A 2xx with no id is a contract break, not a user problem — say so and stop.
             throw new Error('upload accepted but no id returned');

@@ -122,6 +122,12 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
     },
     async create<T = unknown>(resource: ResourceName, input: unknown, within?: string): Promise<T> {
       writes.push({ op: 'create', resource, payload: input, within });
+      if (resource === 'message-attachment-uploads') {
+        // The WIRE shape (users.proto `Upload`): the field is `id`. The first live run failed on a
+        // client reading `uploadId` — a friendlier stub would have hidden exactly that, so this one
+        // answers what the server answers.
+        return { id: `u-${writes.length}`, displayName: 'x.png' } as unknown as T;
+      }
       if (resource === 'conversation-messages') {
         if (opts.failSendWith) throw opts.failSendWith;
         const body = (input as { body?: string }).body ?? '';

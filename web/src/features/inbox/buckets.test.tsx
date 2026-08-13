@@ -1,3 +1,16 @@
+/**
+ * ⚠️⚠️ **THESE THREE ASSERTIONS PINNED A VALUE THE SERVER REFUSES, so the suite was green while every
+ * agent who clicked this bucket got a 400 and a blank screen** (found 2026-08-05, by the operator, on his
+ * third report of it — read as a performance problem twice).
+ *
+ * Feature 032 renamed `resolved` → `solved` and refuses the retired word rather than mapping it. The stub
+ * these tests use returns whatever it is handed, so it cannot tell a filter the server ACCEPTS from one it
+ * REJECTS — the same shape as `gotchas/a-fake-more-permissive-than-the-library`, one layer up: a double
+ * that accepts what the real dependency refuses turns a hard failure into a passing test.
+ *
+ * ⇒ Track A pins the request the screen COMPOSES. Whether the server accepts it is Track B's, and this
+ * bucket had no Track B coverage at all.
+ */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Providers } from '../../../app/providers';
 import { Inbox } from './inbox';
@@ -53,7 +66,7 @@ describe('*** the bucket rail ***', () => {
 
     fireEvent.click(screen.getByTestId('bucket-completed'));
     await waitFor(() =>
-      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'resolved' }),
+      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'solved' }),
     );
   });
 
@@ -81,7 +94,7 @@ describe('*** the bucket rail ***', () => {
 
     fireEvent.click(screen.getByTestId('bucket-completed'));
     await waitFor(() =>
-      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'resolved' }),
+      expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'solved' }),
     );
     /**
      * …and the control tells the truth about it rather than showing a value that no longer applies.
@@ -105,7 +118,7 @@ describe('*** the bucket rail ***', () => {
 
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({
-        status: 'resolved',
+        status: 'solved',
         channel: 'email',
       }),
     );

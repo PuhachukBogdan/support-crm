@@ -41,11 +41,28 @@ export const BUCKETS: readonly Bucket[] = [
   // Zendesk's "Your work → Tickets": everything on the agent's plate, whatever its state.
   { id: 'yours', group: 'Your work', label: 'Tickets', filters: {} },
   /**
-   * Zendesk's "Completed work → Last 30 days". Ours narrows by status rather than by date: we have a
-   * `resolved` status and no 30-day window, and inventing the window would need a date filter the
-   * route does not accept. ⇒ Labelled for what it actually shows.
+   * Zendesk's "Completed work → Last 30 days". Ours narrows by status rather than by date: there is no
+   * 30-day window, and inventing one would need a date filter the route does not accept. ⇒ Labelled for
+   * what it actually shows.
+   *
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════
+   * ⚠️⚠️ **`solved`, NOT `resolved` — this bucket served a 400 to every agent who clicked it.**
+   *
+   * Feature 032 (block W2) renamed the status and **refuses the retired word rather than mapping it** —
+   * a deliberate decision, because mapping is right for stored data and lossy as a FILTER. Its own note
+   * said the cost was *"affordable only because the Inbox screen does not exist yet"*. The Inbox had
+   * shipped two days earlier (roadmap 9.1/9.2). The assumption was simply false.
+   *
+   * What the operator saw: a click, an empty list, one line of text — *"The request was not valid."* —
+   * and a screen that reads as a hang. It was reported three times as a performance problem, and two
+   * rounds of profiling went looking for a CPU loop that was never there
+   * (`gotchas/blank-page-destroys-the-evidence`, again).
+   *
+   * ⇒ **A vocabulary change is not done when the server is consistent.** Every caller that spells the
+   * old word is a caller that now gets refused, and a screen is a caller.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════
    */
-  { id: 'completed', group: 'Completed work', label: 'Resolved', filters: { status: 'resolved' } },
+  { id: 'completed', group: 'Completed work', label: 'Solved', filters: { status: 'solved' } },
   /**
    * ⭐ The **Archive** the operator asked for (2026-08-03): every manager's tickets, with Zendesk's
    * view list inside it — *«не кнопка архив, а именно категория архив»*.

@@ -234,14 +234,17 @@ try {
   // (`gateway/src/chats/rpc.ts` flattens refusal detail), so the WORDS are asserted at the service
   // tier (unit suites) and on the SCREEN (the required-hint below); here the wire proves the CLASS
   // of refusal and — the receipt rule — that the stored state did not move.
-  const notNumber = await agentApi('PATCH', `/conversations/${tid}/fields/deposit_amount`, { value: 'abc' });
+  // Two DIFFERENT fail-closed paths: a value outside the field's option set, and a field that is
+  // not on this conversation's form at all (`deposit_amount` is in the catalogue and on no form —
+  // Q42: only the composition frame 032 actually shows is seeded).
+  const offForm = await agentApi('PATCH', `/conversations/${tid}/fields/deposit_amount`, { value: '100' });
   const offSet = await agentApi('PATCH', `/conversations/${tid}/fields/country`, { value: 'Atlantis' });
   const heldAfter = await agentApi('GET', `/conversations/${tid}/fields`);
   const heldKeys = (heldAfter.json?.values ?? []).map((v) => v.fieldKey);
-  if (notNumber.status === 400 && offSet.status === 400
+  if (offForm.status === 400 && offSet.status === 400
       && !heldKeys.includes('deposit_amount') && !heldKeys.includes('country'))
-    pass('⛔ text into numeric · out-of-set value — both 400, NOTHING stored (fail-closed on the wire)');
-  else fail('value refusals', `${notNumber.status}/${offSet.status} held=${heldKeys.join(',')}`);
+    pass('⛔ off-form field · out-of-set value — both 400, NOTHING stored (fail-closed on the wire)');
+  else fail('value refusals', `${offForm.status}/${offSet.status} held=${heldKeys.join(',')}`);
 
   // The screen NAMES the empty required fields before any refusal — the hint is the worded half.
   const hint = await p2.textContent('[data-testid="custom-fields-required-hint"]').catch(() => '');
@@ -254,7 +257,12 @@ try {
   if (solveBlocked.status === 400 && stillOpen.json?.statusKey !== 'solved')
     pass('⛔ solve with an empty required field — refused, and the stored status did not move');
   else fail('solve gate', `${solveBlocked.status} status=${stillOpen.json?.statusKey}`);
+  // Q42: their real Deposits form marks PSP / Country / Type of contact / User Level required, so
+  // finishing a ticket means filling their whole column — which is exactly the workflow it mirrors.
   await agentApi('PATCH', `/conversations/${tid}/fields/country`, { value: 'Argentina' });
+  await agentApi('PATCH', `/conversations/${tid}/fields/psp`, { value: 'Betterbro (Src H2H)' });
+  await agentApi('PATCH', `/conversations/${tid}/fields/type_of_contact`, { value: 'Regular' });
+  await agentApi('PATCH', `/conversations/${tid}/fields/user_level`, { value: 'Regular' });
   const solveNow = await agentApi('PATCH', `/conversations/${tid}/status`, { status: 'solved' });
   const nowSolved = await agentApi('GET', `/conversations/${tid}`);
   if (solveNow.status === 200 && nowSolved.json?.statusKey === 'solved')
@@ -291,11 +299,11 @@ try {
   else fail('self-heal', `${healed.status}`);
 
   // ── 5: idempotence — the identical value twice, stored state unchanged ─────────────────────────
-  const first = await agentApi('PATCH', `/conversations/${tid}/fields/psp`, { value: 'PayCord' });
-  const second = await agentApi('PATCH', `/conversations/${tid}/fields/psp`, { value: 'PayCord' });
+  const first = await agentApi('PATCH', `/conversations/${tid}/fields/psp`, { value: 'Manitist' });
+  const second = await agentApi('PATCH', `/conversations/${tid}/fields/psp`, { value: 'Manitist' });
   const held = await agentApi('GET', `/conversations/${tid}/fields`);
   const psp = (held.json?.values ?? []).find((v) => v.fieldKey === 'psp');
-  if (first.status === 200 && second.status === 200 && psp?.value === 'PayCord')
+  if (first.status === 200 && second.status === 200 && psp?.value === 'Manitist')
     pass('the identical value twice: both 200, one stored fact (idempotence)');
   else fail('idempotence', `${first.status}/${second.status} ${JSON.stringify(psp)}`);
 

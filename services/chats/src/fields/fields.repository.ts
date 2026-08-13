@@ -346,7 +346,10 @@ export class FieldsRepository {
           ...(incoming.length
             ? [
                 db.optionValue.createMany({
-                  data: incoming.map((v) => ({ option_set_id: setId, ...v })),
+                  // `account_id` stated explicitly even though the scoping extension injects it:
+                  // the column is required (Principle I — a child is not a join edge), and a
+                  // caller that must state it cannot forget it on a path the extension misses.
+                  data: incoming.map((v) => ({ account_id: accountId, option_set_id: setId, ...v })),
                 }),
               ]
             : []),
@@ -417,7 +420,9 @@ export class FieldsRepository {
     for (const v of incoming) {
       const match = existing.find((e) => e.value === v.value);
       if (!match) {
-        statements.push(db.optionValue.create({ data: { option_set_id: set.id, ...v } }));
+        statements.push(
+          db.optionValue.create({ data: { account_id: accountId, option_set_id: set.id, ...v } }),
+        );
       } else if (match.order !== v.order || match.active !== v.active) {
         statements.push(
           db.optionValue.updateMany({
@@ -534,6 +539,8 @@ export class FieldsRepository {
 
     const entryData = (formId: string) =>
       input.entries.map((e, i) => ({
+        // Stated explicitly — the OptionValue reasoning above, same column, same rule.
+        account_id: accountId,
         form_id: formId,
         field_id: fieldByKey.get(e.fieldKey.trim())!.id,
         order: Number.isFinite(e.order) ? e.order : i,

@@ -25,7 +25,9 @@ const SCAN_ROOTS = [
   join(ROOT, 'services', 'gateway', 'src'),
   join(ROOT, 'web', 'src'),
 ];
-const SEED_FILE = join(ROOT, 'services', 'chats', 'prisma', 'seed.build.ts');
+// ⚠️ The taxonomy moved out of `seed.build.ts` into its own file when the operator's real value
+// lists arrived (Q42, 12.08) — the cross-check follows the data, or it would quietly stop checking.
+const SEED_FILE = join(ROOT, 'services', 'chats', 'prisma', 'seed.fields.ts');
 const MIGRATION_FILE = join(
   ROOT,
   'services',

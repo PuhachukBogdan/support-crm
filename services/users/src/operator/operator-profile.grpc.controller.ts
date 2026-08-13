@@ -1,7 +1,8 @@
 import { Controller, Inject } from '@nestjs/common';
-import { GrpcMethod } from '@nestjs/microservices';
+import { GrpcMethod, RpcException } from '@nestjs/microservices';
+import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata, MetadataValue } from '@grpc/grpc-js';
-import { OperatorProfileService } from './operator-profile.service';
+import { AvatarRefusedError, OperatorProfileService } from './operator-profile.service';
 
 /**
  * `OperatorProfileService.EnsureOwnOperator` — the join nobody owned (roadmap 5.10, MVP block W1).
@@ -54,6 +55,44 @@ export class OperatorProfileController {
       accountId: profile.accountId,
       displayName: profile.displayName ?? '',
       active: profile.active,
+      avatarUploadId: profile.avatarUploadId ?? '',
     };
+  }
+
+  /**
+   * ⭐ W19 (subpoint 5.4) — set MY avatar. The same no-permission reasoning as its sibling: the
+   * subject is the caller and the message cannot name anyone else; the capability is "have a face",
+   * and a signed-in person already may. The three ownership/purpose refusals live in the service;
+   * `not_found` and `not_yours` map to ONE code (NOT_FOUND) deliberately — "someone else's upload"
+   * and "no such upload" must be indistinguishable, the uploads rule this service already states.
+   */
+  @GrpcMethod('OperatorProfileService', 'SetMyAvatar')
+  async setMyAvatar(req: { uploadId?: string }, md?: Metadata) {
+    const accountId = readStr(md, 'x-actor-account-id');
+    const authUserId = readStr(md, 'x-actor-user-id');
+    const uploadId = (req?.uploadId ?? '').trim();
+    if (!uploadId) {
+      throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'uploadId is required' });
+    }
+
+    try {
+      const profile = await this.svc.setAvatar(accountId, authUserId, uploadId);
+      return {
+        operatorId: profile.operatorId,
+        accountId: profile.accountId,
+        displayName: profile.displayName ?? '',
+        active: profile.active,
+        avatarUploadId: profile.avatarUploadId ?? '',
+      };
+    } catch (err) {
+      if (err instanceof AvatarRefusedError) {
+        if (err.reason === 'wrong_purpose') {
+          throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'not an avatar upload' });
+        }
+        // not_found · not_yours · no_profile — one answer, no existence oracle.
+        throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+      }
+      throw err;
+    }
   }
 }

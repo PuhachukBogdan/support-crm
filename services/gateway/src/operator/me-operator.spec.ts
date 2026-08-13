@@ -58,6 +58,8 @@ describe('the caller gets their own operator identity', () => {
       operatorId: 'op-1',
       displayName: 'Agent',
       active: true,
+      // ⭐ W19: the avatar reference joined the restated wire — '' when unset.
+      avatarUploadId: '',
     });
   });
 
@@ -101,26 +103,43 @@ describe('*** ⚠️ the route resolves permissions and requires none ***', () =
     const handlers = Object.getOwnPropertyNames(MeOperatorController.prototype).filter(
       (n) => n !== 'constructor' && n !== 'onModuleInit',
     );
-    expect(handlers).toEqual(['get']);
+    // ⭐ W19 added the avatar placement — still self-scoped, still permission-free by the same
+    // reasoning the header states (the subject is the session; the capability is "have a face").
+    expect(handlers).toEqual(['get', 'setAvatar']);
   });
 });
 
 describe('*** no request shape names another person ***', () => {
   const SRC = readFileSync(join(__dirname, 'me-operator.controller.ts'), 'utf8');
 
-  it('every route path is literally `me/operator`', () => {
+  it('every route path starts with `me/operator` — no segment can name anyone else', () => {
     const paths = [...SRC.matchAll(/@(?:Get|Patch|Post|Put|Delete)\('([^']*)'\)/g)].map((m) => m[1]);
-    expect(paths.length).toBeGreaterThan(0);
-    for (const p of paths) expect(p).toBe('me/operator');
+    expect(paths.length).toBeGreaterThan(1);
+    for (const p of paths) {
+      expect(p.startsWith('me/operator')).toBe(true);
+      // Still no parameter anywhere on this surface — the isolation is the route table's shape.
+      expect(p).not.toContain(':');
+    }
   });
 
-  it('no route takes a path parameter, a query or a body', () => {
-    // The guarantee is the ABSENCE of a parameter: with nothing to fill in, there is no edit that
-    // widens this into `operators/:id`.
+  it('no route takes a path parameter or a query; a body may reference only NON-person things', () => {
+    // The guarantee is the ABSENCE of a way to name somebody: with no `:param` and no query there
+    // is no edit that widens this into `operators/:id`.
     expect(SRC).not.toMatch(/@Param\(/);
     expect(SRC).not.toMatch(/@Query\(/);
-    expect(SRC).not.toMatch(/@Body\(/);
     expect(SRC).not.toMatch(/@(?:Get|Patch|Post|Put|Delete)\('[^']*:/);
+    /**
+     * ⚠️ AMENDED by W19, which added the first `@Body` here — the avatar placement (`{uploadId}`).
+     * The claim this file protects is *no request shape names another PERSON*; an upload reference
+     * is not a person, so the body is admitted and the person-shaped field names stay forbidden in
+     * every inline body type. The blanket `@Body` ban was the cheaper spelling of the same intent,
+     * kept only while no route needed a body at all.
+     */
+    const bodyTypes = [...SRC.matchAll(/@Body\(\)\s*\w+:\s*\{([^}]*)\}/g)].map((m) => m[1]!);
+    expect(bodyTypes.length).toBeGreaterThan(0); // the detector read something
+    for (const t of bodyTypes) {
+      expect(t).not.toMatch(/user_?id|operator_?id|auth_?user|email|subject/i);
+    }
   });
 
   it('the detector would catch a subject route — proved on planted input', () => {

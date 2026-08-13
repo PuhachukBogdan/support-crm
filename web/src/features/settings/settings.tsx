@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/composites/page-header/page-header';
 import { useThemeMode } from './use-theme-mode';
+import { ProfileSection } from './profile-section';
 
 /**
  * W18 — the PERSONAL settings shell (subpoint 5.2 → roadmap 8.7, ADR 0035).
@@ -68,14 +69,8 @@ export function Settings() {
         </p>
       </section>
 
-      <section className="space-y-1 rounded-md border border-border p-3" data-testid="settings-profile">
-        <h2 className="text-sm font-semibold">Profile</h2>
-        <p className="text-sm text-muted-foreground">
-          Your avatar and presence status arrive with block W19 (points 8.10, 5.9) — reserved, not
-          missing. Your name is not editable by decision: it is how colleagues and the audit trail
-          know you.
-        </p>
-      </section>
+      {/* ⭐ W19: the Profile slot stopped being a promise — avatar (5.4) + presence (5.5). */}
+      <ProfileSection />
     </div>
   );
 }

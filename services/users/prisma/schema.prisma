@@ -23,6 +23,10 @@ model Operator {
   display_name      String?
   active            Boolean  @default(true)
   custom_attributes Json?
+  /// ⭐ W19 (subpoint 5.4, roadmap 8.10): the avatar as an UPLOAD REFERENCE — a soft ref to
+  /// Upload.id (`purpose: avatar`), never bytes and never a URL. NULL = no avatar set. Replacing
+  /// leaves the old upload row behind; retention (ADR 0015) owns collecting it.
+  avatar_upload_id  String?
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
 

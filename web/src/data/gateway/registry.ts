@@ -496,6 +496,47 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['get', 'update'],
   },
   /**
+   * ⭐ W19 (subpoints 5.4/5.5) — the profile writes and the presence singleton. `avatar-uploads`
+   * POSTs the multipart bytes under 016's `avatar` purpose (2 MB, png/jpeg/webp by magic bytes, an
+   * always-made 256px thumb); `my-avatar` PUTs the returned upload id onto MY profile; `my-presence`
+   * reads and places MY state (`online | transfers_only | away | offline` — the closed set the
+   * server validates). All three are self-scoped: no id can name anyone else.
+   */
+  {
+    resource: 'avatar-uploads',
+    path: '/uploads/avatar',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create'],
+  },
+  {
+    resource: 'my-avatar',
+    path: '/me/operator/avatar',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['update'],
+  },
+  {
+    resource: 'my-presence',
+    path: '/presence/me',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['get', 'update'],
+  },
+  /**
    * ⭐ W17 (subpoint 4.4) — the caller's OWN portfolio (`GET /me/players`, feature 026's read). The
    * subject is the session — there is nobody else this path can name, which is what makes it safe
    * for every role: a non-AM simply owns an empty portfolio.

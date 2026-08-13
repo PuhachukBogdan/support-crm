@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, OnModuleInit, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, OnModuleInit, Put, Req } from '@nestjs/common';
 import { type ClientGrpc } from '@nestjs/microservices';
 import { type Observable } from 'rxjs';
 import type { Request } from 'express';
@@ -44,10 +44,13 @@ interface OperatorWire {
   operatorId?: string;
   displayName?: string;
   active?: boolean;
+  // ⭐ W19 (subpoint 5.4): the avatar as an upload reference; a reader renders /uploads/{id}/thumb.
+  avatarUploadId?: string;
 }
 
 interface OperatorProfileGrpc {
   ensureOwnOperator(d: Record<string, never>, md?: unknown): Observable<OperatorWire>;
+  setMyAvatar(d: { uploadId: string }, md?: unknown): Observable<OperatorWire>;
 }
 
 type MeReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -75,6 +78,29 @@ export class MeOperatorController implements OnModuleInit {
       operatorId: res.operatorId ?? '',
       displayName: res.displayName ?? '',
       active: res.active ?? false,
+      avatarUploadId: res.avatarUploadId ?? '',
+    };
+  }
+
+  /**
+   * ⭐ W19 (subpoint 5.4) — `PUT /me/operator/avatar`: set MY avatar to an upload I made under the
+   * `avatar` purpose. Same no-permission reasoning as the read above — the subject is the session
+   * and nothing here can name anyone else; ownership, purpose and magic-byte validation are the
+   * owning services' (016's ingest already verified the bytes; users verifies the reference).
+   */
+  @Put('me/operator/avatar')
+  @ResolvesPermissions()
+  async setAvatar(@Body() body: { uploadId?: string }, @Req() req: MeReq): Promise<OperatorWire> {
+    const uploadId = typeof body?.uploadId === 'string' ? body.uploadId.trim() : '';
+    if (!uploadId) throw new BadRequestException('uploadId is required');
+    const res = await callUploads(
+      this.profiles.setMyAvatar({ uploadId }, buildActorMetadata(req.claims!, req.effective)),
+    );
+    return {
+      operatorId: res.operatorId ?? '',
+      displayName: res.displayName ?? '',
+      active: res.active ?? false,
+      avatarUploadId: res.avatarUploadId ?? '',
     };
   }
 }

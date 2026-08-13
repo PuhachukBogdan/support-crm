@@ -199,6 +199,12 @@ message Operator {
   string account_id = 2;
   string display_name = 3;
   bool active = 4;
+  // ⭐ W19 (subpoint 5.4, roadmap 8.10): the avatar as an UPLOAD REFERENCE — never bytes, never a
+  // URL. The bytes live behind feature 016's one ingest path (`purpose: avatar` — 2 MB, png/jpeg/
+  // webp by MAGIC BYTES, an always-made 256px derivative); a reader renders
+  // `/uploads/{id}/thumb`, and the purpose's `permission: null` means any signed-in colleague in
+  // the account may see it. "" = no avatar set.
+  string avatar_upload_id = 5;
 }
 
 // ── Feature 024 (roadmap 5.3): the auth-identity → operator-profile translation ──────────────────
@@ -918,6 +924,20 @@ service PlayerAssignmentService {
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 service OperatorProfileService {
   rpc EnsureOwnOperator(EnsureOwnOperatorRequest) returns (Operator);
+
+  // ── ⭐ W19 (subpoint 5.4, roadmap 8.10) — set MY avatar ─────────────────────────────────────────
+  // The subject is the caller, like its sibling above — there is deliberately no field to name
+  // anyone else. The upload must already exist in the caller's account, carry the `avatar` purpose,
+  // and have been uploaded BY the caller (your face is yours to set; an administrator changing
+  // somebody's photo is not a capability this product has). Setting claims the upload (a claimed
+  // row is out of any future pending-reclaim's reach) and replaces the previous reference — the old
+  // upload row stays, retention (ADR 0015) owns collecting it. The display NAME remains immutable
+  // by decision (2026-07-26): identity is the account, not a label.
+  rpc SetMyAvatar(SetMyAvatarRequest) returns (Operator);
+}
+
+message SetMyAvatarRequest {
+  string upload_id = 1;
 }
 
 // Deliberately EMPTY, and the emptiness is the design.

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { GeistSans } from 'geist/font/sans';
 import '../src/styles/globals.css';
 import { Providers } from './providers';
 import { readSessionSeed } from '@/session/session-seed';
@@ -19,8 +20,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
 
   // next-themes manages the `.dark` class on <html>; suppress the expected
   // server/client class mismatch it introduces.
+  // GeistSans.variable defines `--font-geist-sans` (self-hosted via next/font —
+  // no external CDN); tokens.css routes `--font-sans` through it, so a brand
+  // can still swap the family by overriding the token (Principle VI).
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={GeistSans.variable} suppressHydrationWarning>
       <body>
         <Providers sessionSeed={sessionSeed}>{children}</Providers>
       </body>

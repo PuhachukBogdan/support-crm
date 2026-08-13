@@ -25,6 +25,11 @@ export const API_PREFIX = '/api';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // react-resizable-panels (the ticket window's seam, Шаг 1) ships ESM only. Listing it here is
+  // the one declaration BOTH consumers respect: next/jest stops ignoring it in transforms (a bare
+  // `transformIgnorePatterns` in jest.config.cjs is overwritten by next/jest's own), and the build
+  // transpiles it for anything that still resolves CJS.
+  transpilePackages: ['react-resizable-panels'],
   async rewrites() {
     return [
       {

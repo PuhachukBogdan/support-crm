@@ -263,24 +263,30 @@ try {
   );
   pass(`the macro APPLIED server-side («${statusBeforeMacro}» → «Pending», the seed-triage bundle) — and its label landed in Tags`);
 
-  // The drag: synthetic pointer events through the app's own handler (real-input drags risk the
-  // container's ~6-click wedge; the LIMIT is stated — a real mouse drag is the operator's own step).
-  // Direction picked by HEADROOM: the width persists across runs, so a fixed +80 would hit the
-  // 480px ceiling on the third run and assert movement where the clamp correctly allows none.
+  // The drag — Шаг 1: the seam is the library's Resizable (react-resizable-panels), so the drag is
+  // a REAL mouse drag on the handle (the library computes from absolute pointer coordinates — the
+  // old synthetic-delta dispatch has nothing to talk to any more). Direction picked by HEADROOM:
+  // the layout persists across runs as a PERCENTAGE (autoSaveId `crm.ticket.seam`), so a fixed +80
+  // would pin against the 40% ceiling on repeat runs and assert movement where the constraint
+  // correctly allows none.
   const widthBefore = await p.$eval('[data-testid="ticket-fields"]', (el) => el.parentElement.getBoundingClientRect().width);
-  const delta = widthBefore > 400 ? -80 : 80;
-  await p.$eval('[data-testid="panel-divider"]', (el, d) => {
-    el.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 300, bubbles: true }));
-    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 300 + d, bubbles: true }));
-    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 300 + d, bubbles: true }));
-  }, delta);
+  const groupWidth = await p.$eval('[data-testid="panel-divider"]', (el) => el.parentElement.getBoundingClientRect().width);
+  const delta = widthBefore > groupWidth * 0.35 ? -80 : 80;
+  const grip = await p.$eval('[data-testid="panel-divider"]', (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await p.mouse.move(grip.x, grip.y);
+  await p.mouse.down();
+  await p.mouse.move(grip.x + delta, grip.y, { steps: 8 });
+  await p.mouse.up();
   await p.waitForTimeout(300);
   const widthAfter = await p.$eval('[data-testid="ticket-fields"]', (el) => el.parentElement.getBoundingClientRect().width);
-  const stored = await p.evaluate(() => window.localStorage.getItem('crm.ticket.fields-width'));
-  const expected = Math.min(480, Math.max(200, Math.round(widthBefore) + delta));
-  if (Math.round(widthAfter) === expected && stored === String(expected))
-    pass(`the panel drags and REMEMBERS (${Math.round(widthBefore)} → ${expected}px, stored) — synthetic pointer, limit stated`);
-  else fail('panel resize', `${widthBefore} → ${widthAfter} (expected ${expected}), stored=${stored}`);
+  const stored = await p.evaluate(() => window.localStorage.getItem('react-resizable-panels:crm.ticket.seam'));
+  const moved = Math.abs(widthAfter - widthBefore - delta) <= 24 && Math.abs(widthAfter - widthBefore) >= 40;
+  if (moved && stored)
+    pass(`the panel drags and REMEMBERS (${Math.round(widthBefore)} → ${Math.round(widthAfter)}px; layout stored by the library) — real mouse`);
+  else fail('panel resize', `${widthBefore} → ${widthAfter} (delta ${delta}), stored=${stored}`);
 
   // ── 8. W10 — the consolidated right rail, in the shell's own slot ───────────────────────────────
   const panel = await p.$('[data-testid="context-panel"]');

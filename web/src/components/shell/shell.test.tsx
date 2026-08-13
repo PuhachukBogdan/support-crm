@@ -81,15 +81,26 @@ describe('S3 app shell', () => {
    * ⭐ W22 (R41). This test used to prove the rail collapses and expands. It now proves the opposite,
    * and the inversion is the requirement: *«всегда эта боковая панель должна быть свёрнута»*, and
    * then *«какой смысл её разворачивать, если… можно просто полное название впихнуть в эти
-   * всплывающие окошки»*. So there is ONE width and NO control — and the name a person needs arrives
-   * on hover instead, which is asserted by its presence in the accessible name of each link.
+   * всплывающие окошки»*. Since Шаг 1 the rail is the LIBRARY's Sidebar, so "one width, no control"
+   * is asserted the way the library states it — pinned `collapsed` in icon mode — and BEHAVIOURALLY:
+   * the one expand path that exists in the DOM (the phone trigger, `md:hidden`) funnels into the
+   * shell's controlled no-op, so activating it must change nothing on desktop. A class-name pin
+   * (`w-16`) would have outlived the thing it proved.
    */
   it('⭐ the rail is icons-only and has no expand control (R41)', () => {
     renderShell(<AppShell>x</AppShell>);
     const sidebar = screen.getByTestId('sidebar');
-    expect(sidebar.className).toMatch(/w-16/);
-    expect(sidebar.className).not.toMatch(/w-60/);
-    expect(screen.queryByRole('button', { name: /toggle sidebar/i })).toBeNull();
+    // The library's own vocabulary for W22's requirement: collapsed, icon-collapsible, pinned.
+    const wrapper = sidebar.closest('[data-state]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper).toHaveAttribute('data-state', 'collapsed');
+    expect(wrapper).toHaveAttribute('data-collapsible', 'icon');
+    // The trigger exists only for the phone sheet (hidden ≥ md). On desktop the provider is
+    // controlled open={false} with a no-op setter — clicking it must move NOTHING.
+    const trigger = screen.getByRole('button', { name: /open navigation/i });
+    expect(trigger.className).toMatch(/md:hidden/);
+    fireEvent.click(trigger);
+    expect(wrapper).toHaveAttribute('data-state', 'collapsed');
     // The label did not disappear with the width — it moved to the hover tip and the accessible name.
     expect(screen.getByRole('link', { name: /inbox/i })).toHaveAttribute('aria-label', 'Inbox');
   });

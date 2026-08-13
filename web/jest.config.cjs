@@ -10,6 +10,9 @@ const config = {
   testMatch: ['**/*.test.{ts,tsx}'],
   // Include jsx so untyped JS components (e.g. the React Bits Ferrofluid) resolve + mock.
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  // ⓘ ESM-only dependencies (react-resizable-panels) are declared via `transpilePackages` in
+  // next.config.mjs — next/jest reads that and adjusts its own transformIgnorePatterns; a bare
+  // override HERE is silently overwritten by next/jest and does nothing.
 };
 
 module.exports = createJestConfig(config);

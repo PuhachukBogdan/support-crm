@@ -14,7 +14,11 @@ import { EditableText } from './editable';
 import { useTicket } from './use-ticket';
 import { useTicketLive } from './use-ticket-live';
 import { useTemplates } from './use-templates';
-import { PanelDivider, useStoredPanelWidth } from './panel-divider';
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable';
 import { useContextPanel } from '@/components/shell/context-panel';
 import { TicketContextPanel } from './context-panel';
 import { FieldsColumn } from './fields-column';
@@ -26,9 +30,9 @@ import { Composer } from './composer';
  * reference: three columns, internal/public composer switch, submit-as-status, «take it»).
  *
  * What is HERE now: header (the 4.18 subject + status + channel), the left properties column, the
- * thread, the composer. What is deliberately NOT here yet: the right context panel and the open-
- * tickets tabs (W10 — the shell's context-panel slot is their home), «Apply macro» (W8),
- * resizable panels (W8/9.9).
+ * thread, the composer, «Apply macro» (W8), and the resizable seam (W8/9.9 — the library's
+ * Resizable since Шаг 1). The right context panel and the open-tickets tabs live in the SHELL's
+ * slot (W10), not here.
  *
  * Opening this page IS the read event: the gateway records a ConversationReadMark from the caller's
  * own identity on `GET /conversations/:id`, which is what feeds the agent rail's "opened" leg —
@@ -65,8 +69,6 @@ export function TicketWindow({ id }: { id: string }) {
     session.state.kind === 'authenticated' &&
     session.state.permissionKeys.includes('crm.conversation.set_brand');
   const { brands } = useBrands();
-  // W8 (9.9) — the left column's width: a live CSS value during the drag, a stored number after it.
-  const fields = useStoredPanelWidth();
 
   /**
    * ⭐ W10 — push the right rail into the SHELL's context-panel slot: the panel is a region of the
@@ -152,10 +154,14 @@ export function TicketWindow({ id }: { id: string }) {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* 9.9: the wrapper owns the WIDTH so the drag writes one style property on one element —
-            never a React render per pixel (the anti-storm rule, applied before it is needed). */}
-        <div ref={fields.ref} style={{ width: fields.width }} className="min-h-0 shrink-0">
+      {/* Шаг 1 (9.9): the seam is the library's Resizable now — keyboard-draggable, focus-visible,
+          layout persisted by its own `autoSaveId`. Constraints are PERCENTAGES, which is the
+          project's own density rule (§0: proportions, never pixels) — the retired hand-made seam
+          clamped pixels. During a drag only the panel wrappers re-render (the children are
+          referentially stable), and the standing anti-storm assertion in the live check is the
+          proof that holds this claim, same as it held the old one. */}
+      <ResizablePanelGroup direction="horizontal" autoSaveId="crm.ticket.seam" className="min-h-0 flex-1">
+        <ResizablePanel defaultSize={25} minSize={15} maxSize={40} className="min-h-0">
           <FieldsColumn
             detail={t.detail}
             labels={t.labels}
@@ -175,24 +181,26 @@ export function TicketWindow({ id }: { id: string }) {
             onSetAssignee={t.setAssignee}
             onSetPlayerId={t.setPlayerId}
           />
-        </div>
-        <PanelDivider target={fields} />
+        </ResizablePanel>
+        <ResizableHandle aria-label="Resize the properties column" data-testid="panel-divider" />
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col pl-3">
-          <Thread state={t.thread} truncated={t.threadTruncated} onRetry={t.refresh} />
-          <Composer
-            send={t.send}
-            sendState={t.sendState}
-            statusOptions={submitStatuses}
-            macros={macros}
-            canned={canned}
-            onApplyMacro={t.applyMacro}
-          />
-        </main>
+        <ResizablePanel defaultSize={75} className="min-h-0">
+          <main className="flex h-full min-h-0 min-w-0 flex-col pl-3">
+            <Thread state={t.thread} truncated={t.threadTruncated} onRetry={t.refresh} />
+            <Composer
+              send={t.send}
+              sendState={t.sendState}
+              statusOptions={submitStatuses}
+              macros={macros}
+              canned={canned}
+              onApplyMacro={t.applyMacro}
+            />
+          </main>
+        </ResizablePanel>
 
         {/* ⭐ W10: the right rail lives in the SHELL's slot (see the effect above), not in this
             row — one area of the application, per R27, so W11's directory can reuse it. */}
-      </div>
+      </ResizablePanelGroup>
     </div>
   );
 }

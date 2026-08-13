@@ -1,7 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart';
 import { PageHeader } from '@/components/composites/page-header/page-header';
 import { useDataAccess } from '@/data/provider';
 import { toDataError } from '@/data/errors';
@@ -150,28 +157,42 @@ function Tile({ label, value, hint, testid }: { label: string; value: string; hi
   );
 }
 
-/** One series ⇒ no legend (the title names it); bars in one product token; labels in text tokens;
- *  per-bar hover via the native title — the minimal honest chart, not a charting framework. */
+/** One series ⇒ no legend — the title names it (the dataviz rule). Шаг 1: the hand-made `div`
+ *  bars became the library's `Chart` (Recharts under shadcn's wrapper) — animated, with a real
+ *  tooltip. The series wears `--chart-1` through ChartConfig (tokens only; the palette's
+ *  multi-series hazards are recorded on W38, the first block that would meet them).
+ *  ⓘ `minPointSize={2}` keeps the old promise: a zero day is a visible stub, never a hole.
+ *  ⚠️ jsdom gives ResponsiveContainer no size, so the BARS are asserted in the live browser
+ *  check; the jsdom test asserts the frame and the data reaching it. */
+const volumeConfig = {
+  count: { label: 'Создано', color: 'hsl(var(--chart-1))' },
+} satisfies ChartConfig;
+
 function VolumeChart({ days }: { days: Bucket[] }) {
-  const max = Math.max(1, ...days.map((d) => d.count ?? 0));
+  const data = days.map((d) => ({ key: d.key ?? '', count: d.count ?? 0 }));
   return (
-    <section className="space-y-1 rounded-md border border-border p-3" data-testid="volume-chart">
+    <section
+      className="space-y-1 rounded-md border border-border p-3"
+      data-testid="volume-chart"
+      data-days={data.length}
+    >
       <h2 className="text-sm font-medium">Обращения по дням (создано)</h2>
-      <div className="flex h-32 items-end gap-1">
-        {days.map((d) => (
-          <div
-            key={d.key}
-            title={`${d.key}: ${d.count ?? 0}`}
-            className="min-w-2 flex-1 rounded-t-sm bg-primary/70"
-            style={{ height: `${Math.max(2, Math.round(((d.count ?? 0) / max) * 100))}%` }}
-            data-testid={`bar-${d.key}`}
+      <ChartContainer config={volumeConfig} className="h-36 w-full">
+        <BarChart accessibilityLayer data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="key"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={6}
+            minTickGap={24}
+            interval="preserveStartEnd"
+            tickFormatter={(v: string) => v.slice(5)}
           />
-        ))}
-      </div>
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>{days[0]?.key ?? ''}</span>
-        <span>{days.at(-1)?.key ?? ''}</span>
-      </div>
+          <ChartTooltip cursor={false} content={<ChartTooltipContent hideIndicator />} />
+          <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]} minPointSize={2} />
+        </BarChart>
+      </ChartContainer>
     </section>
   );
 }

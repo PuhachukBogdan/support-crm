@@ -49,6 +49,21 @@ const SEMANTIC_ROLES = [
   'border',
   'input',
   'ring',
+  // Sidebar system roles (Шаг 1, 2026-08-10 — shadcn Sidebar consumes these).
+  'sidebar-background',
+  'sidebar-foreground',
+  'sidebar-primary',
+  'sidebar-primary-foreground',
+  'sidebar-accent',
+  'sidebar-accent-foreground',
+  'sidebar-border',
+  'sidebar-ring',
+  // Chart palette (Шаг 1 — shadcn Chart / Recharts consumes these via ChartConfig).
+  'chart-1',
+  'chart-2',
+  'chart-3',
+  'chart-4',
+  'chart-5',
 ];
 
 // Non-color scales the contract promises (shared; declared once).

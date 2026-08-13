@@ -99,11 +99,23 @@ describe('the live numbers (6.2 + 6.4)', () => {
 });
 
 describe('the one chart (6.3)', () => {
-  it('draws one bar per day, hover carries the exact number', async () => {
+  /**
+   * Шаг 1: the chart is the library's (Recharts under shadcn's ChartContainer). jsdom gives the
+   * responsive container no dimensions, so THE BARS CANNOT RENDER HERE — asserting them in jsdom
+   * would be a vacuous pass the moment someone "fixed" it by mocking the chart away. What jsdom
+   * CAN see honestly: the frame, the title naming the single series, and every day reaching the
+   * chart's data (a zero day included — not dropped before render). The bars themselves — one per
+   * day, tooltip carrying the exact number, animation — are asserted in the live browser check,
+   * where a real layout exists (the W20 rule: jsdom has no layout).
+   */
+  it('mounts the library chart with EVERY day in its data — the zero day included', async () => {
     renderAnalytics(stub());
-    await screen.findByTestId('volume-chart');
-    expect(screen.getByTestId('bar-2026-08-06')).toHaveAttribute('title', '2026-08-06: 2');
-    expect(screen.getByTestId('bar-2026-08-05')).toBeInTheDocument(); // a zero day is a bar, not a hole
+    const chart = await screen.findByTestId('volume-chart');
+    expect(chart).toHaveTextContent('Обращения по дням (создано)');
+    // 3 days in the fixture, 3 days handed to the chart: 2026-08-05 (count 0) is not filtered out.
+    expect(chart).toHaveAttribute('data-days', '3');
+    // The library container is mounted (its data-chart id is how shadcn scopes the palette CSS).
+    expect(chart.querySelector('[data-chart]')).not.toBeNull();
   });
 });
 

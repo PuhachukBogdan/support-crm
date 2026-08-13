@@ -160,8 +160,23 @@ export class ConversationWriteController {
      * fields THIS caller can currently see gate (condition holds, brand applies, not withheld):
      * an invisible requirement would be an unfixable refusal.
      *
-     * ⚠️ The message interpolates field KEYS — admin-authored configuration identifiers, the same
-     * class as a status key — never a stored value (the no-PII message rule is about values).
+     * ⚠️ **THE MESSAGE IS STATIC, and it did not start that way** (corrected 2026-08-13).
+     *
+     * It interpolated the missing field KEYS, with a comment arguing that keys are admin-authored
+     * configuration and not values. `services/chats/tests/no-pii-logs.spec.ts` forbids interpolation in
+     * an RpcException message OUTRIGHT, so those two written rules disagreed — and the disagreement was
+     * invisible for weeks, because that guard is **vacuous on a CRLF working tree** (`.` does not match
+     * `\r`, so its line regex matched nothing on Windows). CI, on LF, caught it the first time it ran.
+     *
+     * The guard wins, for two reasons that have nothing to do with taste. Its value is being BLANKET —
+     * the moment «keys are fine» is an accepted exception, the next author interpolates something that is
+     * not, and the reviewer has to re-derive the judgement each time. And the interpolated list reached
+     * NOBODY: the gateway maps `FAILED_PRECONDITION` to a message-free 400 (SC-007), and the screen
+     * computes its own hint (`custom-fields-required-hint`) from the field view.
+     *
+     * ⇒ Which fields gate is still fully asserted — at its source, on `missingRequiredForSolve`, which is
+     * where that logic lives (`solve-gate.spec.ts`). Reading the selection out of a string was the weaker
+     * test of the two.
      */
     if (isTerminalCategory(target.category)) {
       const missing = await this.fields.missingRequiredForSolve(
@@ -172,7 +187,7 @@ export class ConversationWriteController {
       if (missing.length) {
         throw new RpcException({
           code: GrpcStatus.FAILED_PRECONDITION,
-          message: `required fields are empty: ${missing.join(', ')}`,
+          message: 'required fields are empty',
         });
       }
     }

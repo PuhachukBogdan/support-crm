@@ -7,3 +7,7 @@
  * detector copied three times is a detector that is wrong in at least one of them.
  */
 export * from './strip-comments';
+// ⭐ 2026-08-13: splitting source into lines without the trailing `\r`. A line-based guard anchored with
+// `$` matches NOTHING on a CRLF working tree, because `.` does not match `\r` — one such guard passed
+// vacuously on Windows for weeks and fired on CI's LF checkout the first time it ran.
+export * from './source-lines';

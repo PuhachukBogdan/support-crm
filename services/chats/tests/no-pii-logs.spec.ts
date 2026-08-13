@@ -1,5 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+// ⭐ 2026-08-13: lines WITHOUT the trailing `\r`. An anchored pattern over a raw `split('\n')` matches
+// nothing on a CRLF working tree — this file is the one that proved it, by passing for weeks.
+import { sourceLines } from '@crm/common';
 
 /**
  * T034 (feature 012) — no PII in logs (Principle IV / SEC-26 / SC-007). Structural guard: scan the
@@ -37,7 +40,7 @@ describe('chats — no PII in logs (SC-007)', () => {
   it('no logging call references message content or identifiers', () => {
     const offenders: string[] = [];
     for (const file of tsFiles(SRC)) {
-      const lines = readFileSync(file, 'utf8').split('\n');
+      const lines = sourceLines(readFileSync(file, 'utf8'));
       lines.forEach((line, i) => {
         if (LOG_CALL.test(line) && SENSITIVE.test(line)) {
           offenders.push(`${file}:${i + 1}  ${line.trim()}`);
@@ -47,19 +50,40 @@ describe('chats — no PII in logs (SC-007)', () => {
     expect(offenders).toEqual([]);
   });
 
+  const RPC_MESSAGE = /message:\s*(.+)$/;
+  const interpolates = (line: string): boolean => {
+    const m = RPC_MESSAGE.exec(line);
+    // A template literal or concatenation in an RPC message is the smell we are guarding.
+    return !!m && /[`+]|\$\{/.test(m[1]!) && !/err instanceof/.test(line);
+  };
+
+  /**
+   * ⭐⭐ **THE POSITIVE CONTROL, and it is here because its absence cost weeks.**
+   *
+   * This guard was anchored with `$` and read lines from a raw `split('\n')`. On a CRLF working tree every
+   * line still ends with `\r`, and in JavaScript **`.` does not match `\r`** — so `(.+)$` could never
+   * reach the end of a line, the pattern matched NOTHING in any file, and the guard reported an empty
+   * offender list while asserting nothing at all. It passed on Windows for weeks and fired on CI's LF
+   * checkout the first time CI ran (130 commits later), naming a real violation in the W30 solve gate.
+   *
+   * An emptiness assertion needs a witness that the detector can fire. That is what this is.
+   */
+  it('the detector FIRES on an interpolated message — and on a CRLF line too', () => {
+    expect(interpolates("        message: `required fields are empty: ${missing.join(', ')}`,")).toBe(true);
+    expect(interpolates("        message: 'forbidden',")).toBe(false);
+    // ⚠️ The CRLF case, stated as its own expectation: this is the one that used to answer `false` for
+    // every line in the product, and `sourceLines` is what keeps it honest.
+    const crlfSource = "        message: `x: ${y}`,\r\n        message: 'static',\r\n";
+    expect(sourceLines(crlfSource).filter(interpolates)).toHaveLength(1);
+  });
+
   it('no 013 error message carries a value the caller supplied (only field names — FR-013)', () => {
     // An RpcException message that interpolated a label id, operator id or canned body would leak
     // through the gateway into a client-visible payload; these messages must stay static strings.
     const offenders: string[] = [];
-    const RPC_MESSAGE = /message:\s*(.+)$/;
     for (const file of tsFiles(SRC)) {
-      const lines = readFileSync(file, 'utf8').split('\n');
-      lines.forEach((line, i) => {
-        const m = RPC_MESSAGE.exec(line);
-        // A template literal or concatenation in an RPC message is the smell we are guarding.
-        if (m && /[`+]|\$\{/.test(m[1]!) && !/err instanceof/.test(line)) {
-          offenders.push(`${file}:${i + 1}  ${line.trim()}`);
-        }
+      sourceLines(readFileSync(file, 'utf8')).forEach((line, i) => {
+        if (interpolates(line)) offenders.push(`${file}:${i + 1}  ${line.trim()}`);
       });
     }
     expect(offenders).toEqual([]);
@@ -82,7 +106,7 @@ describe('chats — feature 014: automations + SLA carry no PII', () => {
       // Normalise Windows separators so the folder match works on both platforms.
       if (!/\/(automation|sla|events)\//u.test(file.split(sep).join('/'))) continue;
       readFileSync(file, 'utf8')
-        .split('\n')
+        .split(/\r\n|\n|\r/)
         .forEach((line, i) => {
           if (LOG_CALL.test(line) && SENSITIVE.test(line)) {
             offenders.push(`${file}:${i + 1}  ${line.trim()}`);
@@ -193,7 +217,7 @@ describe('chats — feature 031: routing carries no contact value', () => {
     const offenders: string[] = [];
     for (const file of routing) {
       readFileSync(file, 'utf8')
-        .split('\n')
+        .split(/\r\n|\n|\r/)
         .forEach((line, i) => {
           if (LOG_CALL.test(line) && SENSITIVE.test(line)) offenders.push(`${file}:${i + 1}`);
         });

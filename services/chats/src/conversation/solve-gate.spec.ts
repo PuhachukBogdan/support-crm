@@ -219,13 +219,24 @@ describe('⭐ FR-011 — the terminal transition is gated by empty required VISI
       expect(e).toBeInstanceOf(RpcException);
       error = (e as RpcException).getError() as { code: number; message: string };
     }
-    // Exactly one field gates: `amount`. The restricted one is withheld from this actor, the
-    // conditional one is hidden, the brand-limited one does not apply — naming any of them would
-    // be an unfixable refusal.
+    /**
+     * ⚠️ **The message is STATIC, and the SELECTION is asserted at its source instead** (2026-08-13).
+     *
+     * This used to read the gating field out of the message text. The message interpolated the keys, and
+     * `tests/no-pii-logs.spec.ts` forbids interpolation in an RpcException message outright — a
+     * disagreement that stayed invisible for weeks because that guard is vacuous on a CRLF working tree
+     * and only CI runs on LF. Reading a selection out of a string was also the weaker of the two tests.
+     */
     expect(error).toEqual({
       code: GrpcStatus.FAILED_PRECONDITION,
-      message: 'required fields are empty: amount',
+      message: 'required fields are empty',
     });
+    // Exactly one field gates: `amount`. The restricted one is withheld from this actor, the
+    // conditional one is hidden, the brand-limited one does not apply — naming any of them would
+    // be an unfixable refusal. Asserted on the function that decides it.
+    await expect(new FieldsRepository(w.prisma).missingRequiredForSolve('acc-1', 'c-1', false)).resolves.toEqual([
+      'amount',
+    ]);
     expect(statusOf(w, 'c-1')).toBe('open'); // nothing moved
   });
 
@@ -256,9 +267,14 @@ describe('⭐ FR-011 — the terminal transition is gated by empty required VISI
     ).rejects.toMatchObject({
       error: {
         code: GrpcStatus.FAILED_PRECONDITION,
-        message: 'required fields are empty: payment_provider',
+        message: 'required fields are empty',
       },
     });
+    // ⭐ The claim of this test is that visibility is PER CALLER, and it lives in the selection: the
+    // cleared actor's list contains the restricted field, the uncleared actor's does not.
+    const gate = new FieldsRepository(w.prisma);
+    await expect(gate.missingRequiredForSolve('acc-1', 'c-1', true)).resolves.toEqual(['payment_provider']);
+    await expect(gate.missingRequiredForSolve('acc-1', 'c-1', false)).resolves.toEqual([]);
     expect(statusOf(w, 'c-1')).toBe('open');
   });
 

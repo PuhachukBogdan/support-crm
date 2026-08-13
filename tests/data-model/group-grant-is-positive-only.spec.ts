@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { sourceLines } from '@crm/common';
 import { parseSchema, hasField, type Model } from './schema-scan';
 import { SCOPED_MODELS as AUTH } from '../../services/auth/src/prisma.scoped-models';
 
@@ -10,9 +11,12 @@ import { SCOPED_MODELS as AUTH } from '../../services/auth/src/prisma.scoped-mod
  * `granted` column, and a guard that banned the word outright would ban the note documenting why it
  * is missing — the collision this project has now hit four times.
  */
+// ⚠️ `sourceLines`, not `split('\n')`: with `$` anchored at end-of-string and `.` unable to cross a `\r`,
+// `--.*$` strips nothing on a CRLF working tree — the comment survives into the scan and can raise a
+// FALSE POSITIVE. Milder than the vacuous direction the same mistake produced in
+// `services/chats/tests/no-pii-logs.spec.ts`, and the same one-word fix.
 const stripSqlComments = (sql: string): string =>
-  sql
-    .split('\n')
+  sourceLines(sql)
     .map((line) => line.replace(/--.*$/, ''))
     .join('\n');
 

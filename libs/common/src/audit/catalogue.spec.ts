@@ -72,6 +72,7 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // these entries the stated price of the capability rather than a record of it.
     'player.assign',
     'player.unassign',
+    'conversation.unroutable',
   ];
 
   it('every action resolves to a class and a writer', () => {

@@ -230,6 +230,25 @@ export const AUDIT_ACTIONS = {
     label: 'Player detached from an account manager',
   },
 
+  /**
+   * ⭐ Feature 031 (roadmap 4.20, ADR 0042 §5) — a conversation that can reach NOBODY.
+   *
+   * ⚠️ **An audited event and NOT a notification, stated plainly** (research R7/D-5). There is no alerting
+   * surface in this product: 7.5 is the n8n ingest and 9.18 is the audit viewer, and neither exists yet. An
+   * alarm with no consumer is the *written-with-nobody-to-read-it* defect this project already shipped once,
+   * when the audit log ran for five features with no screen — so the honest form is a recorded fact plus a
+   * named future reader, rather than a `console.error` that nothing collects.
+   *
+   * `assignment` class: it is a fact about work failing to reach a person. `reasonClass` only — never which
+   * customer, never a contact value.
+   */
+  'conversation.unroutable': {
+    class: 'assignment',
+    writer: 'chats',
+    status: 'live',
+    label: 'Conversation could not be routed to anybody',
+  },
+
   // ── identity (feature 020, roadmap 5.2 / ADR 0038 §3) ──
   //
   // Two records becoming one person is a statement about a HUMAN, and it is made AUTOMATICALLY on a

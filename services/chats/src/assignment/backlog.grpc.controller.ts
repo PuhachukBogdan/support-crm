@@ -5,6 +5,7 @@ import { readActorContext } from '../security/actor-context';
 import { BacklogRepository, firstServable, servesChannel } from './backlog';
 import { GroupPoolService } from './group-pool';
 import { RoundRobinStateRepository } from './round-robin-state.repository';
+import { AuditRepository } from '../audit/audit.repository';
 
 /**
  * Draining the backlog (feature 031, roadmap 4.20 / ADR 0042 §2).
@@ -31,6 +32,7 @@ export class BacklogMaintenanceController {
     @Inject(BacklogRepository) private readonly backlog: BacklogRepository,
     @Inject(GroupPoolService) private readonly pool: GroupPoolService,
     @Inject(RoundRobinStateRepository) private readonly rotation: RoundRobinStateRepository,
+    @Inject(AuditRepository) private readonly audit: AuditRepository,
   ) {}
 
   @GrpcMethod('ChatsMaintenanceService', 'DrainBacklog')
@@ -61,9 +63,28 @@ export class BacklogMaintenanceController {
       );
 
       if (desk.reason) {
-        // The desk is not a queue, or its staffing is unknown. Either way nobody can take this item now;
-        // it keeps its place and its own reason is already recorded by the pool.
+        /**
+         * ⭐ Work that can reach NOBODY (ADR 0042 §5, FR-022). Recorded as an **audited event**, and the
+         * conversation keeps its place in the queue.
+         *
+         * ⚠️ **An event and not a notification, deliberately** (research R7/D-5): there is no alerting
+         * surface in this product, and an alarm with no consumer is the defect that shipped once already
+         * when the audit log ran for five features with no screen. 9.18 is its future reader, and the fact
+         * is on record now rather than shouted into a log nothing collects.
+         *
+         * ⚠️ **A reason CLASS, never a sentence and never the customer.** The class is what an
+         * administrator can act on — *the desk is not a queue* is a checkbox, *nobody is available* is a
+         * rota — and it carries no contact value by construction.
+         */
         unroutable += 1;
+        await this.audit.append(ctx.accountId, {
+          action: 'conversation.unroutable',
+          actorKind: 'system',
+          actorRef: 'backlog-drain',
+          accountId: ctx.accountId,
+          targetRef: item.id,
+          detail: { reasonClass: desk.reason === 'DESK_NOT_ROUTABLE' ? 'desk_not_routable' : 'nobody_available' },
+        } as never);
         continue;
       }
 

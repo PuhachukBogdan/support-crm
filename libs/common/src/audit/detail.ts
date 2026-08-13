@@ -42,7 +42,10 @@ export const DETAIL_KEYS: Readonly<Record<AuditClass, readonly string[]>> = {
   // `filters` = which fields a reader filtered on (names only, never their values).
   access: ['tier', 'filters'],
   export: ['format', 'rowCount', 'scope'],
-  assignment: ['selfAssigned', 'managerRef'],
+  // `reasonClass` (feature 031) = WHY routing found nobody, as a class: 'desk_not_routable',
+  // 'nobody_available', 'all_at_capacity'. A class and never a sentence, so no relay's wording and no
+  // customer detail can arrive through it.
+  assignment: ['selfAssigned', 'managerRef', 'reasonClass'],
   retention: ['deletedCount', 'olderThan'],
 };
 

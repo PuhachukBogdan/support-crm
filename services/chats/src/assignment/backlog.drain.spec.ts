@@ -3,6 +3,7 @@ import { BacklogMaintenanceController } from './backlog.grpc.controller';
 import type { BacklogItem, BacklogRepository } from './backlog';
 import type { GroupPoolService } from './group-pool';
 import type { RoundRobinStateRepository } from './round-robin-state.repository';
+import type { AuditRepository } from '../audit/audit.repository';
 
 /**
  * T023/T024/T026 (feature 031, roadmap 4.20 / ADR 0042 §2) — draining the queue.
@@ -50,12 +51,18 @@ function build(opts: {
     operatorId: answers.length > 0 ? answers.shift()! : 'op-a',
   }));
 
+  // Typed so the assertions can read the entry the drain built.
+  const append = jest.fn(async (accountId: string, entry: Record<string, unknown>) => {
+    void accountId;
+    void entry;
+  });
   const controller = new BacklogMaintenanceController(
     { waiting, dequeue } as unknown as BacklogRepository,
     { candidatesFor } as unknown as GroupPoolService,
     { selectAndAssign } as unknown as RoundRobinStateRepository,
+    { append } as unknown as AuditRepository,
   );
-  return { controller, waiting, dequeue, candidatesFor, selectAndAssign };
+  return { controller, waiting, dequeue, candidatesFor, selectAndAssign, append };
 }
 
 describe('draining the backlog', () => {
@@ -155,5 +162,34 @@ describe('draining the backlog', () => {
     const { controller, waiting } = build({ waiting: [] });
     await controller.drainBacklog({ limit: 10_000 }, md());
     expect((waiting.mock.calls[0] as unknown as [string, number])[1]).toBeLessThanOrEqual(100);
+  });
+
+  it('⭐ T033/T034 unroutable work raises exactly ONE audited event, with a reason CLASS', async () => {
+    const { controller, append } = build({ waiting: [item('c-1')], reason: 'DESK_NOT_ROUTABLE' });
+
+    await controller.drainBacklog({ limit: 10 }, md());
+
+    expect(append).toHaveBeenCalledTimes(1);
+    const entry = append.mock.calls[0]![1] as Record<string, unknown>;
+    expect(entry.action).toBe('conversation.unroutable');
+    expect(entry.actorKind).toBe('system');
+    expect(entry.detail).toMatchObject({ reasonClass: 'desk_not_routable' });
+  });
+
+  it('⛔ the event carries a CLASS, never a sentence or a customer', async () => {
+    // The class is what an administrator can act on: "the desk is not a queue" is a checkbox, "nobody is
+    // available" is a rota. A relay's wording or a contact value must be inexpressible here.
+    const { controller, append } = build({ waiting: [item('c-1')], reason: 'GROUP_ROUTING_NOT_AVAILABLE' });
+    await controller.drainBacklog({ limit: 10 }, md());
+    const entry = append.mock.calls[0]![1] as { detail: Record<string, unknown> };
+    expect(Object.keys(entry.detail)).toEqual(['reasonClass']);
+    expect(entry.detail.reasonClass).toBe('nobody_available');
+  });
+
+  it('⭐ POSITIVE CONTROL: work that IS routable raises no event at all', async () => {
+    // Without this, "one event" is satisfied by a drain that alarms about everything.
+    const { controller, append } = build({ waiting: [item('c-1')] });
+    await controller.drainBacklog({ limit: 10 }, md());
+    expect(append).not.toHaveBeenCalled();
   });
 });

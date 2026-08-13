@@ -87,7 +87,7 @@ describe('AssignmentController (gateway proxy)', () => {
     });
   });
 
-  it('⚠️ an absent desk is `''`, never undefined — proto3 and "not asked for" must agree', () => {
+  it('⚠️ an absent desk is the empty string, never undefined — proto3 and "not asked for" agree', () => {
     const { ctrl, autoAssignConversation } = makeCtrl();
     return ctrl.autoAssign('c1', {}, req()).then(() => {
       expect(autoAssignConversation.mock.calls[0][0]).toMatchObject({ groupId: '' });

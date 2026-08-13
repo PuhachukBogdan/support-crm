@@ -112,25 +112,28 @@ function harness(opts: { statusKeys?: Record<string, string | null> } = {}) {
   } as unknown as import('../status/status.repository').StatusRepository;
 
   /**
-   * The three collaborators US2 added, stubbed to **throw**.
+   * ⚠️ **THREADING must not be reached from this path, and the stub THROWS to say so.**
    *
-   * ⚠️ Deliberately not `{}` or a no-op. The API channel resolves no thread, registers no envelope and
-   * reopens nothing — so if any of these is ever reached from this path, that is a real defect (the API
-   * channel does not have an address to send to `users` at all), and a silent stub would let it pass with
-   * every assertion still green. A throw makes the boundary between the two channels enforced rather
-   * than assumed.
+   * Email threads; a widget session does not. A silent stub would let a future edit thread an API delivery
+   * with every assertion here still green, and the result would be one customer's message appended to
+   * another's conversation.
+   *
+   * ⓘ `participants` and `audit` were also throwing stubs until US3, when the API path legitimately began
+   * to resolve the widget's player id and to record that it did. The change is recorded here rather than
+   * quietly softened: these two are no longer boundaries, and threading still is.
    */
-  const mustNotBeUsed = (what: string) => () => {
-    throw new Error(`the API intake path must not reach ${what}`);
-  };
   const threads = {
-    resolve: mustNotBeUsed('thread resolution'),
+    resolve: () => {
+      throw new Error('the API intake path must not reach thread resolution');
+    },
   } as unknown as import('./threading').ThreadResolver;
   const participants = {
-    resolve: mustNotBeUsed('the participant registration'),
+    // US1's payload carries no identifier, so this is not reached by the tests in this file; US3's own
+    // spec (`identity-event.spec.ts`) drives the resolved and ambiguous outcomes.
+    resolve: async () => ({ participantId: '', playerId: '', ambiguous: false }),
   } as unknown as import('./participant.client').ChannelParticipantClient;
   const audit = {
-    append: mustNotBeUsed('the audit trail'),
+    append: async () => undefined,
   } as unknown as import('../audit/audit.repository').AuditRepository;
 
   const service = new ChannelIntakeService(
@@ -194,7 +197,11 @@ describe('the signed happy path (FR-009/FR-016/FR-017)', () => {
       receivedAt: NOW,
     });
     expect(written.conversations[0]).toMatchObject({ identityState: 'unidentified' });
-    expect(written.conversations[0]).not.toHaveProperty('playerId');
+    // ⚠️ Asserted as "no VALUE" rather than "no key". US3 made the intake pass `playerId` explicitly —
+    // `undefined` when nobody resolved — and the repository turns that into NULL. The property that matters
+    // is that no player id was invented; whether the key is present with no value is a call-shape detail,
+    // and pinning that would be a test about how the argument is built rather than about what is stored.
+    expect(written.conversations[0]!.playerId).toBeUndefined();
   });
 
   it('refuses LOUDLY when the account has no status in the `new` category', async () => {

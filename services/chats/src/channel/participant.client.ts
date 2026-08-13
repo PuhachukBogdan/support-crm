@@ -134,9 +134,21 @@ export class ChannelParticipantClient implements OnModuleInit {
       throw new IdentitySourceUnavailableError(err instanceof Error ? err.name : 'rpc failed');
     }
 
-    // A response with no handle is unreadable, not an answer: without a handle there is nothing to store
-    // and the reply path would have no envelope. Refused for the same reason as an unreachable service.
-    if (!res || typeof res.participantId !== 'string' || res.participantId === '') {
+    if (!res || typeof res.participantId !== 'string') {
+      throw new IdentitySourceUnavailableError('unreadable response');
+    }
+    /**
+     * ⚠️ **An empty handle is unreadable for an ADDRESS and expected for a platform id.**
+     *
+     * Asking about an address and getting no handle back means the reply path has no envelope — a ticket
+     * an agent can read and cannot answer — so it is refused for the same reason as an unreachable
+     * service. Asking about a `player_id` is different: there is nothing to answer to (the API channel
+     * cannot carry an outbound message at all), so `users` deliberately writes no row.
+     *
+     * Decided from what THIS client asked rather than from a flag in the response: the caller knows which
+     * question it put, and a response-driven check would have to trust the far side to be consistent.
+     */
+    if (res.participantId === '' && input.kind !== 'player_id') {
       throw new IdentitySourceUnavailableError('unreadable response');
     }
 

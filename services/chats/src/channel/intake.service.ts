@@ -181,18 +181,100 @@ export class ChannelIntakeService {
     }
 
     return this.writeClaimed(channel, claim.intakeId, async () => {
-      // 6. The ticket. Created UNIDENTIFIED: US3 resolves who wrote, and until it does the honest answer
-      //    is the one ADR 0044 §1 demands — an explicit state, not a blank read as "not filled yet".
+      // 6. ⭐ Who wrote — from whatever the payload carried, resolved server-side (US3, FR-019).
+      const resolved = await this.resolveIdentity(channel, message);
+
+      // 7. The ticket. `identity_state` is STORED, never derived from an empty player id (FR-024 / ADR
+      //    0044 §1): a blank would be read as "not filled in yet", and "we looked and could not tell" is
+      //    a different fact that W9's manual attach exists to act on.
       const conversation = await this.conversations.create(channel.account_id, {
         brandId: channel.brand_id,
         channel: channel.kind,
         status: statusKey,
-        identityState: 'unidentified',
+        playerId: resolved.playerId || undefined,
+        identityState: resolved.playerId ? 'identified' : 'unidentified',
       });
 
-      const created = await this.postCustomerMessage(channel, conversation.id, message, null);
+      const created = await this.postCustomerMessage(
+        channel,
+        conversation.id,
+        message,
+        resolved.playerId || null,
+      );
+      await this.recordIdentity(channel, conversation.id, message);
       return { conversationId: conversation.id, messageId: created };
     });
+  }
+
+  /**
+   * Resolve who wrote, on the API channel (US3 — FR-019/FR-023, US1 scenario 6).
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════
+   * ⚠️ **AN UNREACHABLE `users` DOES NOT REFUSE HERE, AND THE MAIL PATH DOES — the asymmetry is the
+   * point.** Mail needs the envelope to answer, so accepting without it would create a ticket an agent
+   * can read and cannot reply to. The API channel has no reply path at all (`canSend` → `no_transport`):
+   * the only thing lost is the link to the player, and W9's manual attach is precisely the answer to
+   * that. So here FR-023 governs unmodified — identity never blocks, delays or discards an intake.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  private async resolveIdentity(
+    channel: ChannelRow,
+    message: NormalisedInbound,
+  ): Promise<{ playerId: string }> {
+    // Nothing to resolve. Not a failure: a widget session may carry no identifier at all, and the ticket
+    // is created complete and explicitly unidentified.
+    if (!message.identity) return { playerId: '' };
+
+    try {
+      const resolved = await this.participants.resolve({
+        accountId: channel.account_id,
+        brandId: channel.brand_id,
+        channelKind: channel.kind,
+        kind: message.identity.kind,
+        value: message.identity.value,
+      });
+      // ⚠️ `ambiguous` is treated exactly as "nobody": more than one candidate means we must not choose,
+      // and choosing would put one customer's words on another customer's record (ADR 0044 §5).
+      return { playerId: resolved.ambiguous ? '' : resolved.playerId };
+    } catch {
+      // The CLASS and the account. Never the identifier value (FR-047), and never the target host.
+      this.logger.warn(
+        `identity unresolved class=${message.identity.kind} account=${channel.account_id} — ticket created unidentified`,
+      );
+      return { playerId: '' };
+    }
+  }
+
+  /**
+   * Record that a resolution happened, and by which identifier CLASS (FR-025).
+   *
+   * ⚠️ **The class, never the value.** ADR 0044 §4's rule, applied to the automatic path rather than to
+   * an agent's lookup. An audited email address would put customer contact data in the one table nothing
+   * may delete from, and the audit `detail` allow-list refuses any key that could carry one.
+   *
+   * ⚠️ Written only when an identifier was actually PRESENT. A delivery carrying no identifier had no
+   * resolution to record, and an entry saying otherwise would be a decision nobody made.
+   *
+   * Never throws: the audit of a resolution must not be able to undo an accepted customer message.
+   */
+  private async recordIdentity(
+    channel: ChannelRow,
+    conversationId: string,
+    message: NormalisedInbound,
+  ): Promise<void> {
+    if (!message.identity) return;
+    try {
+      await this.audit.append(channel.account_id, {
+        action: 'channel.identity_resolved',
+        actorUserId: '',
+        actorKind: 'system',
+        actorRef: `channel:${channel.kind}`,
+        targetRef: `conversation:${conversationId}`,
+        detail: { channelKind: channel.kind, identifierClass: message.identity.kind },
+      });
+    } catch {
+      this.logger.warn(`identity resolution not audited conversation=${conversationId}`);
+    }
   }
 
   /**
@@ -337,14 +419,18 @@ export class ChannelIntakeService {
       attachments: [],
     };
 
-    return this.writeClaimed(channel, claim.intakeId, () =>
-      this.applyThreadDecision(channel, decision, {
+    return this.writeClaimed(channel, claim.intakeId, async () => {
+      const produced = await this.applyThreadDecision(channel, decision, {
         message: normalised,
         statusKey,
         participant,
         uploadIds: input.uploadIds,
-      }),
-    );
+      });
+      // The class, never the address (FR-025). Recorded for the mail path too, and after the write, so an
+      // audit failure cannot undo a customer's message.
+      await this.recordIdentity(channel, produced.conversationId, normalised);
+      return produced;
+    });
   }
 
   /**
@@ -366,7 +452,10 @@ export class ChannelIntakeService {
     },
   ): Promise<{ conversationId: string; messageId: string }> {
     const { message, participant, uploadIds } = ctx;
-    const playerId = participant.playerId || null;
+    // ⚠️ `ambiguous` is exactly as good as "nobody" here. More than one candidate matched the address and
+    // the system must not choose between them (FR-022) — a wrong attachment puts one customer's words on
+    // another customer's record, and the note an agent then writes there survives any correction.
+    const playerId = participant.ambiguous ? null : participant.playerId || null;
 
     if (decision.kind === 'append' || decision.kind === 'reopen') {
       const conversationId = decision.conversationId;

@@ -199,13 +199,32 @@ export class MaintenanceController {
       throw new RpcException({ code: GrpcStatus.INVALID_ARGUMENT, message: 'value is required' });
     }
 
+    /**
+     * ⚠️ **Two different `kind`s, and confusing them is how a phone gets matched against email hashes.**
+     *
+     *  · `channelKind` (`api | email | messenger`) keys the envelope ROW — which channel this address
+     *    belongs to.
+     *  · `kind` is the identifier CLASS (`email | phone | player_id`) — it decides HOW the value is
+     *    resolved: a hash lookup against `ContactMatch`, or an existence check against `Player`.
+     *
+     * An unrecognised class is REFUSED rather than defaulted. Defaulting to `email` would hash a platform
+     * id as if it were an address and match it against nothing for ever, which reads as "identity never
+     * works" with nothing pointing at the cause.
+     */
+    const identifierKind = String(req?.kind ?? '').trim() || 'email';
+    if (identifierKind !== 'email' && identifierKind !== 'phone' && identifierKind !== 'player_id') {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'kind must be email, phone or player_id',
+      });
+    }
+
     return this.participants.register({
       accountId,
       brandId,
-      // The CHANNEL kind (`email`), not the identifier class. `kind` on the request is the identifier
-      // class and belongs to the resolution half US3 adds; the row is keyed by the channel.
       kind: String(req?.channelKind ?? '').trim() || 'email',
       address: value,
+      identifierKind,
     });
   }
 }

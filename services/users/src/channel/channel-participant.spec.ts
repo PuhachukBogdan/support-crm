@@ -34,6 +34,11 @@ function harness(existing?: { id: string; player_id: string | null }) {
   const calls: UpsertCall[] = [];
   const prisma = {
     forAccount: (accountId: string) => ({
+      // US3 added a resolution step ahead of the upsert. Stubbed to find NOTHING here on purpose: this
+      // file is about the envelope row and the rpc's refusals, and `resolution.spec.ts` owns the matching
+      // outcomes. A stub that returned a player would make every assertion below depend on two rules.
+      contactMatch: { findMany: async () => [] },
+      player: { findFirst: async () => null },
       channelParticipant: {
         upsert: async (args: UpsertCall) => {
           calls.push(args);
@@ -43,7 +48,8 @@ function harness(existing?: { id: string; player_id: string | null }) {
       },
     }),
   } as unknown as import('../prisma.service').PrismaService;
-  return { service: new ChannelParticipantService(prisma), calls };
+  // The salt is injected, so a test supplies it directly — and a service with none would not construct.
+  return { service: new ChannelParticipantService(prisma, 's'.repeat(32)), calls };
 }
 
 const system = () => {

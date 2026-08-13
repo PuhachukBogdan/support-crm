@@ -6,7 +6,11 @@ import { PresenceModule } from '../presence/presence.module';
 import { PresenceSweepService } from '../presence/presence-sweep.service';
 import { PrismaService } from '../prisma.service';
 import { OperatorRepository } from '../operator/operator.repository';
-import { ChannelParticipantService } from '../channel/channel-participant.service';
+import {
+  ChannelParticipantService,
+  CONTACT_HASH_SALT,
+} from '../channel/channel-participant.service';
+import { loadUsersConfig } from '../config';
 
 /**
  * The maintenance surface (feature 017, US3).
@@ -29,6 +33,10 @@ import { ChannelParticipantService } from '../channel/channel-participant.servic
     PrismaService,
     OperatorRepository,
     ChannelParticipantService,
+    // ⚠️ A value provider, so a deployment with no salt fails to CONSTRUCT rather than resolving nobody
+    // for ever. `loadUsersConfig` already refuses a salt shorter than 32 characters; this is where that
+    // refusal becomes the service's own boot condition — see the token's own note.
+    { provide: CONTACT_HASH_SALT, useFactory: () => loadUsersConfig().CONTACT_HASH_SALT },
   ],
 })
 export class MaintenanceModule {}

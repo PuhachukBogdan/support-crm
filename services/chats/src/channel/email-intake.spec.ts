@@ -260,8 +260,12 @@ describe('the terminal-category rule (FR-029a/FR-029b)', () => {
     // ⚠️ Audited as well as transitioned: this is a state change NOBODY AUTHORISED, and a ticket that
     // reopens itself with no accountability record is a closed-work number that changes with nothing to
     // point at. The detail carries the channel KIND and no customer data.
-    expect(written.audits).toHaveLength(1);
-    expect(written.audits[0]).toMatchObject({
+    //
+    // Selected by ACTION rather than by position: US3 added a second entry on this path (the identity
+    // resolution), and an index would have made this assertion depend on which was written first.
+    const reopened = written.audits.filter((a) => a.action === 'conversation.reopened_by_reply');
+    expect(reopened).toHaveLength(1);
+    expect(reopened[0]).toMatchObject({
       action: 'conversation.reopened_by_reply',
       actorKind: 'system',
       targetRef: 'conversation:conv-solved',
@@ -278,7 +282,9 @@ describe('the terminal-category rule (FR-029a/FR-029b)', () => {
     const out = await service.acceptInboundEmail(mail());
 
     expect(written.statusSets).toHaveLength(0);
-    expect(written.audits).toHaveLength(0); // creating a ticket needs no accountability record
+    // Creating a ticket needs no accountability record — the LINK on the row is the record. The identity
+    // entry US3 writes is a different fact and is asserted in `identity-event.spec.ts`.
+    expect(written.audits.filter((a) => a.action === 'conversation.reopened_by_reply')).toHaveLength(0);
     expect(written.conversations[0]).toMatchObject({
       continuesConversationId: 'conv-closed',
       status: 'new',

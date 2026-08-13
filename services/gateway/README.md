@@ -131,3 +131,28 @@ byte-exact round trip.
 `GET /conversations/channel-capabilities` is the authenticated counterpart (`crm.inbox.view`), kept under
 `/conversations` on purpose: hanging an authenticated read off `/channels/...` would put two different
 authentication stories under one path.
+
+## The realtime edge (feature 034, MVP block W4)
+
+`ws/realtime.gateway.ts` — **one** WebSocket gateway class, on the explicit path **`/ws`**, and the count
+is the contract: sockets are matched by path, so a second `@WebSocketGateway` class on the same path is a
+coin toss over which one the adapter binds (measured — the handshake died with `handleConnection` never
+running). `ws/ws-path.spec.ts` fails the build on a second class or a bare decorator.
+
+- **Authorization happens at the handshake**, with the same `verifyAccessToken` the HTTP `AuthGuard` uses —
+  extracted, not copied. ⚠️ The global guard passes every non-HTTP context through by design, so this
+  gateway is the *only* authorization the socket surface has. No cookie ⇒ `close(1008)`, never
+  open-but-silent.
+- **Rooms are the account from the token.** There is no frame vocabulary for joining anything — the one
+  `@SubscribeMessage` is `ping` (spec 003's same-port proof), and it names no tenant.
+- **The frame is the published payload unchanged** (`parseRealtimeEvent` drops unknown fields): the gateway
+  enriches nothing, holds no chats client on this path, and stays a fan-out rather than a read path.
+- Subscribes per account on the first socket, unsubscribes on the last; the subscriber is a `duplicate()`d
+  Redis connection (a client in subscribe mode may not run commands).
+- ⚠️ **Deployment:** whatever fronts the app must route `/ws` to this gateway on the SAME ORIGIN as the
+  page. A cookie-authenticated socket cannot be cross-origin (`SameSite=Lax` is not sent on a cross-site
+  upgrade; `SameSite=None` requires `Secure`+https), and a reverse proxy's basic-auth must exempt `/ws`
+  (browsers send no basic credentials on an upgrade). The stand's Caddyfile carries the worked example.
+
+Canonical sources: `libs/common/src/realtime/events.ts` (the event contract and why it carries no content),
+`specs/034-realtime-fanout/spec.md`, `deploy/local/live-w4.sh`.

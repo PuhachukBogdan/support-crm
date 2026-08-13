@@ -735,3 +735,20 @@ that merely hid a reply box would leave the path reachable.
 **Contracts:** [`libs/proto/crm/chats/v1/chats.proto`](../../libs/proto/crm/chats/v1/chats.proto) ·
 **schema:** [`prisma/schema.prisma`](prisma/schema.prisma) ·
 **the matrix:** [`libs/common/src/channels/`](../../libs/common/src/channels/)
+
+## Realtime publish (feature 034, MVP block W4)
+
+`realtime/realtime.publisher.ts` — **the first Redis in this service, and it is publish-only.** The
+original "chats has no Redis" decision protected two properties and both survive: Postgres stays the source
+of truth, and there is no second store of work — a fire-and-forget `PUBLISH` stores nothing and is never
+read back. `tests/realtime/publish-only.spec.ts` keeps the door exactly one verb wide (no queue anywhere in
+the service; no subscribe/get/set in the one file holding a client).
+
+- Publishes **after the transaction commits** (a client re-reads on the event; published earlier, the
+  re-read races the commit and "nothing changed" is indistinguishable from a broken socket).
+- **Best-effort by contract**: a Redis failure is logged via the shared `diagnose` (class + syscall code +
+  own frame, never the envelope) and swallowed — *a notification may be lost; a fact may not.*
+- For channel intake the single hook sits in `writeClaimed`, which every intake path must pass through — a
+  future channel inherits the event without anyone remembering to add it.
+- The payload is four identifiers and no content (`libs/common/src/realtime/events.ts` says why at length).
+- ⚠️ Absent `REDIS_URL` ⇒ the publisher is inert, deliberately (the whole unit suite runs that way).

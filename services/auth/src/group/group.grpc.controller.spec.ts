@@ -101,6 +101,8 @@ describe('GroupGrpcController — the permission gate', () => {
         mode: 'inherited',
         isPreview: true,
         readOnly: true,
+        groupPermissionKeys: [],
+        basePermissionKeys: [GROUP_MANAGE_KEY],
       });
     expect((await controller.createGroupRpc({ ...CALLER, name: 'x' })).status).toBe(
       'GROUP_STATUS_FORBIDDEN',

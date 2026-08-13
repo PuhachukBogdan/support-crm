@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useSession } from '@/session';
 import { usePeople, useGroupMembers } from './use-people';
-import { ASSIGNABLE_ROLES, invitableRoles, type StaffWire } from './types';
+import { invitableRoles, type StaffWire } from './types';
 import type { DataError } from '@/data/types';
 
 /**
@@ -34,7 +35,7 @@ import type { DataError } from '@/data/types';
  * their open work silently.
  */
 export function People() {
-  const { staff, groups, mutation, setRole, setMembership, invite } = usePeople();
+  const { staff, groups, mutation, setMembership, invite } = usePeople();
   const session = useSession();
   const roles = session.state.kind === 'authenticated' ? session.state.roles : [];
   // Render-only, as always: the server refuses regardless, this just avoids offering a 403.
@@ -77,7 +78,7 @@ export function People() {
         {staff.status === 'ready' ? (
           <ul className="divide-y divide-border rounded-md border border-border" data-testid="people-list">
             {staff.data.items.map((p) => (
-              <PersonRow key={p.userId} person={p} maySetRole={maySetRole} onSetRole={setRole} />
+              <PersonRow key={p.userId} person={p} maySetRole={maySetRole} />
             ))}
           </ul>
         ) : staff.status === 'error' ? (
@@ -230,11 +231,9 @@ function InviteForm({
 function PersonRow({
   person,
   maySetRole,
-  onSetRole,
 }: {
   person: StaffWire;
   maySetRole: boolean;
-  onSetRole: (userId: string, roleKey: string) => Promise<boolean>;
 }) {
   return (
     <li className="flex flex-wrap items-center gap-3 p-2 text-sm" data-testid={`person-${person.userId}`}>
@@ -256,23 +255,19 @@ function PersonRow({
       <span className="w-32 shrink-0 text-xs text-muted-foreground" data-testid={`role-${person.userId}`}>
         {person.roleKey || 'no role'}
       </span>
+      {/* ⭐ W28 (R45): «Change role» MOVED to Access Management — roles and permissions are one
+          mechanism, and two windows answering "what may this person do" was the operator's own
+          complaint. The link is rendered only for the people the destination admits. */}
       {maySetRole ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="outline" data-testid={`set-role-${person.userId}`}>
-              Change role
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {ASSIGNABLE_ROLES.map((r) => (
-              <DropdownMenuItem key={r} onSelect={() => void onSetRole(person.userId, r)}>
-                {r}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Link
+          href="/admin/access"
+          className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:underline"
+          data-testid={`access-link-${person.userId}`}
+        >
+          Access management →
+        </Link>
       ) : (
-        // ⛔ Not a disabled button: a control nobody in this role can ever use is noise, and the
+        // ⛔ Not a disabled control: a link nobody in this role can ever use is noise, and the
         // refusal it would produce is the server's business, not a tooltip's.
         <span className="w-28 shrink-0" />
       )}

@@ -296,6 +296,17 @@ message ResolveResponse {
   PermissionMode mode = 3;
   bool is_preview = 4; // true when preview_role shaped the result (US5).
   bool read_only = 5; // true under preview — no mutation may proceed (US5).
+  // ⭐ W28 (9.8) — additive. The GROUP term of the union, SEPARATELY: the Access-Management grid
+  // cannot render an honest per-person toggle without knowing which keys arrive via membership —
+  // a revoked key that a group still grants "springs back", and without this field that reads as
+  // a broken switch instead of as "granted via group N" (0039: groups grant and never deny).
+  // `permission_keys` above stays the full effective union — every existing consumer is unchanged.
+  repeated string group_permission_keys = 6;
+  // ⭐ W28 — the BASE term (snapshot-or-role-defaults), also separately. NOT derivable client-side:
+  // `effective − group` silently loses a key present in BOTH terms, and the grid's toggle reflects
+  // the base (what per-person editing controls), so the subtraction error would render a held key
+  // as absent. The resolver holds both terms in hand; it says both.
+  repeated string base_permission_keys = 7;
 }
 
 // --- US2: catalogue / role defaults ---

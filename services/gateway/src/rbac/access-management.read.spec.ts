@@ -61,3 +61,54 @@ describe('AccessManagementController (reads)', () => {
     await expect(c.catalogue(req(['super_admin']))).resolves.toBeDefined();
   });
 });
+
+/**
+ * ⭐ W28 (9.8) — the grid's read: ONE person's permission facts, three lists, both terms FROM the
+ * resolver (never derived by subtraction — a key in both terms would vanish from the base).
+ */
+describe('GET users/:id/permissions (W28)', () => {
+  const wire = {
+    resolveEffectivePermissions: jest.fn(() =>
+      of({
+        roleKey: 'support_agent',
+        permissionKeys: ['crm.inbox.view', 'crm.customers.browse'],
+        mode: 'PERMISSION_MODE_STANDALONE',
+        groupPermissionKeys: ['crm.customers.browse', 'crm.inbox.view'],
+        basePermissionKeys: ['crm.inbox.view'],
+      }),
+    ),
+  };
+
+  it('returns the three lists + a normalised mode, and asks for THAT user with no preview', async () => {
+    const c = make(wire);
+    const res = await c.userPermissions('u-7', req(['super_admin']));
+
+    expect(wire.resolveEffectivePermissions).toHaveBeenCalledWith({
+      accountId: 'acct-1',
+      userId: 'u-7',
+      previewRole: '',
+    });
+    expect(res).toEqual({
+      roleKey: 'support_agent',
+      mode: 'standalone',
+      effectiveKeys: ['crm.inbox.view', 'crm.customers.browse'],
+      // ⭐ crm.inbox.view sits in BOTH terms and must SURVIVE in the base — the subtraction defect.
+      baseKeys: ['crm.inbox.view'],
+      groupKeys: ['crm.customers.browse', 'crm.inbox.view'],
+    });
+  });
+
+  it('is super-admin gated like its sibling writes — reading a colleague’s access IS the surface', async () => {
+    const c = make(wire);
+    await expect(c.userPermissions('u-7', req(['admin']))).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('the wire mode arrives as a NUMBER too, and still normalises (enums:String, both shapes)', async () => {
+    const c = make({
+      resolveEffectivePermissions: () =>
+        of({ roleKey: '', permissionKeys: [], mode: 2, groupPermissionKeys: [], basePermissionKeys: [] }),
+    });
+    const res = await c.userPermissions('u-7', req(['super_admin']));
+    expect(res.mode).toBe('standalone');
+  });
+});

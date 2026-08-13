@@ -175,9 +175,16 @@ describe('resolve — the group term (feature 024)', () => {
     expect(r.permissionKeys).not.toContain(PII);
   });
 
-  it('the response shape gains NOTHING — a consumer cannot tell where a key came from', async () => {
-    // Deliberate (FR-009 / ADR 0039 §2). If a guard could distinguish a group-derived key it would
-    // eventually grow an opinion about the difference, and that opinion is the second policy layer.
+  it('⭐ the shape names the TERMS for the admin grid — and the union stays the only enforcement fact', async () => {
+    /**
+     * AMENDED BY W28 (9.8), deliberately. The 024 guard here pinned "a consumer cannot tell where a
+     * key came from" — its fear was a GUARD growing an opinion about provenance (the second policy
+     * layer ADR 0039 §2 forbids). W28's Access-Management grid needs provenance for EDITING, not
+     * enforcing: a key granted via a group must render as «via group», or its toggle springs back
+     * and reads as broken. So the shape gains exactly the two terms — and the enforcement rule
+     * survives in a sharper form: `permissionKeys` (the union) remains the only field a guard may
+     * read; `hasPermission` still takes one flat list and nothing else.
+     */
     const r = await resolver({
       users: [{ id: 'u-1' }],
       permissions: CATALOGUE,
@@ -187,7 +194,20 @@ describe('resolve — the group term (feature 024)', () => {
     }).resolve('acct-1', 'u-1');
 
     expect(Object.keys(r).sort()).toEqual(
-      ['isPreview', 'mode', 'permissionKeys', 'readOnly', 'roleKey'].sort(),
+      [
+        'isPreview',
+        'mode',
+        'permissionKeys',
+        'readOnly',
+        'roleKey',
+        'groupPermissionKeys',
+        'basePermissionKeys',
+      ].sort(),
     );
+    // The terms say what the union already enforces — never more: union === base ∪ group.
+    expect([...r.permissionKeys].sort()).toEqual(
+      [...new Set([...r.basePermissionKeys, ...r.groupPermissionKeys])].sort(),
+    );
+    expect(r.groupPermissionKeys).toEqual([PII]);
   });
 });

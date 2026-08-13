@@ -34,8 +34,10 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
   {
     key: 'access',
     label: 'Access management',
-    summary: 'Who holds which role, and per-person exceptions. The engine is built and audited.',
+    summary: 'Roles and permissions in one window: people, roles and groups, each with its grid.',
     point: '9.8',
+    // ⭐ W28 (R45): the section stopped being a promise — roles and permissions, one mechanism.
+    href: '/admin/access',
   },
   {
     key: 'people',

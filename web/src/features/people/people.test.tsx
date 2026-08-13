@@ -95,38 +95,24 @@ describe('the people list', () => {
   });
 });
 
-describe('⭐ the role control belongs to the owner, and the screen says so by absence', () => {
-  it('a super-admin gets it, and the change goes to the role path with op=assign', async () => {
-    const s = stub();
-    renderPeople(s, ['super_admin']);
+describe('⭐ W28 (R45): the role control MOVED to Access Management — this screen points, never edits', () => {
+  /**
+   * ⚠️ The old claims did not evaporate, they TRAVELLED (the W8 rule: a check moves with its
+   * subject): "the role write goes to staff-role with op=assign" and "a refusal shows beside the
+   * grid" are asserted in `features/access/access.test.tsx` now — where the control lives.
+   */
+  it('a super-admin gets the way IN — the link to the one window that edits access', async () => {
+    renderPeople(stub(), ['super_admin']);
     await screen.findByTestId('people-list');
-
-    fireEvent.keyDown(screen.getByTestId('set-role-u1'), { key: 'Enter' });
-    fireEvent.click(await screen.findByText('teamlead'));
-
-    await waitFor(() => expect(s.writes).toHaveLength(1));
-    expect(s.writes[0]).toMatchObject({
-      resource: 'staff-role',
-      id: 'u1',
-      payload: { roleKey: 'teamlead', op: 'assign' },
-    });
+    expect(screen.queryByTestId('set-role-u1')).not.toBeInTheDocument(); // the control is GONE
+    expect(screen.getByTestId('access-link-u1')).toHaveAttribute('href', '/admin/access');
   });
 
-  it('⛔ a teamlead sees the list and NO role control — it is an ownership act, not a supervisory one', async () => {
+  it('⛔ a teamlead sees the list and NO way in — it is an ownership act, not a supervisory one', async () => {
     renderPeople(stub(), ['teamlead']);
     await screen.findByTestId('people-list');
     expect(screen.queryByTestId('set-role-u1')).not.toBeInTheDocument();
-  });
-
-  it('a refusal from the server is shown BESIDE the list, which stays on screen', async () => {
-    const s = stub({ roleFails: true });
-    renderPeople(s, ['super_admin']);
-    await screen.findByTestId('people-list');
-    fireEvent.keyDown(screen.getByTestId('set-role-u1'), { key: 'Enter' });
-    fireEvent.click(await screen.findByText('am'));
-
-    expect(await screen.findByTestId('people-error')).toHaveTextContent('forbidden');
-    expect(screen.getByTestId('people-list')).toBeInTheDocument();
+    expect(screen.queryByTestId('access-link-u1')).not.toBeInTheDocument();
   });
 });
 

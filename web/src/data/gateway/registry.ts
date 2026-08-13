@@ -444,6 +444,98 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     itemSuffix: 'role',
     ops: ['update'],
   },
+  /**
+   * ⭐⭐ W28 (9.8, R45) — the Access-Management window's own rows. All super-admin surfaces (the
+   * gateway's `caller()` gate; `platform.role.manage` is the render-gate, being the super-admin
+   * exclusive). One person's permission FACTS travel as three lists — effective, base, group — so
+   * the grid's toggle reflects the BASE (what per-person editing controls) and a group-granted key
+   * renders as «via group» instead of a switch that springs back (0039: groups grant, never deny).
+   */
+  {
+    resource: 'access-catalogue',
+    path: '/admin/access/catalogue',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  {
+    resource: 'role-defaults',
+    path: '/admin/access/roles',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    itemSuffix: 'defaults',
+    ops: ['get'],
+  },
+  {
+    resource: 'role-permissions',
+    path: '/admin/access/roles',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    itemSuffix: 'permissions',
+    ops: ['update'],
+  },
+  {
+    resource: 'staff-permissions',
+    path: '/admin/access/users',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    itemSuffix: 'permissions',
+    ops: ['get', 'update'],
+  },
+  {
+    // The ad-hoc SELECTION scope («выбранные N человек»). ⚠️ The path says `groups` and means a
+    // hand-picked batch of users — the rpc name collision feature 011 declared and buf cannot
+    // rename; the group ENTITY's grants are `group-permissions` below.
+    resource: 'selection-permissions',
+    path: '/admin/access/groups/permissions',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    verbs: { update: 'PUT' },
+    ops: ['update'],
+  },
+  {
+    // «Вернуть как было» at any scope: POST {scope, userId?|userIds?|roleKey?}.
+    resource: 'access-reset',
+    path: '/admin/access/reset',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create'],
+  },
+  {
+    // The GROUP entity's grants (ADR 0039) — PUT/DELETE /groups/:groupId/permissions/:key.
+    // `within` = the group id, item id = the permission KEY. Gated `platform.group.manage`.
+    resource: 'group-permissions',
+    path: '/groups/{within}/permissions',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    ops: ['update', 'remove'],
+  },
   {
     // ⭐ W14 (roadmap 3.8, the block's remainder) — POST /auth/invites, the feature-010 engine's
     // edge, untouched since Phase 3. Body {email, role}; the INVITER is the session (claims), never

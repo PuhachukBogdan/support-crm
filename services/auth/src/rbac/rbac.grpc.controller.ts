@@ -121,6 +121,9 @@ export class RbacGrpcController {
       mode: MODE_WIRE[r.mode],
       isPreview: r.isPreview,
       readOnly: r.readOnly,
+      // W28 (9.8): both terms separately — see the proto note; the union above is unchanged.
+      groupPermissionKeys: r.groupPermissionKeys,
+      basePermissionKeys: r.basePermissionKeys,
     };
   }
 

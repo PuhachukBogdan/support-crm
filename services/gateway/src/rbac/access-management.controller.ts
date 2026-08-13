@@ -43,6 +43,15 @@ interface CallerCtx {
 interface RbacGrpc {
   listPermissionCatalogue(d: { accountId: string }): Observable<CatalogueWire>;
   listRoleDefaults(d: { accountId: string; roleKey: string }): Observable<RoleDefaultsWire>;
+  // ⭐ W28 (9.8): the same rpc the guard's own resolution uses, here for ANOTHER user — the grid's
+  // read. `previewRole` is deliberately never sent from this edge.
+  resolveEffectivePermissions(d: { accountId: string; userId: string; previewRole: string }): Observable<{
+    roleKey?: string;
+    permissionKeys?: string[];
+    mode?: number | string;
+    groupPermissionKeys?: string[];
+    basePermissionKeys?: string[];
+  }>;
   setRoleDefault(d: CallerCtx & { roleKey: string; permissionKey: string; grant: boolean }): Observable<MutationWire>;
   personalizeUser(d: CallerCtx & { userId: string; permissionKey: string; grant: boolean }): Observable<MutationWire>;
   // ⚠️ `personalizeGroup` is the WIRE name (rpc PersonalizeGroup) and means "a hand-picked BATCH OF
@@ -151,6 +160,38 @@ export class AccessManagementController implements OnModuleInit {
     return firstValueFrom(
       this.auth.listRoleDefaults({ accountId: claims.accountId, roleKey: role }),
     );
+  }
+
+  /**
+   * ⭐ W28 (9.8) — ONE person's permission facts, for the grid. The read the engine never exposed:
+   * the resolver served only the caller's own gate. Super-admin gated like its sibling writes —
+   * reading what a colleague may do is the same surface as changing it (R45's window).
+   *
+   * The BASE term and the GROUP term travel separately, both FROM THE RESOLVER: a key granted via
+   * membership renders as «via group», never as a toggle — toggling it off here would "spring back"
+   * (the union is live, 0039 grants-only) and read as a broken switch. The base is NOT derived as
+   * `effective − group` anywhere: that subtraction loses a key present in both terms, and the
+   * toggle reflects the base (what per-person editing controls).
+   */
+  @Get('users/:id/permissions')
+  async userPermissions(@Param('id') id: string, @Req() req: Request & { claims?: RequestClaims }) {
+    const claims = await this.caller(req);
+    const r = await firstValueFrom(
+      this.auth.resolveEffectivePermissions({
+        accountId: claims.accountId,
+        userId: id,
+        previewRole: '',
+      }),
+    );
+    return {
+      roleKey: r.roleKey ?? '',
+      // The wire mode arrives as a NAME or a number (the enums:String lesson) — normalised here.
+      mode:
+        r.mode === 2 || r.mode === 'PERMISSION_MODE_STANDALONE' ? 'standalone' : 'inherited',
+      effectiveKeys: r.permissionKeys ?? [],
+      baseKeys: r.basePermissionKeys ?? [],
+      groupKeys: r.groupPermissionKeys ?? [],
+    };
   }
 
   // --- US3 mutations ---

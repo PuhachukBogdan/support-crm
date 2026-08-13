@@ -8,6 +8,12 @@ export interface ResolvedPermissions {
   mode: 'inherited' | 'standalone';
   isPreview: boolean;
   readOnly: boolean;
+  /** ⭐ W28 (9.8): the group term SEPARATELY — the admin grid renders "via group", never a toggle
+   *  that springs back. `permissionKeys` stays the full union; consumers of it are unchanged. */
+  groupPermissionKeys: string[];
+  /** ⭐ W28: the BASE term (snapshot-or-role-defaults) — what per-person editing controls. Said
+   *  explicitly because `effective − group` loses a key present in BOTH terms. */
+  basePermissionKeys: string[];
 }
 
 /**
@@ -73,7 +79,16 @@ export class RbacResolverService {
             ),
           )
         : [];
-      return { roleKey: previewRole, permissionKeys, mode: 'inherited', isPreview: true, readOnly: true };
+      // Preview deliberately carries NO group term (consequence 3 above) — and says so explicitly.
+      return {
+        roleKey: previewRole,
+        permissionKeys,
+        mode: 'inherited',
+        isPreview: true,
+        readOnly: true,
+        groupPermissionKeys: [],
+        basePermissionKeys: permissionKeys,
+      };
     }
 
     // Feature 024: resolved ONCE, before the branch, so no exit below can silently skip it. Every
@@ -93,6 +108,8 @@ export class RbacResolverService {
         mode: 'standalone',
         isPreview,
         readOnly: isPreview,
+        groupPermissionKeys: groupKeys,
+        basePermissionKeys: own,
       };
     }
 
@@ -112,6 +129,8 @@ export class RbacResolverService {
         mode: 'inherited',
         isPreview,
         readOnly: isPreview,
+        groupPermissionKeys: groupKeys,
+        basePermissionKeys: [],
       };
     }
     const rolePerms = await db.rolePermission.findMany({ where: { role_id: role.id } });
@@ -122,6 +141,8 @@ export class RbacResolverService {
       mode: 'inherited',
       isPreview,
       readOnly: isPreview,
+      groupPermissionKeys: groupKeys,
+      basePermissionKeys: own,
     };
   }
 

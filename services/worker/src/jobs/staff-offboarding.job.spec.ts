@@ -41,7 +41,18 @@ const OPERATOR = 'oper-7c31a4b2-0000-4000-8000-0000000000ff';
 const AUTH_USER_2 = 'authusr-2f5d8e91-0000-4000-8000-0000000000bb';
 const OPERATOR_2 = 'oper-7c31a4b2-0000-4000-8000-0000000000ee';
 
-const NOTHING = { moved: 0, noDesk: 0, skippedShelved: 0, remaining: 0 };
+const DESK = 'grp-1';
+const LEAD_AUTH = 'authusr-lead-0000-4000-8000-00000000aaaa';
+const LEAD_OPERATOR = 'oper-lead-0000-4000-8000-00000000bbbb';
+
+const NOTHING = {
+  moved: 0,
+  movedToLead: 0,
+  movedToBacklog: 0,
+  noDesk: 0,
+  skippedShelved: 0,
+  remaining: 0,
+};
 const TWO_PEOPLE = [
   { accountId: ACCOUNT, userId: AUTH_USER },
   { accountId: ACCOUNT, userId: AUTH_USER_2 },
@@ -67,14 +78,23 @@ function build(env: Record<string, string> = {}) {
 
   const listDisabledStaff = jest.fn().mockResolvedValue([{ accountId: ACCOUNT, userId: AUTH_USER }]);
   const setOperatorActive = jest.fn().mockResolvedValue({ changed: true, operatorId: OPERATOR });
-  const returnOperatorWorkToBacklog = jest
-    .fn()
-    .mockResolvedValue({ moved: 2, noDesk: 1, skippedShelved: 0, remaining: 3 });
+  const returnOperatorWorkToBacklog = jest.fn().mockResolvedValue({
+    moved: 2,
+    movedToLead: 1,
+    movedToBacklog: 1,
+    noDesk: 1,
+    skippedShelved: 0,
+    remaining: 3,
+  });
+  // ⭐ W32: one desk with a lead, and the auth→operator translation that turns them into a destination.
+  const listDeskLeads = jest.fn().mockResolvedValue([{ groupId: DESK, leadUserId: LEAD_AUTH }]);
+  const resolveOperatorIds = jest.fn().mockResolvedValue(new Map([[LEAD_AUTH, LEAD_OPERATOR]]));
+  const reassignPortfolio = jest.fn().mockResolvedValue({ moved: 3, skipped: 0, remaining: 0 });
 
   const job = new StaffOffboardingJob(
     { client: {} } as unknown as RedisService,
-    { listDisabledStaff } as unknown as AuthStaffClient,
-    { setOperatorActive } as unknown as UsersMaintenanceClient,
+    { listDisabledStaff, listDeskLeads } as unknown as AuthStaffClient,
+    { setOperatorActive, resolveOperatorIds, reassignPortfolio } as unknown as UsersMaintenanceClient,
     { returnOperatorWorkToBacklog } as unknown as ChatsMaintenanceClient,
   );
   return {
@@ -84,6 +104,9 @@ function build(env: Record<string, string> = {}) {
     listDisabledStaff,
     setOperatorActive,
     returnOperatorWorkToBacklog,
+    listDeskLeads,
+    resolveOperatorIds,
+    reassignPortfolio,
     handlers: () => handlers,
     runProcessor: () => processor!({}),
   };
@@ -143,7 +166,9 @@ describe('*** chats is named the OPERATOR id that USERS answered — never the a
     // id. Everything downstream must use the answer. The account travels too — a machine has no
     // account of its own, so a lost one is a cross-tenant write rather than a refusal.
     expect(setOperatorActive).toHaveBeenCalledWith(ACCOUNT, AUTH_USER, false);
-    expect(returnOperatorWorkToBacklog).toHaveBeenCalledWith(ACCOUNT, OPERATOR, 50);
+    expect(returnOperatorWorkToBacklog).toHaveBeenCalledWith(ACCOUNT, OPERATOR, 50, [
+      { groupId: DESK, operatorId: LEAD_OPERATOR },
+    ]);
 
     // …and stated as an inequality too: see the header on why equality alone is not enough.
     expect(returnOperatorWorkToBacklog.mock.calls[0]).not.toContain(AUTH_USER);
@@ -195,7 +220,9 @@ describe('*** one person’s failure does not end the pass ***', () => {
     await expect(runProcessor()).resolves.toBeUndefined();
     expect(setOperatorActive).toHaveBeenCalledTimes(2);
     expect(returnOperatorWorkToBacklog).toHaveBeenCalledTimes(1);
-    expect(returnOperatorWorkToBacklog).toHaveBeenCalledWith(ACCOUNT, OPERATOR_2, 50);
+    expect(returnOperatorWorkToBacklog).toHaveBeenCalledWith(ACCOUNT, OPERATOR_2, 50, [
+      { groupId: DESK, operatorId: LEAD_OPERATOR },
+    ]);
   });
 
   it('processes the second person after the HANDOVER itself fails on the first', async () => {
@@ -217,8 +244,10 @@ describe('*** one person’s failure does not end the pass ***', () => {
   it('is safe run twice back to back — both follow-ups are no-ops with nothing to do', async () => {
     // Idempotence by predicate, which is why this feature needed no «handled» flag: setting an
     // inactive operator inactive answers `unchanged`, and re-running a handover answers `moved: 0`.
-    const { job, returnOperatorWorkToBacklog, runProcessor } = build();
+    const { job, returnOperatorWorkToBacklog, reassignPortfolio, runProcessor } = build();
     returnOperatorWorkToBacklog.mockResolvedValue(NOTHING);
+    // ⭐ W32: the portfolio must be idempotent too — a second pass finds nothing left to move.
+    reassignPortfolio.mockResolvedValue({ moved: 0, skipped: 0, remaining: 0 });
     await job.onModuleInit();
     await Promise.all([runProcessor(), runProcessor()]);
     expect(returnOperatorWorkToBacklog).toHaveBeenCalledTimes(2);
@@ -244,10 +273,13 @@ describe('StaffOffboardingJob — a quiet pass is SILENT', () => {
   it('prints nothing when everybody it found was ALREADY handed over', async () => {
     // The steady state of this sweep: it re-reads the same recently-disabled people every tick and
     // writes nothing. That has to be as quiet as an empty list, or the window makes the log unreadable.
-    const { job, returnOperatorWorkToBacklog, runProcessor } = build();
+    const { job, returnOperatorWorkToBacklog, reassignPortfolio, runProcessor } = build();
     returnOperatorWorkToBacklog.mockResolvedValue(NOTHING);
     await job.onModuleInit();
     const cap = captureLogs();
+    // ⭐ W32: the portfolio must be quiet as well, or this asserts the fixture rather than the job.
+    // «Everybody was already handed over» means every count is zero, including the attachments.
+    reassignPortfolio.mockResolvedValue({ moved: 0, skipped: 0, remaining: 0 });
     await runProcessor();
     cap.restore();
     expect(cap.lines).toEqual([]);
@@ -269,7 +301,11 @@ describe('*** nothing identifying is printed — counts only ***', () => {
     cap.restore();
 
     expect(cap.lines).toHaveLength(1); // anti-vacuum: it did print, and we read what it printed.
-    expect(cap.lines[0]).toContain('moved=2');
+    // ⭐ W32: the SPLIT is the point. `toBacklog` means a desk has nobody answering for it — before
+    // this feature that was the only outcome and therefore invisible, so it is the number an
+    // administrator can actually act on.
+    expect(cap.lines[0]).toContain('toLead=1');
+    expect(cap.lines[0]).toContain('toBacklog=1');
     expect(cap.lines[0]).toContain('noDesk=1');
     for (const id of IDENTIFIERS) expect(cap.lines[0]).not.toContain(id);
   });
@@ -370,5 +406,132 @@ describe('StaffOffboardingJob — a failing tick, and shutdown', () => {
     expect(close).toHaveBeenCalledTimes(2);
     close.mockRejectedValue(new Error('nope'));
     await expect(job.onModuleDestroy()).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * ⭐ W32 — the destination is a NAMED PERSON, and the id spaces still never meet by accident.
+ *
+ * The block before this one proved the work leaves the departing person. These prove where it lands,
+ * and they are separate because the two failures look nothing alike: the first is a customer waiting
+ * on somebody who left, the second is a customer handed to a colleague who never agreed to answer for
+ * them — or, worse, handed nowhere while every count says «moved».
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('*** ⭐ the desk lead becomes the destination, translated exactly once ***', () => {
+  it('asks auth for the desks and users for the OPERATOR ids of their leads', async () => {
+    const { job, listDeskLeads, resolveOperatorIds, runProcessor } = build();
+    await job.onModuleInit();
+    await runProcessor();
+
+    expect(listDeskLeads).toHaveBeenCalledWith(ACCOUNT);
+    // ⚠️ The translation is asked with the AUTH id the desk carries — that is the whole point of the
+    // hop. Passing the lead's auth id straight to chats would match no conversation and report a
+    // clean handover for ever; W31 shipped that exact shape once.
+    expect(resolveOperatorIds).toHaveBeenCalledWith(ACCOUNT, [LEAD_AUTH]);
+  });
+
+  it('*** hands chats the lead’s OPERATOR id, never their auth id ***', async () => {
+    const { job, returnOperatorWorkToBacklog, runProcessor } = build();
+    await job.onModuleInit();
+    await runProcessor();
+
+    const [, , , destinations] = returnOperatorWorkToBacklog.mock.calls[0]! as [
+      string,
+      string,
+      number,
+      { groupId: string; operatorId: string }[],
+    ];
+    expect(destinations).toEqual([{ groupId: DESK, operatorId: LEAD_OPERATOR }]);
+    // Asserted by INEQUALITY as well: «equals the operator id» alone still passes on the day two
+    // fixtures accidentally agree, and this is the mistake that cost W31 a live round.
+    expect(destinations[0]!.operatorId).not.toBe(LEAD_AUTH);
+  });
+
+  it('a lead with no ACTIVE profile is dropped — the desk simply has no destination', async () => {
+    // users answers only for profiles that are active, so a lead who has themselves left is absent
+    // from the translation. No second rule, no separate check to forget.
+    const { job, resolveOperatorIds, returnOperatorWorkToBacklog, runProcessor } = build();
+    resolveOperatorIds.mockResolvedValue(new Map());
+    await job.onModuleInit();
+    await runProcessor();
+
+    const [, , , destinations] = returnOperatorWorkToBacklog.mock.calls[0]!;
+    // An empty list is not a failure: it reproduces exactly what W31 did — the queue, which is the
+    // safety net this feature adds a preference in front of.
+    expect(destinations).toEqual([]);
+  });
+
+  it('*** somebody who leads their own desk is not their own successor ***', async () => {
+    const { job, resolveOperatorIds, returnOperatorWorkToBacklog, runProcessor } = build();
+    // The departing person IS the lead of the desk their work sits on.
+    resolveOperatorIds.mockResolvedValue(new Map([[LEAD_AUTH, OPERATOR]]));
+    await job.onModuleInit();
+    await runProcessor();
+
+    const [, , , destinations] = returnOperatorWorkToBacklog.mock.calls[0]!;
+    // Handing the work back to the person who just left is a no-op that reads as success in every
+    // count — the most expensive kind of green.
+    expect(destinations).toEqual([]);
+  });
+
+  it('resolves the desks ONCE per account, not once per departing person', async () => {
+    const { job, listDeskLeads, listDisabledStaff, runProcessor } = build();
+    listDisabledStaff.mockResolvedValue(TWO_PEOPLE);
+    await job.onModuleInit();
+    await runProcessor();
+
+    // Also keeps the answer consistent within a pass: two colleagues from one desk cannot end up
+    // with different successors because an administrator renamed a lead halfway through.
+    expect(listDeskLeads).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('*** ⭐ the portfolio moves only when the answer is unambiguous ***', () => {
+  it('hands the attachments to the single eligible lead, by AUTH id', async () => {
+    const { job, reassignPortfolio, runProcessor } = build();
+    await job.onModuleInit();
+    await runProcessor();
+
+    // ⚠️ AUTH ids on this call, unlike the handover next door: `PlayerAssignment` is keyed by the
+    // auth identity. Two calls in one job take two different id spaces, deliberately, and each is
+    // named for the one it takes.
+    expect(reassignPortfolio).toHaveBeenCalledWith(ACCOUNT, AUTH_USER, LEAD_OPERATOR, 50);
+  });
+
+  it('*** refuses to choose when two desks name two different leads ***', async () => {
+    const { job, listDeskLeads, resolveOperatorIds, reassignPortfolio, runProcessor } = build();
+    listDeskLeads.mockResolvedValue([
+      { groupId: 'grp-1', leadUserId: 'lead-a' },
+      { groupId: 'grp-2', leadUserId: 'lead-b' },
+    ]);
+    resolveOperatorIds.mockResolvedValue(
+      new Map([
+        ['lead-a', 'oper-a'],
+        ['lead-b', 'oper-b'],
+      ]),
+    );
+    await job.onModuleInit();
+    await runProcessor();
+
+    // An attachment grants access to a real customer's portfolio, preferences and notes. Guessing a
+    // destination to avoid an empty report is exactly how that data reaches somebody nobody chose —
+    // so nothing moves, and the count reaches a human instead.
+    expect(reassignPortfolio).not.toHaveBeenCalled();
+  });
+
+  it('several desks that AGREE on one lead are not ambiguity — the portfolio moves', async () => {
+    const { job, listDeskLeads, resolveOperatorIds, reassignPortfolio, runProcessor } = build();
+    listDeskLeads.mockResolvedValue([
+      { groupId: 'grp-1', leadUserId: LEAD_AUTH },
+      { groupId: 'grp-2', leadUserId: LEAD_AUTH },
+    ]);
+    void resolveOperatorIds;
+    resolveOperatorIds.mockResolvedValue(new Map([[LEAD_AUTH, LEAD_OPERATOR]]));
+    await job.onModuleInit();
+    await runProcessor();
+
+    expect(reassignPortfolio).toHaveBeenCalledTimes(1);
   });
 });

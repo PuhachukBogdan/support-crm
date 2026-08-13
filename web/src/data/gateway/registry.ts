@@ -755,6 +755,47 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['update'],
   },
   /**
+   * ⭐ W32 (спек №3 / feature 039, roadmap 12.10; contracts §A1) — the addresses the boundary refuses
+   * BEFORE anybody is authenticated. `platform.settings.manage`, enforced server-side (FR-024).
+   *
+   * ⚠️ **An empty list denies NOBODY** — the exact opposite of its neighbour `admin-api-keys`, where
+   * an empty allow-list permits nobody (FR-027). Two lists of addresses, one screen apart, meaning
+   * opposite things; the screens say so in words precisely because the rows look identical.
+   *
+   * ⓘ `created: false` on the POST and `removed: false` on the DELETE are both SUCCESSES — the same
+   * intent expressed twice, not a conflict and not a 404. The screen renders them as such.
+   */
+  {
+    resource: 'admin-denied-addresses',
+    path: '/admin/denied-addresses',
+    collection: 'addresses',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list', 'create', 'remove'],
+  },
+  /**
+   * ⭐ W32 (спек №3 / feature 039, roadmap 12.11; contracts §A3) — the security-posture read. A
+   * SINGLETON: there is one posture, of the caller's own account, and no id could name another.
+   *
+   * ⚠️ **The screen knows no fact keys** (FR-023). Facts arrive as rows with their own label, value,
+   * severity, origin and state; adding a fact is adding a row in a SERVICE's registry, and nothing
+   * here changes. That is also why there is no `create`/`update`: a posture nobody can write is a
+   * posture that cannot drift from what it describes.
+   */
+  {
+    resource: 'admin-security',
+    path: '/admin/security',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    singleton: true,
+    ops: ['get'],
+  },
+  /**
    * ⭐ W18 (subpoints 5.2/5.3) — the operator's OWN UI preferences (`/me/ui-preferences`, feature
    * 021). A SINGLETON like `/me/operator`: the subject is the session, an id would be a place to
    * name somebody else. The PATCH body is `{values: {theme_mode: 'dark'}}` — keys from the closed

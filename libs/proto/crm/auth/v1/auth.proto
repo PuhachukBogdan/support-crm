@@ -17,6 +17,7 @@ syntax = "proto3";
 package crm.auth.v1;
 
 import "crm/audit/v1/audit.proto";
+import "crm/security/v1/security.proto";
 
 // Auth service surface the gateway (and later, admin flows) consume over gRPC.
 service AuthService {
@@ -109,6 +110,54 @@ service AuthService {
   // than a field on RenameGroup — a rename changes a label nothing branches on, while this changes who
   // receives customer conversations without anybody choosing.
   rpc SetGroupRoutable(SetGroupRoutableRequest) returns (GroupMutationResult);
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — name, or unname, who answers for this desk.
+   *
+   * Two rpcs rather than one taking an optional id: "" as "clear" makes an accidental empty string
+   * indistinguishable from an intent, and this decides where a departing colleague's customers go.
+   */
+  /**
+   * ⭐ W32 (roadmap 12.10) — the deny-list an administrator manages.
+   *
+   * Under `platform.settings.manage`, checked here as well as at the edge (Principle II). Adding an
+   * address that is already listed is a QUIET SUCCESS, not a conflict: the administrator expressed
+   * the same intent twice, and the unique index absorbs it.
+   */
+  rpc ListDeniedAddresses(ListDeniedAddressesRequest) returns (ListDeniedAddressesResult);
+  rpc AddDeniedAddress(AddDeniedAddressRequest) returns (DeniedAddressResult);
+  rpc RemoveDeniedAddress(RemoveDeniedAddressRequest) returns (RemoveDeniedAddressResult);
+
+  /**
+   * ⭐ W32 (roadmap 12.11) — auth's contribution to the security page.
+   *
+   * ⚠️ NOT a maintenance rpc: it answers a human's permission-gated read, so it is guarded like every
+   * other administrative rpc and is reachable from the gateway — which maintenance rpcs never are.
+   */
+  rpc ListSecurityFacts(crm.security.v1.ListSecurityFactsRequest) returns (crm.security.v1.ListSecurityFactsResult);
+
+  /**
+   * ⭐ W32 (roadmap 12.10) — the deny-list the BOUNDARY compares against.
+   *
+   * ── Why it is here and not on the maintenance service ───────────────────────────────────────────
+   * It was drafted there and `tests/worker/maintenance-ticks.spec.ts` refused it, correctly. A
+   * maintenance rpc in this product means «only a tick may call it», and this one is read by the
+   * GATEWAY on a timer — so it never was one. It belongs beside `ValidateToken` and
+   * `ResolveEffectivePermissions`: infrastructure the gateway asks auth for, on no session, because
+   * there is no session yet.
+   *
+   * ⚠️ **Deliberately NOT account-scoped.** The boundary must refuse BEFORE authentication, and an
+   * anonymous request carries no account — there is nothing to scope by at the moment the decision is
+   * made. Rows are stored per account (that is where the screen and the trail belong); this answers
+   * their union. See `DeniedAddress` in the schema for what that costs and when to revisit it.
+   *
+   * Addresses only: no note, no author, no account. The boundary needs a set to test membership
+   * against, and everything else would be tenant configuration crossing to a service that has no
+   * business holding it.
+   */
+  rpc ListDeniedAddressesForEdge(ListDeniedAddressesForEdgeRequest) returns (ListDeniedAddressesForEdgeResult);
+
+  rpc SetGroupLead(SetGroupLeadRequest) returns (GroupMutationResult);
+  rpc ClearGroupLead(ClearGroupLeadRequest) returns (GroupMutationResult);
   rpc DeleteGroup(DeleteGroupRequest) returns (GroupMutationResult);
   /**
    * ⭐ W14 (roadmap 3.8) — the account's PEOPLE. Additive.
@@ -470,6 +519,10 @@ enum GroupStatus {
   // looking for the wrong permission. Nobody can grant themselves a capability through a group —
   // otherwise `platform.group.manage` would be a route to the super-admin exclusives.
   GROUP_STATUS_ESCALATION = 7;
+  // ⭐ W32: the person named as a desk's lead is not of this account. Its own value rather than
+  // NOT_FOUND, so the screen can say which of the two things is wrong — an unknown desk and a
+  // cross-account grant attempt deserve different words.
+  GROUP_STATUS_UNKNOWN_USER = 8;
 }
 
 message GroupMutationResult {
@@ -488,6 +541,10 @@ message Group {
   bool active = 3;
   int32 member_count = 4; // a list-page convenience; never a source of truth.
   repeated string permission_keys = 5; // this group's grants — catalogue keys only, positive only.
+  // ⭐ W32 (roadmap 3.16): who answers for this desk. "" = nobody, which is a legitimate state and
+  // the reason the offboarding sweep counts «returned to the queue for want of a lead» separately.
+  // An opaque auth user id — the screen resolves the name from the people list it already holds.
+  string lead_user_id = 6;
 }
 
 // Caller identity is populated by the gateway from the VALIDATED access JWT (Principle II) — the
@@ -515,6 +572,58 @@ message SetGroupRoutableRequest {
   // ⚠️ Explicit, never inferred as a toggle. A toggle rpc means two administrators clicking at once can
   // leave the desk in whichever state arrived last, and neither of them asked for it.
   bool routable = 5;
+}
+
+message DeniedAddressWire {
+  string id = 1;
+  // The NORMALISED form — what the boundary actually compares. Showing the raw form an administrator
+  // typed would let a ban look present on the screen while matching nothing.
+  string address = 2;
+  string note = 3;
+  string created_by = 4;
+  string created_at = 5;
+}
+
+message ListDeniedAddressesRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+}
+message ListDeniedAddressesResult { repeated DeniedAddressWire addresses = 1; }
+
+message AddDeniedAddressRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  string address = 3;
+  string note = 4;
+}
+message DeniedAddressResult {
+  DeniedAddressWire address = 1;
+  // false when the address was already listed. Not an error — the same intent, expressed twice.
+  bool created = 2;
+}
+
+message RemoveDeniedAddressRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  string id = 3;
+}
+message RemoveDeniedAddressResult { bool removed = 1; }
+
+message SetGroupLeadRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
+  // Must be a person of the caller's own account; refused otherwise. A desk led by somebody from
+  // another tenant is not a configuration mistake, it is a cross-account grant.
+  string lead_user_id = 5;
+}
+
+message ClearGroupLeadRequest {
+  string caller_account_id = 1;
+  string caller_user_id = 2;
+  repeated string caller_roles = 3;
+  string group_id = 4;
 }
 
 message DeleteGroupRequest {
@@ -736,6 +845,30 @@ service AuthMaintenanceService {
   // when there is nothing to do — both follow-up calls are idempotent — so this needs no «handled»
   // flag and no second table to keep in step with reality.
   rpc ListDisabledStaff(ListDisabledStaffRequest) returns (ListDisabledStaffResult);
+
+  /**
+   * ⭐ W32 — every desk of one account and who leads it.
+   *
+   * Answers ALL desks rather than only the departing person's. A support organisation has a handful,
+   * this is asked once per offboarding, and the alternative — ask chats which desks the work sits on,
+   * then ask auth about those — spends a round trip to learn less.
+   */
+  rpc ListDeskLeads(ListDeskLeadsRequest) returns (ListDeskLeadsResult);
+
+}
+
+message ListDeskLeadsRequest { string account_id = 1; }
+message DeskLead {
+  string group_id = 1;
+  string lead_user_id = 2; // "" = this desk has nobody answering for it
+}
+message ListDeskLeadsResult { repeated DeskLead desks = 1; }
+
+message ListDeniedAddressesForEdgeRequest {}
+message ListDeniedAddressesForEdgeResult {
+  // Normalised forms only — the same shape `clientAddressFrom` produces, so the comparison at the
+  // boundary is a set membership test and never a parsing exercise.
+  repeated string addresses = 1;
 }
 
 message ListDisabledStaffRequest {

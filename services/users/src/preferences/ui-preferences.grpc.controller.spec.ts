@@ -17,10 +17,12 @@ function harness() {
   const stored: Record<string, string> = {};
   const repo = {
     read: jest.fn(async () => ({ ...defaultUiPreferences(), ...stored })),
-    apply: jest.fn(async (_a: string, _u: string, entries: ReadonlyArray<readonly [string, string]>) => {
-      for (const [k, v] of entries) stored[k] = v;
-      return { ...defaultUiPreferences(), ...stored };
-    }),
+    apply: jest.fn(
+      async (_a: string, _u: string, entries: ReadonlyArray<readonly [string, string]>) => {
+        for (const [k, v] of entries) stored[k] = v;
+        return { ...defaultUiPreferences(), ...stored };
+      },
+    ),
   };
   return { ctl: new UiPreferencesController(repo as unknown as UiPreferencesRepository), repo };
 }
@@ -34,8 +36,7 @@ function md(over: Record<string, string> = {}): Metadata {
 }
 
 function codeOf(e: unknown): number | undefined {
-  return (e as RpcException)?.getError?.() &&
-    typeof (e as RpcException).getError() === 'object'
+  return (e as RpcException)?.getError?.() && typeof (e as RpcException).getError() === 'object'
     ? ((e as RpcException).getError() as { code?: number }).code
     : undefined;
 }
@@ -78,7 +79,9 @@ describe('*** fail-closed on either half of the identity ***', () => {
 
   it('refuses with no metadata at all', async () => {
     const h = harness();
-    await expect(h.ctl.getOperatorUiPreferences({}, undefined)).rejects.toBeInstanceOf(RpcException);
+    await expect(h.ctl.getOperatorUiPreferences({}, undefined)).rejects.toBeInstanceOf(
+      RpcException,
+    );
   });
 });
 
@@ -97,9 +100,9 @@ describe('*** update: validated whole, then written ***', () => {
     ['a patch mixing one valid and one invalid key', { theme_mode: 'dark', nope: 'x' }],
   ])('refuses %s, and writes NOTHING', async (_label, values) => {
     const h = harness();
-    await expect(
-      h.ctl.updateOperatorUiPreferences({ values }, md()),
-    ).rejects.toBeInstanceOf(RpcException);
+    await expect(h.ctl.updateOperatorUiPreferences({ values }, md())).rejects.toBeInstanceOf(
+      RpcException,
+    );
     // FR-005: the whole point. A refusal that already wrote the valid half is the worst outcome here.
     expect(h.repo.apply).not.toHaveBeenCalled();
   });
@@ -155,7 +158,10 @@ describe('*** view-as preview: read the real caller, refuse the write (FR-017) *
   it('a write under preview is refused — the independent second tier', async () => {
     const h = harness();
     const err = await h.ctl
-      .updateOperatorUiPreferences({ values: { theme_mode: 'dark' } }, md({ 'x-is-preview': 'true' }))
+      .updateOperatorUiPreferences(
+        { values: { theme_mode: 'dark' } },
+        md({ 'x-is-preview': 'true' }),
+      )
       .catch((e: unknown) => e);
 
     expect(codeOf(err)).toBe(GrpcStatus.PERMISSION_DENIED);
@@ -177,7 +183,10 @@ describe('*** view-as preview: read the real caller, refuse the write (FR-017) *
     // with the string 'false'.
     const h = harness();
     await expect(
-      h.ctl.updateOperatorUiPreferences({ values: { theme_mode: 'dark' } }, md({ 'x-is-preview': 'false' })),
+      h.ctl.updateOperatorUiPreferences(
+        { values: { theme_mode: 'dark' } },
+        md({ 'x-is-preview': 'false' }),
+      ),
     ).resolves.toBeDefined();
   });
 });
@@ -205,8 +214,14 @@ describe('*** the boundary: no permission, no role, no audit (FR-015/FR-016/FR-0
 
   it('the effective role does not change the result — this is not a masked surface', async () => {
     const h = harness();
-    const low = await h.ctl.getOperatorUiPreferences({}, md({ 'x-actor-effective-role': 'support' }));
-    const high = await h.ctl.getOperatorUiPreferences({}, md({ 'x-actor-effective-role': 'admin' }));
+    const low = await h.ctl.getOperatorUiPreferences(
+      {},
+      md({ 'x-actor-effective-role': 'support' }),
+    );
+    const high = await h.ctl.getOperatorUiPreferences(
+      {},
+      md({ 'x-actor-effective-role': 'admin' }),
+    );
     expect(low.values).toEqual(high.values);
   });
 });

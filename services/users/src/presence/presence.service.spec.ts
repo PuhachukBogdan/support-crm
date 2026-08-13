@@ -28,7 +28,10 @@ interface Row {
   label_id: string | null;
 }
 
-function makeStore(rows: Row[] = [], operators = [{ account_id: 'acc-1', auth_user_id: 'u-1', id: 'op-1', active: true }]) {
+function makeStore(
+  rows: Row[] = [],
+  operators = [{ account_id: 'acc-1', auth_user_id: 'u-1', id: 'op-1', active: true }],
+) {
   const transitions: Array<Record<string, unknown>> = [];
   const audits: Array<Record<string, unknown>> = [];
 
@@ -63,7 +66,9 @@ function makeStore(rows: Row[] = [], operators = [{ account_id: 'acc-1', auth_us
       record: (tx: unknown) => unknown,
       recordAudit?: (tx: unknown) => unknown,
     ) {
-      const existing = rows.find((r) => r.account_id === accountId && r.auth_user_id === authUserId);
+      const existing = rows.find(
+        (r) => r.account_id === accountId && r.auth_user_id === authUserId,
+      );
       if (existing) {
         existing.state = next.state;
         existing.last_cause = next.cause;
@@ -81,10 +86,19 @@ function makeStore(rows: Row[] = [], operators = [{ account_id: 'acc-1', auth_us
       await record({});
       // The audit entry rides the SAME transaction as the state change and the transition (FR-023).
       // The fake supplies a `tx` carrying an `auditEntry` delegate so that riding it is observable.
-      if (recordAudit) await recordAudit({ auditEntry: { create: async (a: unknown) => { audits.push(a as Record<string, unknown>); } } });
+      if (recordAudit)
+        await recordAudit({
+          auditEntry: {
+            create: async (a: unknown) => {
+              audits.push(a as Record<string, unknown>);
+            },
+          },
+        });
     },
     async touch(accountId: string, authUserId: string, at: Date) {
-      const existing = rows.find((r) => r.account_id === accountId && r.auth_user_id === authUserId);
+      const existing = rows.find(
+        (r) => r.account_id === accountId && r.auth_user_id === authUserId,
+      );
       if (existing) existing.last_seen_at = at;
       else
         rows.push({
@@ -137,7 +151,14 @@ describe('⭐ FR-015 — exactly one record per real change, and none for a no-o
     // A no-op that recorded would inflate every future WFM figure at the source, and the inflation
     // would be invisible because each individual row would look perfectly correct.
     const { service, transitions } = makeStore([
-      { account_id: 'acc-1', auth_user_id: 'u-1', state: 'away', last_cause: 'manual', last_seen_at: null, label_id: null },
+      {
+        account_id: 'acc-1',
+        auth_user_id: 'u-1',
+        state: 'away',
+        last_cause: 'manual',
+        last_seen_at: null,
+        label_id: null,
+      },
     ]);
     const out = await service.setState('acc-1', 'u-1', 'away', 'manual', { actorRef: 'u-1' });
     expect(out.status).toBe('unchanged');
@@ -267,7 +288,14 @@ describe('⭐ FR-016 — the sweep lowers; a heartbeat raises only what the swee
     // default, and inventing a transition for somebody who never started a shift would be a record
     // of something that did not happen.
     const { sweep, transitions } = makeStore([
-      { account_id: 'acc-1', auth_user_id: 'u-1', state: 'online', last_cause: null, last_seen_at: null, label_id: null },
+      {
+        account_id: 'acc-1',
+        auth_user_id: 'u-1',
+        state: 'online',
+        last_cause: null,
+        last_seen_at: null,
+        label_id: null,
+      },
     ]);
     const counts = await sweep.sweepIdle(50, at('2026-08-01T23:00:00Z'), THRESHOLDS);
     expect(counts).toMatchObject({ toAway: 0, toOffline: 0 });

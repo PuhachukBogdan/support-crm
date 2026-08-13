@@ -11,10 +11,12 @@ import { OperatorProfileController } from './operator-profile.grpc.controller';
  * an ordinary success, not a conflict.
  */
 
-function fakePrisma(opts: {
-  upload?: { id: string; purpose: string; uploader_user_id: string; state: string } | null;
-  profile?: boolean;
-} = {}) {
+function fakePrisma(
+  opts: {
+    upload?: { id: string; purpose: string; uploader_user_id: string; state: string } | null;
+    profile?: boolean;
+  } = {},
+) {
   const uploadUpdates: Array<Record<string, unknown>> = [];
   const operatorUpdates: Array<Record<string, unknown>> = [];
   const batches: unknown[][] = [];
@@ -97,19 +99,31 @@ describe('SetMyAvatar', () => {
 
   it.each([
     ['a nonexistent upload', { upload: null }],
-    ['someone ELSE’s upload — same answer, no existence oracle', { upload: { id: 'up-1', purpose: 'avatar', uploader_user_id: 'u-other', state: 'pending' } }],
+    [
+      'someone ELSE’s upload — same answer, no existence oracle',
+      { upload: { id: 'up-1', purpose: 'avatar', uploader_user_id: 'u-other', state: 'pending' } },
+    ],
     ['a caller with no profile row', { profile: false }],
   ])('⛔ %s answers NOT_FOUND', async (_name, opts) => {
     const { prisma, operatorUpdates } = fakePrisma(opts as never);
-    await expect(build(prisma).setMyAvatar({ uploadId: 'up-1' }, md())).rejects.toThrow(RpcException);
+    await expect(build(prisma).setMyAvatar({ uploadId: 'up-1' }, md())).rejects.toThrow(
+      RpcException,
+    );
     expect(operatorUpdates).toHaveLength(0);
   });
 
   it('⛔ a message attachment cannot become a face — wrong purpose is its own refusal', async () => {
     const { prisma, operatorUpdates } = fakePrisma({
-      upload: { id: 'up-1', purpose: 'message_attachment', uploader_user_id: 'u-me', state: 'claimed' },
+      upload: {
+        id: 'up-1',
+        purpose: 'message_attachment',
+        uploader_user_id: 'u-me',
+        state: 'claimed',
+      },
     });
-    await expect(build(prisma).setMyAvatar({ uploadId: 'up-1' }, md())).rejects.toThrow(RpcException);
+    await expect(build(prisma).setMyAvatar({ uploadId: 'up-1' }, md())).rejects.toThrow(
+      RpcException,
+    );
     expect(operatorUpdates).toHaveLength(0);
   });
 });

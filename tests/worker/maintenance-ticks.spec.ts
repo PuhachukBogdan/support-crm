@@ -126,6 +126,11 @@ const CALLER_KIND: Readonly<Record<string, 'tick' | 'service' | 'reader'>> = {
   'AuthMaintenanceService.ListDisabledStaff': 'tick',
   'UsersMaintenanceService.SetOperatorActive': 'tick',
   'ChatsMaintenanceService.ReturnOperatorWorkToBacklog': 'tick',
+  // ⭐ W32: the same offboarding sweep grew two more questions — who leads each desk, and where the
+  // portfolio goes. Both `tick` for the same reason as their three siblings: the worker is the only
+  // caller, and no route reaches either.
+  'AuthMaintenanceService.ListDeskLeads': 'tick',
+  'UsersMaintenanceService.ReassignPortfolio': 'tick',
 };
 
 const TICKED = RPCS.filter((r) => CALLER_KIND[`${r.service}.${r.rpc}`] === 'tick');
@@ -158,6 +163,17 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // an AUTH user id to a chats rpc that matches on `users.Operator.id`, so it would have reported
       // a clean handover while moving nothing, for ever. Now: `jobs/staff-offboarding.job.ts` asks
       // this first, then names the person to users and chats.
+      /**
+       * ⭐ W32 (roadmap 3.16). The review moment again, and the answer to "what calls it?" is the same
+       * offboarding sweep: it asks auth WHO LEADS EACH DESK before handing the work over, so the
+       * departing colleague's own customers reach a named person instead of a rota.
+       *
+       * ⓘ Its sibling `ListDeniedAddressesForEdge` was drafted here too and this guard refused it —
+       * correctly. That one is read by the GATEWAY on a timer, so it never was a maintenance rpc by
+       * this product's own definition; it moved to `AuthService`, beside the other infrastructure
+       * reads the gateway makes on no session.
+       */
+      'AuthMaintenanceService.ListDeskLeads',
       'AuthMaintenanceService.ListDisabledStaff',
       // ⭐ Feature 031 (roadmap 4.20). The review moment this pin exists for happened again: declaring
       // `DrainBacklog` turned this suite red, and the answer to "what calls it?" is the 30-second SLA
@@ -197,6 +213,13 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // leaves users only through GetChannelEnvelope, on the delivery path.
       'UsersMaintenanceService.GetPlayerEmailParticipant',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
+      /**
+       * ⭐ W32 (roadmap 3.16, ADR 0043 §4): the PORTFOLIO half of an offboarding — the players who
+       * were personally the departing person's. Ticked by the same sweep, once per person, and only
+       * when their desks agree on one successor: an attachment grants access to a real customer's
+       * data, so an ambiguous answer is reported rather than guessed.
+       */
+      'UsersMaintenanceService.ReassignPortfolio',
       // ⭐ Feature 033 (roadmap 6.4): asked by chats per inbound email. It is the only rpc in the product
       // whose REQUEST carries a customer's contact value, which is why it lives on a surface no gateway
       // route reaches and why nothing on either side of it logs its request (research R9/R10).

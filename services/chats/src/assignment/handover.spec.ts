@@ -211,6 +211,10 @@ function build(opts: {
       deskId: string,
       at: Date,
       actor: unknown,
+      // ⭐ W32: the destination the controller resolved for THIS conversation's desk, or null for
+      // the queue. Declared so the assertions can read it back — an undeclared parameter records an
+      // empty tuple and `calls[0][6]` would not compile.
+      destinationOperatorId?: string | null,
     ) => {
       void accountId;
       void conversationId;
@@ -218,6 +222,7 @@ function build(opts: {
       void deskId;
       void at;
       void actor;
+      void destinationOperatorId;
       return answers.length > 0 ? answers.shift()! : true;
     },
   );
@@ -342,7 +347,16 @@ describe('ReturnOperatorWorkToBacklog', () => {
     // Counts only — a conversation id in a staffing trail is customer work in a log read for other
     // reasons (Principle IV).
     expect(JSON.stringify(res)).not.toContain('c-secret');
-    expect(Object.keys(res).sort()).toEqual(['moved', 'noDesk', 'remaining', 'skippedShelved']);
+    // ⭐ W32 added the split. The pin stays exhaustive on purpose: this answer travels into a log,
+    // and a new field appearing here without somebody noticing is how a conversation id would.
+    expect(Object.keys(res).sort()).toEqual([
+      'moved',
+      'movedToBacklog',
+      'movedToLead',
+      'noDesk',
+      'remaining',
+      'skippedShelved',
+    ]);
   });
 
   it('publishes conversation.updated for what actually moved, and only that', async () => {
@@ -396,5 +410,85 @@ describe('ReturnOperatorWorkToBacklog', () => {
     const { controller, openWorkOf } = build({ rows: [work('c-1')], statusKeys: [] });
     await expect(call(controller)).rejects.toBeDefined();
     expect(openWorkOf).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * ⭐ W32 — the desk's LEAD becomes the destination, and the queue stays underneath.
+ *
+ * ⚠️ The compatibility property first: an EMPTY destination map must reproduce W31 exactly. The
+ * safety net is what happens when the new information is absent — not a separate branch that could
+ * rot untested while every new-path test stays green.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('*** ⭐ a named destination, with the queue still underneath ***', () => {
+  it('assigns the desk’s lead and counts it apart from a queue return', async () => {
+    const { controller, returnToBacklog } = build({ rows: [work('c-1')], moves: [true] });
+    const res = await controller.returnOperatorWorkToBacklog(
+      {
+        accountId: 'acc-1',
+        operatorId: 'op-gone',
+        deskDestinations: [{ groupId: 'desk-a', operatorId: 'op-lead' }],
+      },
+      system(),
+    );
+
+    expect(res.movedToLead).toBe(1);
+    expect(res.movedToBacklog).toBe(0);
+    // The total keeps its old meaning — «this left the departing person» — and is the sum.
+    expect(res.moved).toBe(1);
+    // The destination reached the write, which is where it becomes the assignee AND the transition's
+    // «to». A count that moved without the write receiving the person would be the silent failure.
+    const [firstCall] = returnToBacklog.mock.calls;
+    expect(firstCall![6]).toBe('op-lead');
+  });
+
+  it('*** an EMPTY destination map behaves exactly as W31 did ***', async () => {
+    const { controller, returnToBacklog } = build({ rows: [work('c-1')], moves: [true] });
+    const res = await controller.returnOperatorWorkToBacklog(
+      { accountId: 'acc-1', operatorId: 'op-gone', deskDestinations: [] },
+      system(),
+    );
+
+    expect(res.movedToLead).toBe(0);
+    expect(res.movedToBacklog).toBe(1);
+    // `null` — the queue, unchanged. This is the safety net, reached by absence rather than by a
+    // branch somebody could delete without a test noticing.
+    expect(returnToBacklog.mock.calls[0]![6]).toBeNull();
+  });
+
+  it('a destination for ANOTHER desk does not reach this conversation', async () => {
+    const { controller, returnToBacklog } = build({ rows: [work('c-1')], moves: [true] });
+    const res = await controller.returnOperatorWorkToBacklog(
+      {
+        accountId: 'acc-1',
+        operatorId: 'op-gone',
+        deskDestinations: [{ groupId: 'some-other-desk', operatorId: 'op-lead' }],
+      },
+      system(),
+    );
+
+    expect(res.movedToBacklog).toBe(1);
+    expect(returnToBacklog.mock.calls[0]![6]).toBeNull();
+  });
+
+  it('*** the departing person is filtered out of their own destinations ***', async () => {
+    const { controller, returnToBacklog } = build({ rows: [work('c-1')], moves: [true] });
+    const res = await controller.returnOperatorWorkToBacklog(
+      {
+        accountId: 'acc-1',
+        operatorId: 'op-gone',
+        // They lead the desk their own work sits on.
+        deskDestinations: [{ groupId: 'desk-a', operatorId: 'op-gone' }],
+      },
+      system(),
+    );
+
+    // Assigning the work back to the person who just left is a no-op that reads as success in every
+    // count. The queue is the honest answer.
+    expect(res.movedToLead).toBe(0);
+    expect(res.movedToBacklog).toBe(1);
+    expect(returnToBacklog.mock.calls[0]![6]).toBeNull();
   });
 });

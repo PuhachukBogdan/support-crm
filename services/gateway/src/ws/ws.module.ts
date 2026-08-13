@@ -1,3 +1,4 @@
+import { NetworkEdgeModule } from '../network/network.module';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { RealtimeGateway } from './realtime.gateway';
@@ -13,7 +14,8 @@ import { GATEWAY_CONFIG, loadGatewayConfig } from '../config';
  * realtime answer on the same port.
  */
 @Module({
-  imports: [RedisModule, JwtModule.register({})],
+  // ⭐ W32: the deny-list cache, because the HTTP middleware cannot reach a WebSocket upgrade.
+  imports: [RedisModule, JwtModule.register({}), NetworkEdgeModule],
   providers: [
     RealtimeGateway,
     // The socket verifies the token with the same secret the HTTP guard does, so it needs the same config.

@@ -113,20 +113,34 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
   { key: 'knowledge', label: 'Knowledge Base', href: '/knowledge', icon: BookOpen, state: 'coming_soon' },
   /**
    * ⭐ Admin Center — the access-management surface over the RBAC backbone (roadmap 9.8, ADR 0034).
-   * Reserved as `coming_soon` on the operator's instruction, and deliberately placed ABOVE Analytics.
+   * Deliberately placed ABOVE Analytics, on the operator's instruction.
    *
-   * ⚠️ It declares `platform.role.manage` even though a `coming_soon` module is shown regardless of
-   * permission. That is not decoration: the day this flips to `active`, the gate must already be the
-   * right one. A placeholder that ships without its permission becomes an admin entry visible to the
-   * whole company the moment somebody switches it on — the failure this catalogue is shaped to
-   * prevent. `nav-permissions.test.ts` checks the key against the service that owns it.
+   * ⚠️⚠️ **THE KEY WAS WRONG, AND IT CLOSED THE DOOR ON THE ROLE THE ROOM IS FOR (fixed W32).**
+   *
+   * This declared `platform.role.manage` — one of the **two super-admin exclusives**
+   * (`services/auth/src/rbac/catalogue.ts`: `admin` is every key *except* `platform.role.manage` and
+   * `platform.view_as`). So an `admin` had no rail entry for the Admin Center at all, while **every
+   * section inside it** — channels, statuses, fields, macros, API keys, and W32's two new ones —
+   * gates on `platform.settings.manage`, which they DO hold. The room was theirs; the door was not.
+   *
+   * ⇒ The module now names the key its contents actually require. The rule this restates: **a
+   * module's key is the key of what is behind it.** Naming a stricter one hides a working screen from
+   * the people it was built for, and nothing about it looks broken — the entry is simply not there,
+   * which is indistinguishable from a product that has no admin centre (the `crm.settings.manage`
+   * failure this file already records, one comment down, in its other direction).
+   *
+   * ⓘ The key is still declared while the module is `coming_soon`, and that still matters: it is
+   * checked NOW (see `resolveModules` — a placeholder that declares a permission is gated by it),
+   * and it is what the day-one gate will be when the state flips.
+   * `nav-permissions.test.ts` checks it against the service that owns the catalogue, and now also
+   * refuses any module that names a super-admin exclusive.
    */
   {
     key: 'admin',
     label: 'Admin Center',
     href: '/admin',
     icon: ShieldCheck,
-    permission: 'platform.role.manage',
+    permission: 'platform.settings.manage',
     state: 'coming_soon',
   },
   {

@@ -109,7 +109,9 @@ describe('users config: the contact-hash salt is a boot requirement (feature 020
   it('refuses a salt short enough to be a placeholder', () => {
     // "salt", "changeme", "dev" — the values that get committed and then forgotten.
     expect(() => loadUsersConfig({ ...COMPLETE, CONTACT_HASH_SALT: 'salt' })).toThrow(ConfigError);
-    expect(() => loadUsersConfig({ ...COMPLETE, CONTACT_HASH_SALT: 'changeme' })).toThrow(ConfigError);
+    expect(() => loadUsersConfig({ ...COMPLETE, CONTACT_HASH_SALT: 'changeme' })).toThrow(
+      ConfigError,
+    );
   });
 
   it('the refusal names the KEY and never the value', () => {
@@ -160,9 +162,9 @@ describe('users config: the presence thresholds are a boot requirement (feature 
   it.each(['0', '-1', 'soon', ''])('refuses the non-positive or non-numeric value %p', (bad) => {
     // A zero threshold would sweep everybody away on the first tick; a negative one is nonsense that
     // `Number()` happily produces. Both are caught here rather than discovered in a live run.
-    expect(() =>
-      loadUsersConfig({ ...COMPLETE, PRESENCE_AWAY_AFTER_SECONDS: bad }),
-    ).toThrow(ConfigError);
+    expect(() => loadUsersConfig({ ...COMPLETE, PRESENCE_AWAY_AFTER_SECONDS: bad })).toThrow(
+      ConfigError,
+    );
   });
 
   it('a complete environment yields NUMBERS, not strings', () => {

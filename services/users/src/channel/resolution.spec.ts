@@ -24,7 +24,9 @@ interface Row {
   player_id: string;
 }
 
-function harness(opts: { matches?: Row[]; players?: Array<{ brand_id: string; player_id: string }> } = {}) {
+function harness(
+  opts: { matches?: Row[]; players?: Array<{ brand_id: string; player_id: string }> } = {},
+) {
   const upserts: Array<Record<string, unknown>> = [];
   const queries: Array<Record<string, unknown>> = [];
   const prisma = {
@@ -80,7 +82,12 @@ describe('an address that names exactly one player resolves to them (FR-019)', (
   it('links the ticket and stores the player on the envelope row', async () => {
     const { service, upserts } = harness({
       matches: [
-        { brand_id: 'brand-1', kind: 'email', value_hash: emailHash('player@mail.test'), player_id: 'pl-7' },
+        {
+          brand_id: 'brand-1',
+          kind: 'email',
+          value_hash: emailHash('player@mail.test'),
+          player_id: 'pl-7',
+        },
       ],
     });
     await expect(register(service)).resolves.toEqual({
@@ -104,7 +111,12 @@ describe('an address that names exactly one player resolves to them (FR-019)', (
   it('normalises before hashing, so one human written two ways still matches', async () => {
     const { service } = harness({
       matches: [
-        { brand_id: 'brand-1', kind: 'email', value_hash: emailHash('player@mail.test'), player_id: 'pl-7' },
+        {
+          brand_id: 'brand-1',
+          kind: 'email',
+          value_hash: emailHash('player@mail.test'),
+          player_id: 'pl-7',
+        },
       ],
     });
     await expect(register(service, { address: '  PLAYER@Mail.TEST ' })).resolves.toMatchObject({
@@ -129,7 +141,12 @@ describe('the three ways it declines to guess', () => {
     // somebody's record.
     const { service } = harness({
       matches: [
-        { brand_id: 'brand-OTHER', kind: 'email', value_hash: emailHash('player@mail.test'), player_id: 'pl-9' },
+        {
+          brand_id: 'brand-OTHER',
+          kind: 'email',
+          value_hash: emailHash('player@mail.test'),
+          player_id: 'pl-9',
+        },
       ],
     });
     await expect(register(service)).resolves.toMatchObject({ playerId: '', ambiguous: false });
@@ -164,7 +181,9 @@ describe('the three ways it declines to guess', () => {
 
 describe('a platform id resolves by EXISTENCE, and gets no envelope (US3 scenario 6)', () => {
   it('a known id links the ticket and writes no envelope row', async () => {
-    const { service, upserts } = harness({ players: [{ brand_id: 'brand-1', player_id: 'pl-42' }] });
+    const { service, upserts } = harness({
+      players: [{ brand_id: 'brand-1', player_id: 'pl-42' }],
+    });
     await expect(
       register(service, { identifierKind: 'player_id', address: 'pl-42', kind: 'api' }),
     ).resolves.toEqual({ participantId: '', playerId: 'pl-42', ambiguous: false });
@@ -182,7 +201,9 @@ describe('a platform id resolves by EXISTENCE, and gets no envelope (US3 scenari
   });
 
   it('the existence check is BRAND-scoped — a GR8 id is unique only within a brand', async () => {
-    const { service, queries } = harness({ players: [{ brand_id: 'brand-1', player_id: 'pl-42' }] });
+    const { service, queries } = harness({
+      players: [{ brand_id: 'brand-1', player_id: 'pl-42' }],
+    });
     await register(service, { identifierKind: 'player_id', address: 'pl-42', kind: 'api' });
     expect(queries[0]).toEqual({ brand_id: 'brand-1', player_id: 'pl-42' });
   });
@@ -196,7 +217,12 @@ describe('a resolution never clears a link it once made', () => {
     // and the customer's history would move out from under them.
     const found = harness({
       matches: [
-        { brand_id: 'brand-1', kind: 'email', value_hash: emailHash('player@mail.test'), player_id: 'pl-7' },
+        {
+          brand_id: 'brand-1',
+          kind: 'email',
+          value_hash: emailHash('player@mail.test'),
+          player_id: 'pl-7',
+        },
       ],
     });
     await register(found.service);

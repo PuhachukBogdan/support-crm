@@ -26,9 +26,13 @@ const ARTEFACT = {
 };
 
 function harness(
-  rows: Array<{ id: string; storage_key: string; derivative_key: string | null; purpose?: string; expires_at?: Date | null }> = [
-    ARTEFACT,
-  ],
+  rows: Array<{
+    id: string;
+    storage_key: string;
+    derivative_key: string | null;
+    purpose?: string;
+    expires_at?: Date | null;
+  }> = [ARTEFACT],
 ) {
   const store = new InMemoryObjectStore();
   for (const r of rows) {
@@ -146,7 +150,11 @@ describe('*** the object goes BEFORE the row *** (the opposite of the create pat
 
   it('a derivative is destroyed with its original', async () => {
     const h = harness([
-      { id: 'up-2', storage_key: 'acc-1/conversation_export/bbbb', derivative_key: 'acc-1/conversation_export/bbbb.thumb.webp' },
+      {
+        id: 'up-2',
+        storage_key: 'acc-1/conversation_export/bbbb',
+        derivative_key: 'acc-1/conversation_export/bbbb.thumb.webp',
+      },
     ]);
     await h.service.purgeExpiredArtefacts(10, NOW);
     // The one that is easy to forget: it is written by a second call and a cleanup that only knows

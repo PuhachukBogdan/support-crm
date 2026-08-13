@@ -1,0 +1,42 @@
+// ⭐ W32 / feature 039 (roadmap 12.11) — the shape of ONE statement about the account's protections.
+//
+// Shared rather than duplicated per service because the security page concatenates facts from
+// several owners and renders them without knowing any of their keys. A second definition would drift,
+// and a page that renders two shapes is a page that eventually renders one of them wrongly.
+//
+// ⚠️ **`kind` is the honesty field, and it is the whole reason this feature is a spec run.** A row
+// saying «contact masking enforced» looks identical whether it was read from the system or typed by a
+// developer, and the typed kind decays silently into a false assurance somebody acts on. `read` means
+// the value came from a query in THIS request; `built_in` means it is a property of the product
+// rather than a setting, and it renders as such — never as a control that happens to be on. A
+// structural guard (`tests/security-posture/facts-are-read.spec.ts`) makes the two impossible to blur.
+
+syntax = "proto3";
+
+package crm.security.v1;
+
+message SecurityFact {
+  // Stable and machine-readable, e.g. "auth.keys.active". The page never branches on it; it exists so
+  // that a fact keeps its identity across renames of its label.
+  string key = 1;
+  // The words an administrator reads. Written where the fact lives, because the service that owns the
+  // data is the only place that knows what the number means.
+  string label = 2;
+  // critical | recommended | informational — how much attention a departure from the expected value
+  // deserves. Ours to define: no external standard is imposed on this product.
+  string severity = 3;
+  // read | built_in — see the file header.
+  string kind = 4;
+  // ok | attention | unknown.
+  // ⚠️ **`unknown` is what a fact becomes when its service cannot be reached, and it is NEVER `ok`.**
+  // An unreachable service reading as a passing control is the precise failure this page must not have.
+  string state = 5;
+  // Already rendered by the owner. The page formats nothing it does not understand, which is also why
+  // a fact can be added without any consumer changing.
+  string value = 6;
+  // Why it matters, when that is not obvious from the label. Optional.
+  string note = 7;
+}
+
+message ListSecurityFactsRequest {}
+message ListSecurityFactsResult { repeated SecurityFact facts = 1; }

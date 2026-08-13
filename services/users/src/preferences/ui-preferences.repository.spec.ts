@@ -29,7 +29,9 @@ function harness() {
         .filter((r) => r.account_id === accountId && r.auth_user_id === where.auth_user_id)
         .map((r) => ({ key: r.key, value: r.value })),
     upsert: async (args: {
-      where: { account_id_auth_user_id_key: { account_id: string; auth_user_id: string; key: string } };
+      where: {
+        account_id_auth_user_id_key: { account_id: string; auth_user_id: string; key: string };
+      };
       create: Row;
       update: { value: string };
     }) => {

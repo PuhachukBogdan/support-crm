@@ -106,6 +106,47 @@ export const AUDIT_ACTIONS = {
     status: 'live',
     label: 'Group routability changed',
   },
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — who answers for a desk.
+   *
+   * `privilege`, like every other group mutation, and the reuse is honest rather than convenient: a
+   * lead change decides where a departing colleague's own customers land, so it hands one person the
+   * conversations and the portfolio of another. That is a grant in every sense the class means.
+   *
+   * ⛔ The lead's id is NOT in the detail — the desk is the target, and who leads it now is a property
+   * of the desk anybody can read. The trail's detail is not where people are named.
+   */
+  'group.lead_changed': {
+    class: 'privilege',
+    writer: 'auth',
+    status: 'live',
+    label: 'Desk lead changed',
+  },
+  /**
+   * ⭐ W32 (roadmap 12.10) — an address was added to or removed from the deny-list.
+   *
+   * ⚠️ **THE ADDRESS IS THE TARGET, NEVER THE DETAIL, and that is not a style choice.**
+   * `looksLikePersonalData` strips dots before counting digits, so `203.0.113.7` becomes an 8-digit
+   * run and is REFUSED as personal data while `10.0.0.1` becomes 5 digits and passes. Recording a ban
+   * would therefore succeed or fail depending on WHICH address was banned — a failure nobody could
+   * reproduce on purpose. That is the same defect class W31 caught on the key fingerprint, where
+   * roughly one issuance in 220 would have thrown under a fully green suite. `target_ref` carries no
+   * such check, and the address IS the target.
+   *
+   * `noun.config_changed` follows the precedent set by `channel` · `status` · `field` · `option_set` ·
+   * `form`, each of which carries the same note that the class reuse is deliberate.
+   */
+  'ip_ban.config_changed': {
+    // ⚠️ `assignment`, not `privilege`, and the correction is worth recording: a ban GRANTS NOBODY
+    // ANYTHING — it is a configuration change, and `channel` · `status` · `field` · `option_set` ·
+    // `form` all file `*.config_changed` here with the same written note that the reuse is honest.
+    // The first draft filed it under `privilege` by analogy with the key actions next door; a
+    // parallel worker caught the disagreement with this feature's own contract.
+    class: 'assignment',
+    writer: 'auth',
+    status: 'live',
+    label: 'Denied address list changed',
+  },
   'group_member.add': {
     class: 'privilege',
     writer: 'auth',

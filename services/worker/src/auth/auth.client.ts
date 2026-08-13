@@ -34,7 +34,17 @@ export interface DisabledStaffMember {
   userId: string;
 }
 
+/** ⭐ W32: a desk and who answers for it. `leadUserId` is an AUTH id — see the client method. */
+export interface DeskLead {
+  groupId: string;
+  leadUserId: string;
+}
+
 interface AuthMaintenanceGrpc {
+  listDeskLeads(
+    data: { accountId: string },
+    md?: Metadata,
+  ): Observable<{ desks?: { groupId?: string; leadUserId?: string }[] }>;
   listDisabledStaff(
     data: { limit: number; withinDays: number },
     md?: Metadata,
@@ -71,6 +81,23 @@ export class AuthStaffClient implements OnModuleInit {
     return (res.staff ?? [])
       .map((s) => ({ accountId: String(s.accountId ?? ''), userId: String(s.userId ?? '') }))
       .filter((s) => s.accountId !== '' && s.userId !== '');
+  }
+
+  /**
+   * ⭐ W32 (roadmap 3.16) — every desk of one account and who leads it.
+   *
+   * ⚠️ `leadUserId` is an **auth** user id and stays one until the worker translates it. The id space a
+   * conversation is assigned by is `users.Operator.id`, and the two look alike: W31's first draft let
+   * them meet by accident and would have reported a clean handover while moving nothing, for ever.
+   * The translation happens once, in the job, beside the one it already performs.
+   */
+  async listDeskLeads(accountId: string): Promise<DeskLead[]> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    const res = await firstValueFrom(this.svc.listDeskLeads({ accountId }, md));
+    return (res.desks ?? [])
+      .map((d) => ({ groupId: String(d.groupId ?? ''), leadUserId: String(d.leadUserId ?? '') }))
+      .filter((d) => d.groupId !== '');
   }
 }
 

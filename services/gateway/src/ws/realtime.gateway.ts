@@ -9,11 +9,12 @@ import {
 } from '@nestjs/websockets';
 import type { IncomingMessage } from 'node:http';
 import type { Redis } from 'ioredis';
-import { parseRealtimeEvent, realtimeChannel } from '@crm/common';
+import { clientAddressFrom, isAddressDenied, parseRealtimeEvent, realtimeChannel } from '@crm/common';
 import { GATEWAY_CONFIG, type GatewayConfig } from '../config';
 import { ACCESS_COOKIE } from '../auth/session-cookie';
 import { verifyAccessToken } from '../auth/verify-access-token';
 import { RedisService } from '../redis/redis.service';
+import { DeniedAddressCache } from '../network/denied-address.cache';
 
 /** The subset of a `ws` socket this gateway uses. Kept narrow so a test double is three lines. */
 interface Socket {
@@ -80,6 +81,16 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @Inject(RedisService) private readonly redis: RedisService,
     @Inject(JwtService) private readonly jwt: JwtService,
     @Inject(GATEWAY_CONFIG) private readonly cfg: GatewayConfig,
+    /**
+     * ⭐ W32 (roadmap 12.10) — the deny-list, because the HTTP middleware cannot reach here.
+     *
+     * ⚠️ `/ws` is routed by the edge proxy STRAIGHT to this service, and the upgrade is handled off
+     * the HTTP server's `upgrade` event: it never traverses the express stack, and both global guards
+     * pass a non-HTTP context through untouched. So a ban enforced only there would keep somebody out
+     * of every page and leave them a live event feed — a hole nobody would notice, because every
+     * HTTP test would be green.
+     */
+    @Inject(DeniedAddressCache) private readonly denied: DeniedAddressCache,
   ) {}
 
   /**
@@ -91,6 +102,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    * behaviour wanted.
    */
   handleConnection(client: Socket, request?: IncomingMessage): void {
+    // The deny check AWAITS the list (see `currentAwaited`): a socket is established once and held,
+    // so one unchecked upgrade is not a momentary gap, it is a live feed for as long as they hold it.
+    void this.refuseIfDenied(client, request);
+    /**
+     * ⭐ W32 — the ban, checked BEFORE the session, exactly as the HTTP boundary checks it before
+     * authentication. Same list, same address helper: two readers of the caller's address in one
+     * product would eventually judge two different addresses from one connection.
+     *
+     * The same 1008 and the same silence as an unauthorised socket: a client learns nothing from the
+     * difference except which of the two applies to them.
+     */
     const claims = verifyAccessToken(this.jwt, this.cfg.JWT_SECRET, cookieOf(request, ACCESS_COOKIE));
     if (!claims) {
       // 1008 = policy violation. No reason string: a client learns nothing from "expired" that it cannot
@@ -111,6 +133,30 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    * ⓘ It still earns its place: spec 003's US4 claim is that REST and realtime answer on the SAME port, and
    * this reply is the only thing that demonstrates it. One class, one path, one authorization.
    */
+  /**
+   * ⭐ W32 (roadmap 12.10) — close a banned caller's socket.
+   *
+   * ⚠️ Separate and asynchronous because `handleConnection` cannot await, and the list must be READ
+   * rather than guessed: a cold cache would otherwise let the first upgrade through, and a socket is
+   * held rather than repeated. Same list and same address helper as the HTTP boundary — two readers
+   * of «who is calling» would eventually disagree about one connection.
+   *
+   * The same 1008 and the same silence as an unauthorised socket: nothing is revealed by the
+   * difference except which of the two applies.
+   */
+  private async refuseIfDenied(client: Socket, request?: IncomingMessage): Promise<void> {
+    const address = clientAddressFrom(
+      typeof request?.headers['x-forwarded-for'] === 'string'
+        ? request.headers['x-forwarded-for']
+        : undefined,
+      request?.socket?.remoteAddress,
+    );
+    if (isAddressDenied(address, await this.denied.currentAwaited())) {
+      this.leave(client);
+      client.close(1008);
+    }
+  }
+
   @SubscribeMessage('ping')
   handlePing(@MessageBody() data: unknown): { event: 'pong'; data: unknown } {
     return { event: 'pong', data: data ?? null };

@@ -5,7 +5,9 @@ import type { PrismaService } from '../prisma.service';
 // never leaks connection details in `detail`. Compose-independent (mocked Prisma).
 describe('users HealthGrpcController', () => {
   it('SERVING when the database probe resolves', async () => {
-    const prisma = { $queryRaw: jest.fn().mockResolvedValue([{ ok: 1 }]) } as unknown as PrismaService;
+    const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ ok: 1 }]),
+    } as unknown as PrismaService;
     const res = await new HealthGrpcController(prisma).check();
     expect(res.status).toBe('SERVING');
     expect(res.service).toBe('users');

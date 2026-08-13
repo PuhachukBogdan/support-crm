@@ -98,7 +98,9 @@ describe('the context is read as the gateway sends it', () => {
 
   it('the preview marker is only true for the literal "true"', () => {
     for (const v of ['false', 'True', '1', 'yes', '']) {
-      expect(readPlayerActor(md({ 'x-actor-account-id': 'a', 'x-is-preview': v })).underPreview).toBe(false);
+      expect(
+        readPlayerActor(md({ 'x-actor-account-id': 'a', 'x-is-preview': v })).underPreview,
+      ).toBe(false);
     }
   });
 });
@@ -116,7 +118,15 @@ describe('*** an ABSENT effective role fails closed to the most restricted tier 
 
     // The consequence that matters: nothing operational, nothing portfolio-side, nothing top-tier.
     const fields = allowedFields(role, { attachedToSubject: false });
-    for (const withheld of ['vip', 'segment', 'custom_attributes', 'am_notes', 'preferences', 'portfolio', 'gr8_snapshot']) {
+    for (const withheld of [
+      'vip',
+      'segment',
+      'custom_attributes',
+      'am_notes',
+      'preferences',
+      'portfolio',
+      'gr8_snapshot',
+    ]) {
       expect({ withheld, visible: fields.has(withheld) }).toEqual({ withheld, visible: false });
     }
   });

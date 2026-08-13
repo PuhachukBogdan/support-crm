@@ -7,6 +7,7 @@ import { PresenceSweepService } from '../presence/presence-sweep.service';
 import { OperatorRepository } from '../operator/operator.repository';
 import { ChannelParticipantService } from '../channel/channel-participant.service';
 import { StaffLifecycleRepository } from './staff-lifecycle.repository';
+import { AssignmentService } from '../assignment/assignment.service';
 import type { PresenceState } from '@crm/common';
 import { loadUsersConfig } from '../config';
 
@@ -90,7 +91,39 @@ export class MaintenanceController {
     // ⭐ W31 / feature 038: the ONE write this service gained. It is deliberately not a method on the
     // repository above — that one is read-only by design and a structural guard says so (FR-027).
     @Inject(StaffLifecycleRepository) private readonly lifecycle: StaffLifecycleRepository,
+    // ⭐ W32: the portfolio half of an offboarding. The same service a human's attach goes through —
+    // one writer for «who looks after this player», two surfaces with two different gates.
+    @Inject(AssignmentService) private readonly assignments: AssignmentService,
   ) {}
+
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — hand a departing colleague's portfolio to their successor.
+   *
+   * Every property of this surface: system actor only, no gateway route, counts in the answer. The
+   * account is in the REQUEST because a machine has no account of its own — defaulting one here would
+   * be a cross-account write that moves real customers to the wrong manager.
+   */
+  @GrpcMethod('UsersMaintenanceService', 'ReassignPortfolio')
+  async reassignPortfolio(
+    req: { accountId?: string; fromAuthUserId?: string; toAuthUserId?: string; limit?: number },
+    metadata: Metadata,
+  ) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const accountId = String(req?.accountId ?? '').trim();
+    const from = String(req?.fromAuthUserId ?? '').trim();
+    const to = String(req?.toAuthUserId ?? '').trim();
+    if (!accountId || !from || !to) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'account_id, from_auth_user_id and to_auth_user_id are required',
+      });
+    }
+    // Server-capped like every maintenance batch: a caller cannot ask for a whole account in one go.
+    const limit = Math.min(Math.max(Number(req?.limit ?? 0) || 50, 1), 100);
+    return this.assignments.reassignPortfolio(accountId, from, to, limit);
+  }
 
   /**
    * ⭐ W31 / feature 038 (ADR 0043 §3) — **the operator half of deactivation.**

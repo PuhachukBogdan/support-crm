@@ -148,10 +148,7 @@ describe('T024 — the trail records both halves, and never a value', () => {
       expect(e.detail).toEqual({ linkedOn: 'email' });
     }
     // The subject is the brand-scoped record — "player 12345" alone would not say which customer.
-    expect(f.appended.map((e) => e.targetRef).sort()).toEqual([
-      'brand-a/12345',
-      'brand-b/99999',
-    ]);
+    expect(f.appended.map((e) => e.targetRef).sort()).toEqual(['brand-a/12345', 'brand-b/99999']);
   });
 
   it('no hash and no contact value reaches the trail (SEC-26)', async () => {
@@ -239,13 +236,21 @@ describe('T024 — unlink leaves two independent records, with nothing copied', 
 
   it('unlinking something that was never linked is not an error', async () => {
     const f = fakeDb([holderA]);
-    await expect(new PersonService(f.prisma, f.auditRepo).unlink(A)).resolves.toEqual({ unlinked: false });
+    await expect(new PersonService(f.prisma, f.auditRepo).unlink(A)).resolves.toEqual({
+      unlinked: false,
+    });
   });
 });
 
 describe('membersOf — the input to the person-scoped feed', () => {
   it('returns full identities, never bare platform ids', async () => {
-    const f = fakeDb([], [{ ...holderA, person_id: 'p1' }, { ...holderB, person_id: 'p1' }]);
+    const f = fakeDb(
+      [],
+      [
+        { ...holderA, person_id: 'p1' },
+        { ...holderB, person_id: 'p1' },
+      ],
+    );
     const members = await new PersonService(f.prisma, f.auditRepo).membersOf('acc-1', 'p1');
 
     expect(members).toEqual([

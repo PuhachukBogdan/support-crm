@@ -54,13 +54,16 @@ describe('*** the projection stores a hash and no contact value ***', () => {
 });
 
 describe('neither module writes a log line of its own', () => {
-  it.each(['contact-match.ts', 'person.service.ts'])('%s has no logger and no console call', (f) => {
-    // The strongest available form, and it costs nothing here: nothing in these files has anything to
-    // say that the audit trail does not already record — and the trail carries the KIND, not a value.
-    const src = sourceOf(f);
-    expect(src).not.toMatch(/\bconsole\.(log|warn|error|info|debug)\b/);
-    expect(src).not.toMatch(/\bnew Logger\b/);
-  });
+  it.each(['contact-match.ts', 'person.service.ts'])(
+    '%s has no logger and no console call',
+    (f) => {
+      // The strongest available form, and it costs nothing here: nothing in these files has anything to
+      // say that the audit trail does not already record — and the trail carries the KIND, not a value.
+      const src = sourceOf(f);
+      expect(src).not.toMatch(/\bconsole\.(log|warn|error|info|debug)\b/);
+      expect(src).not.toMatch(/\bnew Logger\b/);
+    },
+  );
 
   it('the matcher never interpolates a contact value into a thrown message', () => {
     const src = sourceOf('contact-match.ts');

@@ -5,6 +5,7 @@ import { RedisService } from '../redis/redis.service';
 import { EffectivePermsCache } from './effective-perms.cache';
 import { PermissionGuard } from './permission.guard';
 import { ViewAsContext } from './view-as.context';
+import { SecurityFactsController } from './security-facts.controller';
 import { ViewAsController } from '../auth/view-as.controller';
 
 /**
@@ -19,7 +20,9 @@ import { ViewAsController } from '../auth/view-as.controller';
  */
 @Module({
   imports: [GrpcClientsModule],
-  controllers: [ViewAsController],
+  // ⭐ W32 (roadmap 12.11): the posture page's data. Federated here because the gateway holds no
+  // database and every fact belongs to the service that owns what it reports.
+  controllers: [ViewAsController, SecurityFactsController],
   providers: [
     RedisService,
     EffectivePermsCache,

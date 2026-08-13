@@ -219,7 +219,8 @@ describe('*** OperatorPresenceService is hosted, not merely written ***', () => 
     // system-actor-only with no gateway route, so a sweep there cannot be invoked by a session. On
     // the presence service it would be a way to put a colleague offline without holding the key that
     // governs exactly that.
-    const maintenance = /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const maintenance =
+      /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const presence = /service\s+OperatorPresenceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     expect(maintenance).toMatch(/rpc\s+SweepIdlePresence\s*\(/);
     expect(presence).not.toMatch(/SweepIdlePresence/);
@@ -255,7 +256,8 @@ describe('*** OperatorUiPreferencesService is hosted, not merely written ***', (
       join(ROOT, 'services', 'users', 'src', 'preferences', 'ui-preferences.grpc.controller.ts'),
       'utf8',
     ).replace(/\s+/g, ' ');
-    const block = /service\s+OperatorUiPreferencesService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const block =
+      /service\s+OperatorUiPreferencesService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const declared = [...block.matchAll(/rpc\s+(\w+)\s*\(/g)].map((m) => m[1]!);
 
     expect(declared.length).toBeGreaterThan(0); // the pattern found the block at all

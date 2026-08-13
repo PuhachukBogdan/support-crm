@@ -319,6 +319,28 @@ model Group {
   /// that. Collapsing the two would make "not fed by the router" mean "deleted".
   routable   Boolean  @default(false)
 
+  /// ⭐ W32 (roadmap 3.16, ADR 0043 §4) — WHO ANSWERS FOR THIS DESK.
+  ///
+  /// A soft ref to `auth.User.id`. It exists for one question that had no answer: when somebody leaves,
+  /// where do the customers who were personally theirs go? Before this column the only destination was
+  /// the queue, which is a rota rather than a relationship — the thing the operator said account
+  /// managers exist to provide.
+  ///
+  /// ⚠️ **Nullable, and a desk without a lead is a LEGITIMATE state**, not a configuration error. There
+  /// is no sensible default person, and defaulting to one would hand a colleague work they never agreed
+  /// to answer for. The offboarding sweep has a named outcome for the empty case and counts it, so «this
+  /// desk has nobody answering for it» becomes something an administrator can see and fix rather than a
+  /// silence.
+  ///
+  /// ⚠️ **NOT the `teamlead` ROLE.** That key says what somebody MAY DO, anywhere; this says WHICH DESK
+  /// answers for what. A person can lead a desk without holding the role and hold the role while leading
+  /// nothing. Conflating them would make the destination of a departing colleague's customers depend on
+  /// a permission — and permissions change for reasons that have nothing to do with who knows a client.
+  ///
+  /// ⓘ On the desk rather than on the membership: a lead is a property of the DESK. `GroupMember.is_lead`
+  /// was the alternative and it admits two leads by construction; this column admits one.
+  lead_user_id String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -329,6 +351,9 @@ model Group {
   /// surface as a named refusal, not as a database error reaching the caller as a 500.
   @@unique([account_id, name])
   @@index([account_id])
+  /// W32: «which desks does this person lead?» is asked once per offboarding, and «which desks have no
+  /// lead?» is a security-posture fact read on every page load.
+  @@index([account_id, lead_user_id])
 }
 
 /// Membership: the many-to-many edge between a group and a STAFF IDENTITY.
@@ -503,5 +528,44 @@ model StaffIdentity {
 
   @@unique([account_id, hr_employee_id])
   @@unique([account_id, user_id])
+  @@index([account_id])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// ⭐ W32 (roadmap 12.10) — addresses the boundary refuses BEFORE anybody is authenticated.
+///
+/// ⚠️ **STORED PER ACCOUNT, CHECKED DEPLOYMENT-WIDE, AND THE ASYMMETRY IS FORCED — not an oversight.**
+/// The requirement is to refuse *before* authentication. But *which account's list applies* is knowable
+/// only *after* it: an anonymous request carries no account. Both halves cannot be satisfied by one
+/// per-account check, and pretending otherwise would produce a control that quietly does nothing for
+/// exactly the caller it exists to stop.
+/// ⇒ The rows are account-scoped, because a ban is tenant configuration and belongs on that account's
+/// screen and its trail. The boundary checks the UNION. Today one operating account exists and the
+/// distinction is invisible; with two, one account could deny the other's users. That is written here
+/// rather than discovered later, asserted by a test, and named in the feature's research as the thing
+/// to revisit if a second operating account is ever created.
+///
+/// ⛔ **Nothing but a human writes here** (FR-030). No lockout, no rate limiter, no abuse detector, no
+/// import. A structural guard scans every service for a writer and expects only the two admin paths:
+/// an automatic banning path is a denial-of-service somebody else can trigger against your own staff.
+model DeniedAddress {
+  id         String @id @default(uuid())
+  account_id String
+
+  /// Normalised at write time by the SAME helper the boundary compares with (lower-cased, IPv4-mapped
+  /// IPv6 unwrapped). Storing the raw form would let one machine be banned in a shape nothing matches —
+  /// a ban that looks present on the screen and stops nobody.
+  address    String
+
+  /// A short human note. Optional, never required, and rendered nowhere a customer can reach.
+  note       String?
+
+  /// Who typed it. There is no other way a row comes into being.
+  created_by String
+  created_at DateTime @default(now())
+
+  /// The uniqueness IS the idempotence: adding the same address twice is a quiet success, not an error
+  /// and not a duplicate. An administrator who types it twice has expressed the same intent twice.
+  @@unique([account_id, address])
   @@index([account_id])
 }

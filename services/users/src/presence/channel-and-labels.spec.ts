@@ -26,13 +26,23 @@ function makeChannelStore(blocks: Block[] = []) {
       return { operatorId: 'op-1', active: true };
     },
     async read(_a: string, authUserId: string) {
-      return { auth_user_id: authUserId, state: 'online', last_cause: 'manual', last_seen_at: null, label_id: null };
+      return {
+        auth_user_id: authUserId,
+        state: 'online',
+        last_cause: 'manual',
+        last_seen_at: null,
+        label_id: null,
+      };
     },
     async blockedChannels(accountId: string, ids: readonly string[]) {
       const out = new Map<string, string[]>();
       for (const id of ids) {
         const mine = blocks.filter((b) => b.account_id === accountId && b.auth_user_id === id);
-        if (mine.length) out.set(id, mine.map((b) => b.channel));
+        if (mine.length)
+          out.set(
+            id,
+            mine.map((b) => b.channel),
+          );
       }
       return out;
     },
@@ -46,7 +56,8 @@ function makeChannelStore(blocks: Block[] = []) {
       if (blocked) blocks.push({ account_id: accountId, auth_user_id: authUserId, channel });
       else {
         const i = blocks.findIndex(
-          (b) => b.account_id === accountId && b.auth_user_id === authUserId && b.channel === channel,
+          (b) =>
+            b.account_id === accountId && b.auth_user_id === authUserId && b.channel === channel,
         );
         if (i >= 0) blocks.splice(i, 1);
       }
@@ -126,7 +137,9 @@ describe('a channel switch subtracts, and only ever subtracts (US3)', () => {
 
 // ── Labels ────────────────────────────────────────────────────────────────────────────────────────
 
-function makeLabelStore(labels: Array<{ id: string; account_id: string; name: string; state: string }> = []) {
+function makeLabelStore(
+  labels: Array<{ id: string; account_id: string; name: string; state: string }> = [],
+) {
   const presence: Array<{ account_id: string; label_id: string | null; state: string }> = [];
 
   const db = (accountId: string) => ({
@@ -145,7 +158,13 @@ function makeLabelStore(labels: Array<{ id: string; account_id: string; name: st
         labels.push(row);
         return row;
       },
-      async update({ where, data }: { where: { id: string }; data: { name: string; state: string } }) {
+      async update({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: { name: string; state: string };
+      }) {
         const row = labels.find((l) => l.account_id === accountId && l.id === where.id)!;
         Object.assign(row, data);
         return row;
@@ -200,7 +219,9 @@ describe('labels are decoration, and deleting one changes nobody’s state (US5)
     // Removing a decoration must never change who receives work. This is why `label_id` is a soft
     // reference rather than a foreign key with a cascade — a cascade would make the guarantee a
     // property of a database setting instead of a decision.
-    const store = makeLabelStore([{ id: 'l-1', account_id: 'acc-1', name: 'Lunch', state: 'away' }]);
+    const store = makeLabelStore([
+      { id: 'l-1', account_id: 'acc-1', name: 'Lunch', state: 'away' },
+    ]);
     store.presence.push({ account_id: 'acc-1', label_id: 'l-1', state: 'away' });
 
     expect(await store.repo.remove('acc-1', 'l-1')).toBe(true);
@@ -215,7 +236,9 @@ describe('labels are decoration, and deleting one changes nobody’s state (US5)
   });
 
   it('another account’s label is invisible and undeletable', async () => {
-    const store = makeLabelStore([{ id: 'l-1', account_id: 'acc-2', name: 'Lunch', state: 'away' }]);
+    const store = makeLabelStore([
+      { id: 'l-1', account_id: 'acc-2', name: 'Lunch', state: 'away' },
+    ]);
     expect(await store.repo.list('acc-1')).toEqual([]);
     expect(await store.repo.exists('acc-1', 'l-1')).toBe(false);
     expect(await store.repo.remove('acc-1', 'l-1')).toBe(false);

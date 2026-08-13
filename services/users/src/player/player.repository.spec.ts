@@ -68,7 +68,9 @@ describe('PlayerRepository.getPlayer', () => {
     const repo = new PlayerRepository(prisma);
 
     await repo.getPlayer(playerIdentity({ accountId: 'acc-1', brandId: 'bow', playerId: '12345' }));
-    await repo.getPlayer(playerIdentity({ accountId: 'acc-1', brandId: 'bow2', playerId: '12345' }));
+    await repo.getPlayer(
+      playerIdentity({ accountId: 'acc-1', brandId: 'bow2', playerId: '12345' }),
+    );
 
     const [first, second] = findUnique.mock.calls.map(
       (c) => (c[0] as { where: { account_id_brand_id_player_id: { brand_id: string } } }).where,

@@ -104,6 +104,54 @@ export class AssignmentService {
     return { status: 'ok', assignment: { ...existing, ended_at: new Date(), ended_by: actorUserId } };
   }
 
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — move a departing colleague's WHOLE portfolio to a successor.
+   *
+   * ── Why this is not a loop over `unassign` + `assign` ───────────────────────────────────────────
+   * Those two are separate transactions, and between them the player belongs to nobody — which the
+   * partial unique index tolerates and a customer does not. Worse, `assign` refuses with
+   * `already_assigned` rather than overwriting (deliberately), so the loop would have to close first
+   * and hope. `handOver` does both halves in one transaction, per player.
+   *
+   * ⚠️ **Called by a machine, and the actor says so.** Every entry carries the system reference rather
+   * than a person: nobody chose these transfers one at a time, and a trail that named a human would
+   * make an offboarding look like somebody's hundred deliberate acts.
+   *
+   * Idempotent by predicate — see `openAssignmentsOf`. Counts out, never a player id: this answer
+   * travels into a log.
+   */
+  async reassignPortfolio(
+    accountId: string,
+    fromAuthUserId: string,
+    toAuthUserId: string,
+    limit: number,
+  ): Promise<{ moved: number; skipped: number; remaining: number }> {
+    // Moving somebody's portfolio to themselves is not an act; refusing keeps the trail honest.
+    if (!accountId || !fromAuthUserId || !toAuthUserId || fromAuthUserId === toAuthUserId) {
+      return { moved: 0, skipped: 0, remaining: 0 };
+    }
+
+    const rows = await this.repo.openAssignmentsOf(accountId, fromAuthUserId, limit);
+    const actorRef = 'staff-handover';
+
+    let moved = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      const player = { brandId: row.brand_id, playerId: row.player_id };
+      const done = await this.repo.handOver(
+        accountId,
+        row.id,
+        { player, from: fromAuthUserId, to: toAuthUserId, actorRef },
+        (tx, action, manager) => this.writeAudit(tx, accountId, action, player, manager, actorRef),
+      );
+      if (done) moved += 1;
+      else skipped += 1;
+    }
+
+    const open = await this.repo.countOpenAssignmentsOf(accountId, fromAuthUserId);
+    return { moved, skipped, remaining: open };
+  }
+
   private async playerExists(accountId: string, player: PlayerRef): Promise<boolean> {
     // Through the account-scoped read, so a player from another account is indistinguishable from
     // one that does not exist — the caller learns nothing either way.

@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { WsAdapter } from '@nestjs/platform-ws';
+import { DeniedAddressCache } from './network/denied-address.cache';
+import { denyMiddleware } from './network/deny.middleware';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { logInfo } from '@crm/common';
@@ -29,6 +31,18 @@ import { helmetOptions } from './security/csp';
 async function bootstrap(): Promise<void> {
   const cfg = loadGatewayConfig();
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  /**
+   * ⭐ W32 (roadmap 12.10) — FIRST, before helmet, before cookies, before routing, before every guard.
+   *
+   * ⚠️ The position is the requirement, not a preference: 12.10 asks for a refusal **before
+   * authentication**, and a guard's place in the chain is decided only by the module import order in
+   * `app.module.ts`, which no test asserts. Here the ordering cannot drift — and the five `@Public()`
+   * surfaces, which no guard protects, are covered by the same line.
+   *
+   * ⚠️ It does NOT cover the WebSocket: that upgrade never traverses this stack. The socket carries the
+   * same check against the same list in `ws/realtime.gateway.ts`.
+   */
+  app.use(denyMiddleware(app.get(DeniedAddressCache)));
   app.use(helmet(helmetOptions));
   app.use(cookieParser());
   // Native `ws` adapter — REST and WS share the same underlying HTTP server/port (FR-009).

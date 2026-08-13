@@ -66,13 +66,30 @@ describe('the catalogue is well formed (nothing below can pass vacuously)', () =
     expect(admin!.state).toBe('coming_soon');
   });
 
-  it('⚠️ Admin Center carries its permission ALREADY, before it is switched on', () => {
-    // `coming_soon` is shown regardless of permission, so this key does nothing today — which is
-    // exactly why it is easy to omit. Omitting it would make an admin surface visible to everybody
-    // on the day it flips to `active`. The key itself is cross-checked against the RBAC catalogue by
-    // `nav-permissions.test.ts`; here we only pin that ONE is declared.
+  /**
+   * ⭐⭐ **CORRECTED in W32, and the correction is a door that had been shut for months.**
+   *
+   * This asserted `platform.role.manage` — a **super-admin exclusive** (`admin` is every key except
+   * that one and `platform.view_as`). Two things were true at once and neither was visible: the rail
+   * offered no Admin Center to an `admin`, and every section inside it opened for them, because the
+   * sections gate on `platform.settings.manage`. The comment this replaces made it invisible twice
+   * over by asserting the key «does nothing today», which stopped being true when W13 gated
+   * coming-soon modules on their declared permission.
+   *
+   * The rule, stated so the next module gets it right: **a module's key is the key of what is behind
+   * it.** `nav-permissions.test.ts` now refuses any module naming a super-admin exclusive.
+   */
+  it('⭐ Admin Center is gated on the key its own sections require', () => {
     const admin = MODULE_CATALOGUE.find((m) => m.key === 'admin')!;
-    expect(admin.permission).toBe('platform.role.manage');
+    expect(admin.permission).toBe('platform.settings.manage');
+  });
+
+  it('⚠️ …and the gate is LIVE while it is still `coming_soon`, not merely prepared', () => {
+    // W13 reversed the old «placeholders are shown to everyone» rule, which is what turned a
+    // mis-declared key from a dormant mistake into a closed door. Both halves asserted together:
+    // holder sees it, non-holder does not.
+    expect(resolveModules(['platform.settings.manage']).map((m) => m.key)).toContain('admin');
+    expect(resolveModules(['crm.inbox.view']).map((m) => m.key)).not.toContain('admin');
   });
 
   it('⭐ Admin Center sits directly ABOVE Analytics — the position was the instruction', () => {

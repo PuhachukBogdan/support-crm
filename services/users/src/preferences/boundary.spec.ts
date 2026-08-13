@@ -29,7 +29,11 @@ import type { UiPreferencesRepository } from './ui-preferences.repository';
 
 const HERE = __dirname;
 const ROOT = resolve(__dirname, '..', '..', '..', '..');
-const SOURCES = ['ui-preferences.grpc.controller.ts', 'ui-preferences.repository.ts', 'ui-preferences.module.ts'];
+const SOURCES = [
+  'ui-preferences.grpc.controller.ts',
+  'ui-preferences.repository.ts',
+  'ui-preferences.module.ts',
+];
 
 /** ⚠️ Comments removed: what is asserted is what the code DOES, not what it explains. */
 const sourceOf = (f: string) => stripComments(readFileSync(join(HERE, f), 'utf8'));
@@ -90,7 +94,9 @@ describe('*** 1. no permission lives here, and no preference decides access (FR-
 
 describe('*** 2. nothing here is audited, and that is a decision (FR-018) ***', () => {
   it('no audit writer is imported or called in this folder', () => {
-    expect(allSource).not.toMatch(/AuditRepository|ContactViewAuditService|recordView|recordBulkRead/);
+    expect(allSource).not.toMatch(
+      /AuditRepository|ContactViewAuditService|recordView|recordBulkRead/,
+    );
     expect(allSource).not.toMatch(/auditEntry\./);
   });
 

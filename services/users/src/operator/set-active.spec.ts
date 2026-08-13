@@ -33,7 +33,9 @@ function fakePrisma(row: { id: string; active: boolean } | null, updated = 1) {
   };
   const operatorPresence = { findMany: jest.fn().mockResolvedValue([]) };
   const operatorChannelBlock = { findMany: jest.fn().mockResolvedValue([]) };
-  const forAccount = jest.fn().mockReturnValue({ operator, operatorPresence, operatorChannelBlock });
+  const forAccount = jest
+    .fn()
+    .mockReturnValue({ operator, operatorPresence, operatorChannelBlock });
   return { prisma: { forAccount } as unknown as PrismaService, operator, forAccount };
 }
 
@@ -53,6 +55,7 @@ function build(prisma: PrismaService) {
     // because `tests/users-read/no-outbound.spec.ts` pins those two repositories write-free — the
     // guard is right, and the lifecycle flag belongs beside the other system-actor writes.
     new StaffLifecycleRepository(prisma),
+    {} as never,
   );
 }
 
@@ -67,7 +70,10 @@ describe('SetOperatorActive — the operator half of deactivation', () => {
   it('writes the flag and reports that it changed', async () => {
     const { prisma, operator, forAccount } = fakePrisma({ id: 'op-1', active: true });
 
-    const res = await build(prisma).setOperatorActive({ authUserId: 'u-1', active: false }, system());
+    const res = await build(prisma).setOperatorActive(
+      { authUserId: 'u-1', active: false },
+      system(),
+    );
 
     expect(res).toEqual({ changed: true, operatorId: 'op-1' });
     expect(forAccount).toHaveBeenCalledWith('acc-1');
@@ -83,7 +89,10 @@ describe('SetOperatorActive — the operator half of deactivation', () => {
     // «done» from «was already so», which is the whole reason the flag is on the wire.
     const { prisma, operator } = fakePrisma({ id: 'op-1', active: false });
 
-    const res = await build(prisma).setOperatorActive({ authUserId: 'u-1', active: false }, system());
+    const res = await build(prisma).setOperatorActive(
+      { authUserId: 'u-1', active: false },
+      system(),
+    );
 
     expect(res).toEqual({ changed: false, operatorId: 'op-1' });
     expect(operator.updateMany).not.toHaveBeenCalled();
@@ -91,7 +100,10 @@ describe('SetOperatorActive — the operator half of deactivation', () => {
 
   it('reactivates through the SAME rpc — one writer, two directions', async () => {
     const { prisma, operator } = fakePrisma({ id: 'op-1', active: false });
-    const res = await build(prisma).setOperatorActive({ authUserId: 'u-1', active: true }, system());
+    const res = await build(prisma).setOperatorActive(
+      { authUserId: 'u-1', active: true },
+      system(),
+    );
     expect(res).toEqual({ changed: true, operatorId: 'op-1' });
     expect(operator.updateMany.mock.calls[0]![0]).toMatchObject({ data: { active: true } });
   });
@@ -107,7 +119,7 @@ describe('SetOperatorActive — the operator half of deactivation', () => {
     expect(operator.updateMany).not.toHaveBeenCalled();
   });
 
-  it('⛔ another account\'s operator answers exactly as an unknown one does (isolation)', async () => {
+  it("⛔ another account's operator answers exactly as an unknown one does (isolation)", async () => {
     // `findFirst` under `forAccount` composes the account predicate into the query, so «not yours» and
     // «does not exist» are the SAME query result — there is no comparison here to split into two
     // different answers.
@@ -154,7 +166,8 @@ describe('SetOperatorActive — the operator half of deactivation', () => {
 
   it('the rpc is declared on the MAINTENANCE service, not on a session-facing one', () => {
     const proto = readFileSync(USERS_PROTO, 'utf8');
-    const maintenance = /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const maintenance =
+      /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const profile = /service\s+OperatorProfileService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     expect(maintenance).toMatch(/rpc\s+SetOperatorActive\s*\(/);
     expect(profile).not.toMatch(/SetOperatorActive/);

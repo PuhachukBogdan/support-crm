@@ -48,4 +48,13 @@ export const SCOPED_MODELS = [
   'ApiKey',
   'ProvisioningRequest',
   'StaffIdentity',
+  // ⭐ W32 / feature 039 (roadmap 12.10): the deny-list. It declares `account_id`, so it is enrolled
+  // like every other tenant table — the screen, the writes and the trail are all account-scoped.
+  //
+  // ⚠️ **The BOUNDARY check is deliberately NOT scoped, and that is the one place this table is read
+  // without an account.** Which account's list applies is knowable only after authentication, and the
+  // requirement is to refuse before it — so the machine read that feeds the gateway answers the union
+  // across the deployment. The same audited escape hatch as the login lookup above, for the same
+  // reason: there is no account context yet, and inventing one would be worse than not having it.
+  'DeniedAddress',
 ] as const;

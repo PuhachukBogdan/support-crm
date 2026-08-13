@@ -1,9 +1,5 @@
 import { AuditRepository } from '../audit/audit.repository';
-import {
-  ContactLookupService,
-  LookupRateCapped,
-  LOOKUP_CAP_MAX,
-} from './contact-lookup.service';
+import { ContactLookupService, LookupRateCapped, LOOKUP_CAP_MAX } from './contact-lookup.service';
 import { contactHash } from './contact-match';
 import type { PrismaService } from '../prisma.service';
 
@@ -17,7 +13,9 @@ import type { PrismaService } from '../prisma.service';
 const SALT = 's'.repeat(32);
 const HASH = (value: string, kind: 'email' | 'phone' = 'email') => contactHash(kind, value, SALT)!;
 
-function fakeDb(opts: { matches?: { player_id: string; brand_id: string }[]; recent?: number } = {}) {
+function fakeDb(
+  opts: { matches?: { player_id: string; brand_id: string }[]; recent?: number } = {},
+) {
   const auditCreate = jest.fn(async () => ({}));
   const scoped = {
     auditEntry: {
@@ -43,7 +41,11 @@ const lastEntry = (db: ReturnType<typeof fakeDb>) =>
 describe('contact lookup — every attempt audited, hash never value', () => {
   it('a single match answers found — and the entry carries {valueHash, valueKind, matched}', async () => {
     const db = fakeDb({ matches: [{ player_id: 'p1', brand_id: 'brand-a' }] });
-    const res = await build(db).lookup('acc-1', 'u1', { brandId: 'brand-a', kind: 'email', value: 'X@Y.test' });
+    const res = await build(db).lookup('acc-1', 'u1', {
+      brandId: 'brand-a',
+      kind: 'email',
+      value: 'X@Y.test',
+    });
 
     expect(res).toEqual({
       matched: true,
@@ -67,7 +69,11 @@ describe('contact lookup — every attempt audited, hash never value', () => {
 
   it('no match still writes an entry — an unanswered probe is still a probe', async () => {
     const db = fakeDb({ matches: [] });
-    const res = await build(db).lookup('acc-1', 'u1', { brandId: 'brand-a', kind: 'phone', value: '+380501234567' });
+    const res = await build(db).lookup('acc-1', 'u1', {
+      brandId: 'brand-a',
+      kind: 'phone',
+      value: '+380501234567',
+    });
     expect(res.matched).toBe(false);
     expect(lastEntry(db).data.detail_json).toMatchObject({ matched: 'none', valueKind: 'phone' });
   });
@@ -79,7 +85,11 @@ describe('contact lookup — every attempt audited, hash never value', () => {
         { player_id: 'p2', brand_id: 'brand-a' },
       ],
     });
-    const res = await build(db).lookup('acc-1', 'u1', { brandId: 'brand-a', kind: 'email', value: 'x@y.test' });
+    const res = await build(db).lookup('acc-1', 'u1', {
+      brandId: 'brand-a',
+      kind: 'email',
+      value: 'x@y.test',
+    });
     expect(res).toEqual({
       matched: false,
       ambiguous: true,
@@ -92,7 +102,11 @@ describe('contact lookup — every attempt audited, hash never value', () => {
 
   it('⭐ a match on ANOTHER brand answers none — another brand is another human being', async () => {
     const db = fakeDb({ matches: [{ player_id: 'p1', brand_id: 'brand-B' }] });
-    const res = await build(db).lookup('acc-1', 'u1', { brandId: 'brand-a', kind: 'email', value: 'x@y.test' });
+    const res = await build(db).lookup('acc-1', 'u1', {
+      brandId: 'brand-a',
+      kind: 'email',
+      value: 'x@y.test',
+    });
     expect(res.matched).toBe(false);
     expect(res.ambiguous).toBe(false);
   });

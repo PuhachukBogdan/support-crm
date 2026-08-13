@@ -26,6 +26,7 @@ import { PresenceEdgeModule } from './presence/presence.module';
 // reason — an attachment decides what somebody may READ.
 import { AssignmentEdgeModule } from './assignment/assignment.module';
 import { ProvisioningEdgeModule } from './provisioning/provisioning.module';
+import { NetworkEdgeModule } from './network/network.module';
 
 // Phase 1 (spec 003): the gateway is the single ingress (REST + WS) and a gRPC client of the
 // backend services — liveness + readiness aggregate (US5), the ping round-trip (US3), and a
@@ -60,6 +61,10 @@ import { ProvisioningEdgeModule } from './provisioning/provisioning.module';
     // ⭐ W31 / feature 038 (roadmap 3.15 + 3.17): the HR platform's machine boundary and the admin
     // screen that cuts its keys. The ONLY module here holding a `@Public()` write route.
     ProvisioningEdgeModule,
+    // ⭐ W32 (roadmap 12.10): the deny-list. ⚠️ Its ENFORCEMENT is not a guard and therefore does not
+    // depend on this list's order — it is middleware registered in `main.ts` before routing, plus the
+    // socket's own check. This module only holds the cached list and the admin screen's edge.
+    NetworkEdgeModule,
   ],
 })
 export class AppModule {}

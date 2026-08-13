@@ -66,6 +66,14 @@ export interface SetOperatorActiveResult {
 }
 
 interface UsersMaintenanceGrpc {
+  resolveRoutingOperators(
+    data: { accountId: string; authUserIds: string[] },
+    md?: Metadata,
+  ): Observable<{ operators?: { operatorId?: string; authUserId?: string }[] }>;
+  reassignPortfolio(
+    data: { accountId: string; fromAuthUserId: string; toAuthUserId: string; limit: number },
+    md?: Metadata,
+  ): Observable<{ moved?: number; skipped?: number; remaining?: number }>;
   purgeExpiredArtefacts(data: { limit: number }, md?: Metadata): Observable<PurgeResult>;
   sweepIdlePresence(data: { limit: number }, md?: Metadata): Observable<SweepPresenceResult>;
   setOperatorActive(
@@ -118,6 +126,58 @@ export class UsersMaintenanceClient implements OnModuleInit {
    * ⓘ `NOT_FOUND` is a real and ordinary answer: plenty of accounts belong to nobody who ever took a
    * conversation. The caller treats it as «nothing to do here», never as a failed offboarding.
    */
+  /**
+   * ⭐ W32 — auth user ids → the operator profiles a conversation can be assigned to.
+   *
+   * ⚠️ **This IS the translation**, and it is the whole reason the desk leads travel as auth ids up to
+   * this point. It also does the disqualifying for free: `users` returns only profiles that are
+   * `active`, so a lead who has left or never had a profile simply is not in the answer, and the caller
+   * treats their desk as having no lead. One rule, no second check to forget.
+   *
+   * ⓘ Presence is deliberately NOT a criterion. The destination is a named person, not a rota —
+   * assigning to somebody who is offline is correct, they see it when they return. That is exactly the
+   * difference from the queue this feature exists to improve on.
+   */
+  async resolveOperatorIds(accountId: string, authUserIds: string[]): Promise<Map<string, string>> {
+    const ids = [...new Set(authUserIds.filter((v) => v !== ''))];
+    if (ids.length === 0) return new Map();
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    const res = await firstValueFrom(this.svc.resolveRoutingOperators({ accountId, authUserIds: ids }, md));
+    const byAuthUser = new Map<string, string>();
+    for (const o of res.operators ?? []) {
+      const authUserId = String(o.authUserId ?? '');
+      const operatorId = String(o.operatorId ?? '');
+      if (authUserId !== '' && operatorId !== '') byAuthUser.set(authUserId, operatorId);
+    }
+    return byAuthUser;
+  }
+
+  /**
+   * ⭐ W32 — hand a departing colleague's portfolio to their successor. Counts only.
+   *
+   * ⚠️ Both ids are AUTH ids here, unlike the handover next door — `PlayerAssignment` is keyed by the
+   * auth identity. The two calls in this job take two different id spaces, on purpose, and each is
+   * named for the one it takes.
+   */
+  async reassignPortfolio(
+    accountId: string,
+    fromAuthUserId: string,
+    toAuthUserId: string,
+    limit: number,
+  ): Promise<{ moved: number; skipped: number; remaining: number }> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    const res = await firstValueFrom(
+      this.svc.reassignPortfolio({ accountId, fromAuthUserId, toAuthUserId, limit }, md),
+    );
+    return {
+      moved: Number(res.moved ?? 0),
+      skipped: Number(res.skipped ?? 0),
+      remaining: Number(res.remaining ?? 0),
+    };
+  }
+
   async setOperatorActive(
     accountId: string,
     authUserId: string,

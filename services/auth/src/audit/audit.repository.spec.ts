@@ -139,6 +139,9 @@ describe('list — ordering, paging, and pushed-down filters', () => {
         // rather than part of `group.rename`, because it changes who receives customer conversations
         // without anybody choosing — and this hardcoded list is what caught the addition.
         'group.routability_changed',
+        // ⭐ W32: naming who answers for a desk is a grant — it decides where a departing colleague's
+        // own customers land. And the deny-list, whose address is the TARGET, never the detail.
+        'group.lead_changed',
         'group.delete',
         'group_member.add',
         'group_member.remove',

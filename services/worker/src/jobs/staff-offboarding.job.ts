@@ -121,10 +121,44 @@ export class StaffOffboardingJob implements OnModuleInit, OnModuleDestroy {
     const staff = await this.auth.listDisabledStaff(this.batch, this.windowDays);
     if (staff.length === 0) return;
 
-    let moved = 0;
+    let movedToLead = 0;
+    let movedToBacklog = 0;
     let noDesk = 0;
     let remaining = 0;
+    let portfolioMoved = 0;
+    let portfolioAwaiting = 0;
     let failed = 0;
+
+    /**
+     * ⭐ W32 — one desk-lead lookup per ACCOUNT, not per person.
+     *
+     * Several people from one account routinely leave in the same pass (a team is let go, a contract
+     * ends), and the desks do not change between them. Caching it here also keeps the answer CONSISTENT
+     * within a pass: two colleagues from one desk cannot end up with different successors because an
+     * administrator renamed a lead halfway through.
+     */
+    const leadsByAccount = new Map<string, Map<string, string>>();
+    const resolveDeskLeads = async (accountId: string): Promise<Map<string, string>> => {
+      const cached = leadsByAccount.get(accountId);
+      if (cached) return cached;
+      const desks = await this.auth.listDeskLeads(accountId);
+      // ⚠️ THE ONE TRANSLATION. Desk leads arrive as AUTH user ids; a conversation is assigned by
+      // `users.Operator.id`. Doing it here, once, is the whole reason those two id spaces never meet
+      // by accident — W31's first draft let them, and would have reported a clean handover while
+      // moving nothing, for ever. `resolveOperatorIds` also drops anybody without an ACTIVE profile,
+      // so a lead who has themselves left is disqualified with no second rule to forget.
+      const operatorOf = await this.users.resolveOperatorIds(
+        accountId,
+        desks.map((d) => d.leadUserId),
+      );
+      const byDesk = new Map<string, string>();
+      for (const desk of desks) {
+        const operatorId = operatorOf.get(desk.leadUserId);
+        if (operatorId) byDesk.set(desk.groupId, operatorId);
+      }
+      leadsByAccount.set(accountId, byDesk);
+      return byDesk;
+    };
 
     for (const person of staff) {
       try {
@@ -134,16 +168,47 @@ export class StaffOffboardingJob implements OnModuleInit, OnModuleDestroy {
         const operator = await this.users.setOperatorActive(person.accountId, person.userId, false);
         if (!operator || operator.operatorId === '') continue;
 
-        // 2. And their open work back to the queue. The id here is users' answer, NOT `person.userId`
-        //    — see the client method's own warning about the two id spaces.
+        // 2. Where each desk's work should go instead of the queue. An empty map is not a failure —
+        //    it reproduces exactly what W31 did, which is the safety net rather than a degraded path.
+        const deskLeads = await resolveDeskLeads(person.accountId);
+        const deskDestinations = [...deskLeads]
+          // ⚠️ Somebody who leads their own desk cannot be their own successor: handing the work back
+          //    to the person who just left is a no-op that reads as success in every count.
+          .filter(([, toOperatorId]) => toOperatorId !== operator.operatorId)
+          .map(([groupId, toOperatorId]) => ({ groupId, operatorId: toOperatorId }));
+
+        // 3. Their open work — to a named person where a desk has one, to the queue otherwise. The id
+        //    here is users' answer, NOT `person.userId` — see the client method's own warning.
         const counts = await this.chats.returnOperatorWorkToBacklog(
           person.accountId,
           operator.operatorId,
           this.handoverBatch,
+          deskDestinations,
         );
-        moved += counts.moved;
+        movedToLead += counts.movedToLead;
+        movedToBacklog += counts.movedToBacklog;
         noDesk += counts.noDesk;
         remaining += counts.remaining;
+
+        // 4. And the PORTFOLIO — the players who were personally theirs.
+        //
+        // ⚠️ **Only when their desks agree on ONE successor**, and the ambiguity is reported rather
+        // than resolved. An attachment grants access to a real customer's data: sending it to a
+        // manager nobody chose is worse than leaving a stale attachment that an administrator can see
+        // and fix. Several desks that name the SAME person are not ambiguity, so they move.
+        const distinctLeads = new Set(deskDestinations.map((d) => d.operatorId));
+        const portfolioDestination = await this.portfolioSuccessor(distinctLeads);
+        if (portfolioDestination) {
+          const portfolio = await this.users.reassignPortfolio(
+            person.accountId,
+            person.userId,
+            portfolioDestination,
+            this.handoverBatch,
+          );
+          portfolioMoved += portfolio.moved;
+        } else {
+          portfolioAwaiting += 1;
+        }
       } catch (e) {
         // ⚠️ One person's failure must not end the pass. Whoever is left is picked up by the next
         // tick — that is the property this design was chosen for — and stopping here would let a
@@ -164,11 +229,35 @@ export class StaffOffboardingJob implements OnModuleInit, OnModuleDestroy {
     // nothing identifying can be logged — and a line every minute saying «0 moved» would bury the one
     // line that matters. `noDesk` is the one an administrator must act on: those conversations are
     // still assigned to somebody who has left, because we could not work out where to send them.
-    if (moved || noDesk || failed) {
+    if (movedToLead || movedToBacklog || noDesk || portfolioMoved || portfolioAwaiting || failed) {
       this.logger.log(
-        `staff offboarding: moved=${moved} noDesk=${noDesk} remaining=${remaining} failed=${failed}`,
+        `staff offboarding: toLead=${movedToLead} toBacklog=${movedToBacklog} noDesk=${noDesk} ` +
+          `portfolio=${portfolioMoved} awaitingOwner=${portfolioAwaiting} ` +
+          `remaining=${remaining} failed=${failed}`,
       );
     }
+  }
+
+  /**
+   * ⭐ W32 — who receives the departing person's PORTFOLIO, or nobody.
+   *
+   * The portfolio belongs to no desk, so the conversation's own answer («the lead of the desk it is
+   * on») does not apply. It is resolved from the desks the person BELONGED to — and when those name
+   * more than one eligible successor, this returns `null` and the attachments stay where they are.
+   *
+   * ⚠️ Refusing is the feature here, not a gap. An attachment grants access to a customer's portfolio,
+   * preferences and notes; guessing a destination to avoid an empty report is exactly how a real
+   * person's data reaches a manager nobody chose. The count surfaces on the security page so the
+   * decision reaches a human instead of being made for them.
+   *
+   * ⓘ Today the person's own desks are not directly readable from the worker, so the candidate set is
+   * the account's eligible leads. With one lead in the account the answer is unambiguous; with several
+   * it is deliberately not, and a human decides. Narrowing it to the person's OWN desks is the obvious
+   * next improvement and needs a membership read this job does not yet make.
+   */
+  private async portfolioSuccessor(distinctLeads: Set<string>): Promise<string | null> {
+    if (distinctLeads.size !== 1) return null;
+    return [...distinctLeads][0] ?? null;
   }
 }
 

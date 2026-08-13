@@ -124,7 +124,12 @@ interface MaintenanceGrpc {
   // ⭐ W31 / feature 038: return one departed colleague's open work to the routing backlog. Named,
   // not swept — the account and the operator are both in the request.
   returnOperatorWorkToBacklog(
-    data: { accountId: string; operatorId: string; limit: number },
+    data: {
+      accountId: string;
+      operatorId: string;
+      limit: number;
+      deskDestinations: { groupId: string; operatorId: string }[];
+    },
     md?: Metadata,
   ): Observable<HandoverCounts>;
 }
@@ -132,6 +137,10 @@ interface MaintenanceGrpc {
 /** ⭐ W31 / feature 038: what one offboarding handover managed. Counts only — never a conversation. */
 export interface HandoverCounts {
   moved: number;
+  /** ⭐ W32: went to a NAMED person. */
+  movedToLead: number;
+  /** ⭐ W32: went to the queue because the desk had nobody answering — the actionable number. */
+  movedToBacklog: number;
   noDesk: number;
   skippedShelved: number;
   remaining: number;
@@ -230,12 +239,18 @@ export class ChatsMaintenanceClient implements OnModuleInit {
     accountId: string,
     operatorId: string,
     limit: number,
+    deskDestinations: { groupId: string; operatorId: string }[] = [],
   ): Promise<HandoverCounts> {
     const res = await firstValueFrom(
-      this.svc.returnOperatorWorkToBacklog({ accountId, operatorId, limit }, systemMetadata()),
+      this.svc.returnOperatorWorkToBacklog(
+        { accountId, operatorId, limit, deskDestinations },
+        systemMetadata(),
+      ),
     );
     return {
       moved: Number(res.moved ?? 0),
+      movedToLead: Number(res.movedToLead ?? 0),
+      movedToBacklog: Number(res.movedToBacklog ?? 0),
       noDesk: Number(res.noDesk ?? 0),
       skippedShelved: Number(res.skippedShelved ?? 0),
       remaining: Number(res.remaining ?? 0),

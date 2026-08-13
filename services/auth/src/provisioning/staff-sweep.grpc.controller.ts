@@ -46,6 +46,34 @@ export class StaffSweepController {
     const staff = await this.repo.listDisabledStaff(since, limit);
     return { staff: staff.map((s) => ({ accountId: s.accountId, userId: s.userId })) };
   }
+
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — every desk of one account and who answers for it.
+   *
+   * The sweep's second question. It asks for ALL desks rather than only the departing person's: an
+   * account has a handful, this runs once per offboarding, and the alternative — ask chats which
+   * desks the work sits on, then ask here about those — spends a round trip to learn less.
+   *
+   * ⚠️ Answers `leadUserId` as an **auth** user id, because that is what it is. The translation to
+   * the profile id chats assigns by happens in the worker, in the one place that translation lives —
+   * W31's most expensive lesson was a draft that let those two id spaces meet by accident.
+   */
+  @GrpcMethod('AuthMaintenanceService', 'ListDeskLeads')
+  async listDeskLeads(req: { accountId?: string }, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    // A machine has no account of its own — it is in the request, like every maintenance call here.
+    const accountId = String(req?.accountId ?? '').trim();
+    if (!accountId) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'account_id is required',
+      });
+    }
+    const desks = await this.repo.listDeskLeads(accountId);
+    return { desks };
+  }
 }
 
 function readMeta(md: Metadata | undefined, key: string): string {

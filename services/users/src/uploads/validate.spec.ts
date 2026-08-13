@@ -237,7 +237,7 @@ describe('*** a refusal never mentions the filename or the bytes *** (FR-020 / S
 describe('*** produced artefacts: the inverse check ***', () => {
   const csv = () => Buffer.from('id,status\r\nc1,open\r\n', 'utf8');
 
-  it('accepts a CSV we produced, and reports the purpose\'s own type', async () => {
+  it("accepts a CSV we produced, and reports the purpose's own type", async () => {
     // The whole point of R5: `text/csv` is deliberately ABSENT from the detection table, so this path
     // cannot work by matching a signature. Adding csv to that table would have made a faith-based type
     // reachable from every future untrusted purpose.

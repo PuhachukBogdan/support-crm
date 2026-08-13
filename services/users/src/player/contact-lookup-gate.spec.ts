@@ -12,7 +12,9 @@ describe('the lookup gate', () => {
   const required = (method: object) => Reflect.getMetadata(REQUIRED_PLAYER_PERMISSION_KEY, method);
 
   it('LookupPlayerByContact requires crm.contact.lookup — its own key, nobody’s default', () => {
-    expect(required(PlayerReadController.prototype.lookupPlayerByContact)).toBe('crm.contact.lookup');
+    expect(required(PlayerReadController.prototype.lookupPlayerByContact)).toBe(
+      'crm.contact.lookup',
+    );
   });
 
   it('and the neighbouring reads still ride the broad view key — the two are deliberately apart', () => {

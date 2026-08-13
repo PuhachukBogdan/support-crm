@@ -22,6 +22,20 @@ import { ProvisioningService } from './provisioning/provisioning.service';
 import { ProvisioningController } from './provisioning/provisioning.grpc.controller';
 import { StaffSweepController } from './provisioning/staff-sweep.grpc.controller';
 import { ApiKeysGrpcController } from './api-keys/api-keys.grpc.controller';
+// ⭐ W32 / feature 039 (roadmap 12.11): auth's half of the security page — a registry of readers,
+// not a list of rows somebody typed. See `security/facts.registry.ts` for what is on it and, more
+// importantly, for the five facts that are deliberately NOT.
+import { SecurityFactsService } from './security/facts.service';
+import { SecurityFactsGrpcController } from './security/facts.grpc.controller';
+// ⭐ W32 / feature 039 (roadmap 12.10): the deny-list. It lives in auth because auth is the only
+// service with both a database and an audit write path on this subject; the ENFORCEMENT is at the
+// gateway's edge, which reads the deployment-wide union through the maintenance rpc (research D4).
+import { DeniedAddressRepository } from './network/denied-address.repository';
+import { DeniedAddressService } from './network/denied-address.service';
+import {
+  DeniedAddressEdgeController,
+  DeniedAddressGrpcController,
+} from './network/denied-address.grpc.controller';
 
 // Phase 1 (spec 003): the auth service is a gRPC microservice exposing HealthService.Check
 // over its own Postgres. Phase 3 (feature 009) adds the AuthModule — the login/session engine
@@ -37,6 +51,15 @@ import { ApiKeysGrpcController } from './api-keys/api-keys.grpc.controller';
     ProvisioningController,
     // ⭐ W31: the offboarding sweep's first step. A maintenance surface — system actor, no route.
     StaffSweepController,
+    // ⭐ W32: the administrator's deny-list, and — separately — the edge's read of the union. Two
+    // classes because they are gated by two different questions (a permission / an actor kind).
+    DeniedAddressGrpcController,
+    DeniedAddressEdgeController,
+    // ⭐ W32 / 039 (roadmap 12.11): the security page's auth facts. A controller nobody registers
+    // answers UNIMPLEMENTED while looking perfectly healthy — and on THIS surface that would make
+    // the gateway contribute `unknown` for facts that are actually fine, teaching an administrator
+    // to ignore the one word on the page that must never be ignored.
+    SecurityFactsGrpcController,
     HealthGrpcController],
   providers: [
     AuditRepository,
@@ -46,6 +69,11 @@ import { ApiKeysGrpcController } from './api-keys/api-keys.grpc.controller';
     ApiKeysService,
     ProvisioningRepository,
     ProvisioningService,
+    DeniedAddressRepository,
+    DeniedAddressService,
+    // ⭐ W32 / 039: reads the registry for one account. `AUTH_CONFIG` reaches it through AuthModule's
+    // exports — the fixed-code fact must see the config the service is RUNNING, not a second load.
+    SecurityFactsService,
     PrismaService],
 })
 export class AppModule {}

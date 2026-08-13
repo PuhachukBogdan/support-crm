@@ -20,6 +20,7 @@ syntax = "proto3";
 package crm.chats.v1;
 
 import "crm/audit/v1/audit.proto";
+import "crm/security/v1/security.proto";
 
 // Package-scoped enums → PREFIXED values; *_UNSPECIFIED = 0; wire value = NAME (enums:String).
 
@@ -230,6 +231,16 @@ message Message {
 }
 
 service ChatsReadService {
+  /**
+   * ⭐ W32 (roadmap 12.11) — chats' contribution to the security page: channels enabled or off, and
+   * how many ticket fields are withheld from ordinary roles.
+   *
+   * ⚠️ NOT a maintenance rpc. It answers a human's permission-gated read (`platform.settings.manage`),
+   * so it is guarded like every administrative rpc and IS reachable from the gateway — which every
+   * maintenance rpc in this product deliberately is not.
+   */
+  rpc ListSecurityFacts(crm.security.v1.ListSecurityFactsRequest) returns (crm.security.v1.ListSecurityFactsResult);
+
   rpc ListConversations(ListConversationsRequest) returns (ConversationPage);
   rpc GetConversation(GetConversationRequest) returns (Conversation);
   rpc GetThread(GetThreadRequest) returns (MessagePage);
@@ -1770,13 +1781,44 @@ message SetConversationFieldValueRequest {
 // ── ⭐ W31 / feature 038: the offboarding handover ───────────────────────────────────────────────
 message ReturnOperatorWorkRequest {
   string account_id = 1;
-  string operator_id = 2;
+  string operator_id = 2;     // the DEPARTING person
   int32 limit = 3; // 0 = the server's cap; the remainder is reported, never silently dropped
+
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — where each desk's work should go INSTEAD of the queue.
+   *
+   * ⚠️ **The ids inside are `users.Operator.id`, not auth user ids.** The desk lead is stored in auth
+   * as an auth identity, and the translation happens ONCE, in the worker, beside the translation it
+   * already performs. The two id spaces look alike and the wrong one matches no conversation — a
+   * handover that reports a clean move and moves nothing, for ever. W31 shipped exactly that draft and
+   * a structural guard caught it; this field is named for what it holds so the mistake is visible.
+   *
+   * ⚠️ **An EMPTY list reproduces W31's behaviour exactly**, and that is the compatibility property
+   * worth keeping: the safety net is what happens when this information is absent, not a separate code
+   * path that could rot untested.
+   */
+  repeated DeskDestination desk_destinations = 4;
+}
+
+message DeskDestination {
+  string group_id = 1;    // matches Conversation.routed_group_id
+  string operator_id = 2; // users.Operator.id — see the warning above
 }
 
 message ReturnOperatorWorkResult {
-  int32 moved = 1;            // unassigned AND queued
+  /**
+   * ⚠️ Field 1 keeps its number and its meaning — «this conversation left the departing person» — but
+   * it is now the SUM of the two outcomes below. Renumbering would be a breaking change for a reader
+   * that only ever wanted the total, and the total is still the honest answer to «did the work move?».
+   */
+  int32 moved = 1;
   int32 no_desk = 2;          // could not be queued — kept their owner, reported, audited
   int32 skipped_shelved = 3;  // suspended/deleted: not work, and not this rpc's business
   int32 remaining = 4;        // beyond the cap — call again
+
+  // ⭐ W32: the split. `moved_to_lead` went to a named person; `moved_to_backlog` went to the queue
+  // because the desk had nobody answering for it — and THAT is the number an administrator can act on,
+  // because before this feature it was the only outcome and therefore invisible.
+  int32 moved_to_lead = 5;
+  int32 moved_to_backlog = 6;
 }

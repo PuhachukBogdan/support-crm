@@ -59,8 +59,16 @@ describe('⭐ the derived rule: am_only needs the tier AND (admin clearance OR a
     // The rule is derived from the tier map rather than from a list like ['am','shift_am']. A list
     // drifts the first time a role is added, and drifts silently; this self-maintains, and in the
     // safe direction both ways.
-    const exempt = Object.keys({ admin: 1, super_admin: 1, am: 1, shift_am: 1, vip_support: 1 }).filter(
-      (r) => visibleTiersFor(r).includes('am_only') && visibleTiersForSubject(r, not).includes('am_only'),
+    const exempt = Object.keys({
+      admin: 1,
+      super_admin: 1,
+      am: 1,
+      shift_am: 1,
+      vip_support: 1,
+    }).filter(
+      (r) =>
+        visibleTiersFor(r).includes('am_only') &&
+        visibleTiersForSubject(r, not).includes('am_only'),
     );
     for (const r of exempt) expect(visibleTiersFor(r)).toContain('masked_pii');
   });

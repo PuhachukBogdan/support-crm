@@ -29,7 +29,14 @@ describe('ContactViewAuditService', () => {
     // ⭐ Feature 026: `true` = the caller is ATTACHED to this player. The tier an entry records is
     // now a property of the role AND this record, not of the role alone — an entry claiming an
     // unattached AM surfaced `am_only` would OVERSTATE a trail whose purpose is detecting over-reach.
-    await svc.recordView('acc1', 'god-or-am', { brandId: 'brand-a', playerId: 'player-9' }, 'am', false, true);
+    await svc.recordView(
+      'acc1',
+      'god-or-am',
+      { brandId: 'brand-a', playerId: 'player-9' },
+      'am',
+      false,
+      true,
+    );
 
     expect(create).toHaveBeenCalledTimes(1);
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
@@ -69,7 +76,12 @@ describe('ContactViewAuditService', () => {
      */
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
-    await svc.recordView('acc1', 'agent', { brandId: 'brand-a', playerId: 'player-9' }, 'support_agent');
+    await svc.recordView(
+      'acc1',
+      'agent',
+      { brandId: 'brand-a', playerId: 'player-9' },
+      'support_agent',
+    );
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -81,7 +93,14 @@ describe('ContactViewAuditService', () => {
     // edit would "fix" it toward the record's contents.
     const { repo, create } = fakeAudit(async (a) => a);
     const svc = new ContactViewAuditService(repo);
-    await svc.recordView('acc1', 'am-1', { brandId: 'brand-a', playerId: 'player-empty' }, 'am', false, true);
+    await svc.recordView(
+      'acc1',
+      'am-1',
+      { brandId: 'brand-a', playerId: 'player-empty' },
+      'am',
+      false,
+      true,
+    );
     const arg = create.mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(arg.data.detail_json).toEqual({ tier: 'am_only' });
   });
@@ -107,7 +126,9 @@ describe('ContactViewAuditService', () => {
       throw new Error('db down');
     });
     const svc = new ContactViewAuditService(repo);
-    await expect(svc.recordBulkRead('acc1', 'am-1', 'brand-a', 'am', ['brandId'])).rejects.toThrow('db down');
+    await expect(svc.recordBulkRead('acc1', 'am-1', 'brand-a', 'am', ['brandId'])).rejects.toThrow(
+      'db down',
+    );
   });
 
   // The guarantee that outranked feature 015's own first answer on write-failure policy: an unaudited PII
@@ -118,7 +139,14 @@ describe('ContactViewAuditService', () => {
     });
     const svc = new ContactViewAuditService(repo);
     await expect(
-      svc.recordView('acc1', 'am1', { brandId: 'brand-a', playerId: 'player-9' }, 'am', false, true),
+      svc.recordView(
+        'acc1',
+        'am1',
+        { brandId: 'brand-a', playerId: 'player-9' },
+        'am',
+        false,
+        true,
+      ),
     ).rejects.toThrow('db down');
   });
 });

@@ -53,6 +53,8 @@ interface GroupWire {
   active: boolean;
   memberCount: number;
   permissionKeys: string[];
+  /** ⭐ W32: who answers for this desk; '' = nobody, which is legitimate. */
+  leadUserId?: string;
 }
 interface MutationWire {
   status: string; // GROUP_STATUS_*
@@ -76,6 +78,8 @@ interface GroupsGrpc {
     d: { accountId: string; groupId: string },
   ): Observable<{ userIds: string[]; routable?: boolean }>;
   setGroupRoutable(d: CallerCtx & { groupId: string; routable: boolean }): Observable<MutationWire>;
+  setGroupLead(d: CallerCtx & { groupId: string; leadUserId: string }): Observable<MutationWire>;
+  clearGroupLead(d: CallerCtx & { groupId: string }): Observable<MutationWire>;
   setGroupPermission(
     d: CallerCtx & { groupId: string; permissionKey: string; grant: boolean },
   ): Observable<MutationWire>;
@@ -216,6 +220,40 @@ export class GroupsController implements OnModuleInit {
     const r = await firstValueFrom(
       this.auth.setGroupRoutable({ ...this.ctx(claims), groupId, routable }),
     );
+    return this.finish(claims.accountId, r);
+  }
+
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — who answers for this desk.
+   *
+   * Same key as every other desk change, and weightier than it looks: this value decides where a
+   * departing colleague's own customers land. Clearing has its own verb rather than an empty id — a
+   * blank arriving by accident must not silently unname the person a desk depends on.
+   */
+  @Put(':id/lead')
+  @RequiresPermission(GROUP_MANAGE)
+  async setLead(
+    @Param('id') id: string,
+    @Body() body: { userId?: string },
+    @Req() req: Request & { claims?: RequestClaims },
+  ) {
+    const claims = this.caller(req);
+    const r = await firstValueFrom(
+      this.auth.setGroupLead({
+        ...this.ctx(claims),
+        groupId: id,
+        leadUserId: (body?.userId ?? '').trim(),
+      }),
+    );
+    return this.finish(claims.accountId, r);
+  }
+
+  /** A desk with NO lead is a legitimate state — the offboarding sweep has a named outcome for it. */
+  @Delete(':id/lead')
+  @RequiresPermission(GROUP_MANAGE)
+  async clearLead(@Param('id') id: string, @Req() req: Request & { claims?: RequestClaims }) {
+    const claims = this.caller(req);
+    const r = await firstValueFrom(this.auth.clearGroupLead({ ...this.ctx(claims), groupId: id }));
     return this.finish(claims.accountId, r);
   }
 

@@ -38,7 +38,8 @@ function makeStore() {
 
   const matches = (r: Row, where: Record<string, unknown> = {}): boolean =>
     Object.entries(where).every(([k, v]) => {
-      if (k === 'OR' && Array.isArray(v)) return v.some((o) => matches(r, o as Record<string, unknown>));
+      if (k === 'OR' && Array.isArray(v))
+        return v.some((o) => matches(r, o as Record<string, unknown>));
       return (r as unknown as Record<string, unknown>)[k] === v;
     });
 
@@ -83,7 +84,11 @@ function makeStore() {
 
   const prisma = { forAccount: () => db } as unknown as PrismaService;
   const repo = new AssignmentRepository(prisma);
-  const players = { async getPlayer() { return { player_id: 'ply-1' }; } } as unknown as PlayerRepository;
+  const players = {
+    async getPlayer() {
+      return { player_id: 'ply-1' };
+    },
+  } as unknown as PlayerRepository;
   const operators = {
     async resolveByAuthUserIds(_a: string, ids: readonly string[]) {
       return ids.map((i) => ({ operatorId: `op-${i}`, authUserId: i }));
@@ -139,12 +144,20 @@ describe('⭐ a move preserves the past (US3 / FR-003)', () => {
     // take a player away) is still open — a combined verb would bake in an answer nobody has given.
     const { service } = makeStore();
     await service.assign('acc-1', PLAYER, 'am-A', 'lead-1');
-    expect((await service.assign('acc-1', PLAYER, 'am-B', 'lead-1')).status).toBe('already_assigned');
+    expect((await service.assign('acc-1', PLAYER, 'am-B', 'lead-1')).status).toBe(
+      'already_assigned',
+    );
   });
 });
 
 describe('⭐ access follows the CURRENT attachment, never a past one (T034)', () => {
-  const RECORD = { player_id: 'ply-1', vip: true, am_notes: 'note', preferences: 'p', portfolio: 'f' };
+  const RECORD = {
+    player_id: 'ply-1',
+    vip: true,
+    am_notes: 'note',
+    preferences: 'p',
+    portfolio: 'f',
+  };
 
   it('A loses the AM tier the moment the player moves, with no overlap', async () => {
     const { service, repo } = makeStore();

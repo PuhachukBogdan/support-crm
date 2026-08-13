@@ -140,6 +140,15 @@ export class HandoverRepository {
    * the write ran (already handed over, or reassigned by a human in between) — not an error, and not
    * a move either.
    */
+  /**
+   * ⭐ W32: `destinationOperatorId` — the desk's lead, when there is one.
+   *
+   * ⚠️ **`null` is the W31 behaviour and is not a degraded path.** When a desk has nobody answering
+   * for it the conversation still goes to the queue exactly as before, because the queue is the safety
+   * net this feature adds a *preference* in front of — not a fallback that could rot untested. The
+   * caller counts the two outcomes separately so «this desk has no lead» becomes visible instead of
+   * being indistinguishable from success.
+   */
   async returnToBacklog(
     accountId: string,
     conversationId: string,
@@ -147,6 +156,7 @@ export class HandoverRepository {
     deskId: string,
     at: Date,
     actor: TransitionActor,
+    destinationOperatorId: string | null = null,
   ): Promise<boolean> {
     const db = this.prisma.forAccount(accountId) as unknown as TxCapableClient;
 
@@ -161,13 +171,20 @@ export class HandoverRepository {
       const res = await tx.conversation.updateMany({
         where: { id: conversationId, assignee_operator_id: operatorId },
         data: {
-          assignee_operator_id: null,
+          // ⚠️ The NAMED person when the desk has a lead, otherwise nobody — see the parameter's note.
+          assignee_operator_id: destinationOperatorId,
           /**
            * ⚠️ An existing stamp WINS, exactly as `BacklogRepository.enqueue` decides it: rewriting
            * `backlog_at` would send the ticket to the back of a queue it was already standing in,
            * demoting it for the crime of its owner leaving.
            */
-          backlog_at: before.backlog_at ?? at,
+          /**
+           * ⚠️ Queued ONLY when it is going to nobody. A conversation handed to a named person is not
+           * waiting in a queue — leaving the stamp on would make the drain hand it to a second person
+           * while the first already owns it, which is precisely the double-assignment the queue's own
+           * claim predicate exists to prevent.
+           */
+          backlog_at: destinationOperatorId ? null : (before.backlog_at ?? at),
           /**
            * The destination the caller resolved. Written even when `routed_group_id` already held it:
            * one statement is cheaper than a branch, and the value is the same by construction.
@@ -183,7 +200,12 @@ export class HandoverRepository {
       });
       if (res.count === 0) return false;
 
-      await this.transitions.record(tx, assigned(accountId, before, null, actor, at));
+      // ⭐ The third argument is «to whom», and it is now a person rather than always `null`: «who
+      // received this, and why» becomes answerable from the conversation's own history.
+      await this.transitions.record(
+        tx,
+        assigned(accountId, before, destinationOperatorId, actor, at),
+      );
       return true;
     });
   }

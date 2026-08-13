@@ -51,7 +51,13 @@ export class HandoverMaintenanceController {
 
   @GrpcMethod('ChatsMaintenanceService', 'ReturnOperatorWorkToBacklog')
   async returnOperatorWorkToBacklog(
-    req: { accountId?: string; operatorId?: string; limit?: number },
+    req: {
+      accountId?: string;
+      operatorId?: string;
+      limit?: number;
+      /** ⭐ W32: where each desk's work goes INSTEAD of the queue. Empty ⇒ exactly W31's behaviour. */
+      deskDestinations?: { groupId?: string; operatorId?: string }[];
+    },
     metadata: Metadata,
   ) {
     if (readMeta(metadata, 'x-actor-kind') !== 'system') {
@@ -97,12 +103,34 @@ export class HandoverMaintenanceController {
     ]);
 
     const deskOfChannel = await this.channelDesks(accountId);
+
+    /**
+     * ⭐ W32 — desk → the person who answers for it.
+     *
+     * ⚠️ The values are `users.Operator.id`, resolved by the WORKER before this call. This service
+     * does not translate identities and must not learn how: the auth id a desk lead is stored as and
+     * the operator id a conversation is assigned by look alike, and the wrong one matches nothing —
+     * a handover that reports a clean move and moves none. Keeping the translation in one place is
+     * W31's most expensive lesson, and this map is how that lesson is spent.
+     *
+     * ⚠️ The departing person is filtered OUT of their own destinations: somebody who leads their own
+     * desk cannot be their own successor, and letting that through would assign the work straight back
+     * to the person who just left — a no-op that reads as a success in every count.
+     */
+    const leadOfDesk = new Map<string, string>();
+    for (const d of req?.deskDestinations ?? []) {
+      const desk = String(d?.groupId ?? '').trim();
+      const to = String(d?.operatorId ?? '').trim();
+      if (desk === '' || to === '' || to === operatorId) continue;
+      leadOfDesk.set(desk, to);
+    }
     // ONE act, so ONE actor and ONE correlation id: every transition this call writes points at the
     // same audit entry, which is what makes «what moved, and why» answerable from either end.
     const actor = systemActor('staff-handover');
     const at = new Date();
 
-    let moved = 0;
+    let movedToLead = 0;
+    let movedToBacklog = 0;
     let noDesk = 0;
     const movedIds: string[] = [];
 
@@ -112,6 +140,7 @@ export class HandoverMaintenanceController {
         noDesk += 1;
         continue;
       }
+      const destination = leadOfDesk.get(desk) ?? null;
       const done = await this.handover.returnToBacklog(
         accountId,
         row.id,
@@ -119,6 +148,7 @@ export class HandoverMaintenanceController {
         desk,
         at,
         actor,
+        destination,
       );
       if (!done) {
         // It stopped being this operator's between the read and the write — a human reassigned it, or
@@ -126,7 +156,8 @@ export class HandoverMaintenanceController {
         // the departed person») holds, and claiming a move we did not make would inflate the report.
         continue;
       }
-      moved += 1;
+      if (destination) movedToLead += 1;
+      else movedToBacklog += 1;
       movedIds.push(row.id);
     }
 
@@ -146,6 +177,7 @@ export class HandoverMaintenanceController {
      * Counts only. A conversation id here would put customer work into a trail read for staffing
      * reasons (Principle IV), and the detail allow-list refuses anything else anyway.
      */
+    const moved = movedToLead + movedToBacklog;
     if (moved > 0 || noDesk > 0) {
       await this.audit.append(accountId, {
         action: 'staff.handover',
@@ -158,7 +190,13 @@ export class HandoverMaintenanceController {
     }
 
     return {
+      // The total keeps its name and its meaning — «this left the departing person» — and is the sum
+      // of the two below. A reader that only ever wanted the total still gets the honest answer.
       moved,
+      // ⭐ W32: the split. `movedToBacklog` is the actionable one — it means a desk has nobody
+      // answering for it, which before this feature was the only outcome and therefore invisible.
+      movedToLead,
+      movedToBacklog,
       noDesk,
       skippedShelved,
       // What this call did not look at. The no-desk rows are still assigned too, and are reported on

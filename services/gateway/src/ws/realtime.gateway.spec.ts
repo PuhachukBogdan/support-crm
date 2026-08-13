@@ -81,7 +81,12 @@ function redisDouble() {
 
 const build = () => {
   const redis = redisDouble();
-  return { redis, gateway: new RealtimeGateway(redis.service, jwt, cfg) };
+  // ⭐ W32: an empty deny-list bans nobody, so every assertion in this file is unaffected — which is
+  // exactly the default this list must have.
+  // ⭐ W32: an empty deny-list bans nobody, so every assertion in this file is unaffected — which is
+  // exactly the default this list must have. Both readers are stubbed: the socket awaits its copy.
+  const denied = { current: () => [] as string[], currentAwaited: async () => [] as string[] };
+  return { redis, denied, gateway: new RealtimeGateway(redis.service, jwt, cfg, denied as never) };
 };
 
 /** Connections are established asynchronously (the subscribe is awaited internally). */
@@ -290,7 +295,13 @@ describe('a downed Redis degrades the socket and never the gateway', () => {
       disconnect: () => undefined,
     };
     const service = { client: { duplicate: () => failing } } as unknown as RedisService;
-    const gateway = new RealtimeGateway(service, jwt, cfg);
+    const gateway = new RealtimeGateway(service, jwt, cfg, {
+      // ⭐ W32: an empty deny-list bans nobody, so every assertion below is unaffected — which is
+      // exactly the default this list must have. The socket AWAITS its copy (a cold cache must not
+      // let one upgrade through, and an upgrade is held rather than repeated).
+      current: () => [],
+      currentAwaited: async () => [],
+    } as never);
     const rejections: unknown[] = [];
     const onRejection = (reason: unknown) => rejections.push(reason);
     process.on('unhandledRejection', onRejection);

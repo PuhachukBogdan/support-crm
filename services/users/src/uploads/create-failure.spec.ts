@@ -76,7 +76,9 @@ describe('the happy path stores then records — in that order', () => {
       order.push('row');
       return ok();
     });
-    const prisma = { forAccount: jest.fn(() => ({ upload: { create } })) } as unknown as PrismaService;
+    const prisma = {
+      forAccount: jest.fn(() => ({ upload: { create } })),
+    } as unknown as PrismaService;
 
     await new UploadsRepository(prisma, store).create(ACCOUNT, USER, validated(false));
     // Row-first would fail toward a RECORDED upload whose bytes are not there — worse, because a
@@ -174,7 +176,9 @@ describe('*** the discrepancy is logged, and the log carries no filename *** (SC
     const store = new InMemoryObjectStore();
     store.failNextDelete = new Error('bucket unreachable');
     const create = jest.fn(() => Promise.reject(new Error('row write failed')));
-    const prisma = { forAccount: jest.fn(() => ({ upload: { create } })) } as unknown as PrismaService;
+    const prisma = {
+      forAccount: jest.fn(() => ({ upload: { create } })),
+    } as unknown as PrismaService;
 
     // The rethrown error must still be the ROW failure: reporting the cleanup problem instead would
     // point at the wrong cause entirely.

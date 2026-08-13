@@ -120,6 +120,7 @@ describe('the rpc refuses before it registers anything', () => {
       {} as never,
       service,
       {} as never,
+      {} as never,
     );
     return { ctrl, calls };
   };
@@ -176,6 +177,7 @@ describe('the address never reaches a log (FR-047, research R10)', () => {
         {} as never,
         {} as never,
         service,
+        {} as never,
         {} as never,
       );
       await ctrl.resolveChannelParticipant(

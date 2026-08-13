@@ -20,10 +20,11 @@ const attachStub = (attached = false) =>
     attachedAmong: async () => new Set<string>(),
   }) as never;
 
-
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
-  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+  return {
+    membersOf: jest.fn(async () => []),
+  } as unknown as import('./person.service').PersonService;
 }
 
 /**
@@ -50,7 +51,10 @@ function md(account = 'acc-1'): Metadata {
 
 /** A repository fake that behaves like the scoped client: a row exists only for its own account. */
 function harness() {
-  const access = { recordView: jest.fn(async () => undefined), recordBulkRead: jest.fn(async () => undefined) };
+  const access = {
+    recordView: jest.fn(async () => undefined),
+    recordBulkRead: jest.fn(async () => undefined),
+  };
   const players = {
     getPlayer: jest.fn(async (id: { accountId: string; brandId: string; playerId: string }) =>
       id.accountId === 'acc-1' && id.playerId === 'ply-1'
@@ -86,7 +90,14 @@ function harness() {
     ),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub(), lookupUnused()),
+    ctl: new PlayerReadController(
+      players as never,
+      operators as never,
+      access as never,
+      personsStub(),
+      attachStub(),
+      lookupUnused(),
+    ),
     players,
     operators,
     access,
@@ -104,7 +115,10 @@ const failure = async (p: Promise<unknown>): Promise<{ code?: number; message?: 
 
 describe('*** GetPlayer: unknown and not-yours are byte-identical ***', () => {
   it('the owner reads their own record', async () => {
-    const wire = (await harness().ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())) as Record<string, unknown>;
+    const wire = (await harness().ctl.getPlayer(
+      { playerId: 'ply-1', brandId: 'brand-a' },
+      md(),
+    )) as Record<string, unknown>;
     expect(wire.playerId).toBe('ply-1');
   });
 
@@ -112,7 +126,9 @@ describe('*** GetPlayer: unknown and not-yours are byte-identical ***', () => {
     ['an unknown id', 'ply-nope', 'acc-1'],
     ['a real id from ANOTHER account', 'ply-1', 'acc-2'],
   ])('%s → the same NOT_FOUND, status and message', async (_label, id, account) => {
-    const res = await failure(harness().ctl.getPlayer({ playerId: id, brandId: 'brand-a' }, md(account)));
+    const res = await failure(
+      harness().ctl.getPlayer({ playerId: id, brandId: 'brand-a' }, md(account)),
+    );
     expect(res.code).toBe(GrpcStatus.NOT_FOUND);
     expect(res.message).toBe('not found');
   });
@@ -163,9 +179,9 @@ describe('*** GetPlayer: unknown and not-yours are byte-identical ***', () => {
     const h = harness();
     const bare = new Metadata();
     bare.set('x-actor-user-id', 'user-1');
-    expect((await failure(h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, bare))).code).toBe(
-      GrpcStatus.PERMISSION_DENIED,
-    );
+    expect(
+      (await failure(h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, bare))).code,
+    ).toBe(GrpcStatus.PERMISSION_DENIED);
     expect(h.players.getPlayer).not.toHaveBeenCalled();
   });
 
@@ -181,8 +197,16 @@ describe('*** GetPlayer: unknown and not-yours are byte-identical ***', () => {
 describe('GetOperator: the same treatment for staff', () => {
   it('an in-account operator returns, with its inactive state visible', async () => {
     // Returned rather than filtered on: a name still has to render on last year's conversations.
-    const wire = (await harness().ctl.getOperator({ operatorId: 'op-1' }, md())) as Record<string, unknown>;
-    expect(wire).toEqual({ operatorId: 'op-1', accountId: 'acc-1', displayName: 'Ann', active: false });
+    const wire = (await harness().ctl.getOperator({ operatorId: 'op-1' }, md())) as Record<
+      string,
+      unknown
+    >;
+    expect(wire).toEqual({
+      operatorId: 'op-1',
+      accountId: 'acc-1',
+      displayName: 'Ann',
+      active: false,
+    });
   });
 
   it.each([
@@ -210,7 +234,10 @@ describe('*** no account comparison exists in the read path *** (the property, n
   const files = readdirSync(join(ROOT, 'services', 'users', 'src', 'player'))
     .concat()
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.spec.ts'))
-    .map((f) => ({ name: `player/${f}`, src: readFileSync(join(ROOT, 'services', 'users', 'src', 'player', f), 'utf8') }))
+    .map((f) => ({
+      name: `player/${f}`,
+      src: readFileSync(join(ROOT, 'services', 'users', 'src', 'player', f), 'utf8'),
+    }))
     .concat(
       readdirSync(join(ROOT, 'services', 'users', 'src', 'operator'))
         .filter((f) => f.endsWith('.ts') && !f.endsWith('.spec.ts'))
@@ -283,9 +310,18 @@ describe('*** T024: an unwritable REVEAL entry refuses the read *** (FR-016)', (
       }),
       recordBulkRead: jest.fn(),
     };
-    const ctl = new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused());
+    const ctl = new PlayerReadController(
+      players as never,
+      { getById: jest.fn() } as never,
+      access as never,
+      personsStub(),
+      attachStub(),
+      lookupUnused(),
+    );
 
-    await expect(ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())).rejects.toThrow('audit table unavailable');
+    await expect(ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md())).rejects.toThrow(
+      'audit table unavailable',
+    );
     // The record WAS read — the refusal is about recording, not about access — and nothing was returned.
     expect(players.getPlayer).toHaveBeenCalled();
   });
@@ -299,13 +335,17 @@ describe('*** T026: the SERVICE tier decides independently of the gateway *** (P
       getMetadata(key: string, target: object): unknown;
     };
     const proto = PlayerReadController.prototype as unknown as Record<string, object>;
-    expect(reflect.getMetadata('rbac:player_required_permission', proto.getPlayer!)).toBe('crm.contact.view');
+    expect(reflect.getMetadata('rbac:player_required_permission', proto.getPlayer!)).toBe(
+      'crm.contact.view',
+    );
     expect(reflect.getMetadata('rbac:player_required_permission', proto.listPlayersByBrand!)).toBe(
       'crm.contact.view',
     );
     // A STAFF read is gated by the inbox permission, not the contact one: reusing the contact key would
     // make one key mean two different things (research R8).
-    expect(reflect.getMetadata('rbac:player_required_permission', proto.getOperator!)).toBe('crm.inbox.view');
+    expect(reflect.getMetadata('rbac:player_required_permission', proto.getOperator!)).toBe(
+      'crm.inbox.view',
+    );
     // And the routing translation is gated by the ASSIGN key — a third distinct meaning, kept
     // distinct for the same reason: one key covering three questions answers none of them precisely.
     expect(

@@ -39,6 +39,8 @@ export type GroupOutcome =
   | { status: 'name_taken' }
   | { status: 'invalid_name' }
   | { status: 'unknown_permission' }
+  /** ⭐ W32: the named lead is not a person of this account — a cross-account grant, not a typo. */
+  | { status: 'unknown_user' }
   /** The caller may manage groups but does not hold the key they are trying to confer (FR-015). */
   | { status: 'escalation' };
 
@@ -48,6 +50,15 @@ export interface GroupView {
   active: boolean;
   memberCount: number;
   permissionKeys: string[];
+  /**
+   * ⭐ W32: who answers for this desk. `''` = nobody, which is legitimate.
+   *
+   * ⚠️ Added to the READ as well as the write, and the live round is why: the write landed, the
+   * journal recorded it, and the screen still showed no lead — because the projection did not carry
+   * the column. A value that can be set and not read is worse than one that cannot be set at all: it
+   * looks configured and behaves as though it is not.
+   */
+  leadUserId: string;
 }
 
 /**
@@ -82,6 +93,7 @@ export class GroupService {
         active: g.active,
         memberCount: (await db.groupMember.findMany({ where: { group_id: g.id } })).length,
         permissionKeys: await this.keysOf(db, g.id),
+        leadUserId: g.lead_user_id ?? '',
       });
     }
     return out;
@@ -240,6 +252,81 @@ export class GroupService {
     ] as never);
 
     return { status: 'ok', affectedUserIds: [], groupId };
+  }
+
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — name, or unname, WHO ANSWERS FOR THIS DESK.
+   *
+   * ── What this decides, so it is not mistaken for a label ────────────────────────────────────────
+   * When somebody leaves, the conversations that belonged to their own customers go to the lead of
+   * **the desk each conversation is on**. Before this column the only destination was the routing
+   * queue — a rota rather than a relationship, which is precisely what account managers exist to
+   * provide. So a change here changes where future work lands, and that is why it is audited like a
+   * grant rather than like a rename.
+   *
+   * ⚠️ The lead must be a person of THIS account. A desk led from another tenant is not a
+   * configuration mistake, it is a cross-account grant — refused with its own outcome so the screen
+   * can say which of the two things went wrong.
+   *
+   * ⓘ Clearing has its own method rather than passing an empty id: "" as "clear" makes an accidental
+   * blank indistinguishable from an intent, on a value that decides where customers go.
+   */
+  async setLead(
+    accountId: string,
+    actor: Actor,
+    groupId: string,
+    leadUserId: string,
+  ): Promise<GroupOutcome> {
+    const db = this.prisma.forAccount(accountId);
+
+    const group = await db.group.findFirst({ where: { id: groupId } });
+    if (!group) return { status: 'not_found' };
+    // ⚠️ Read through the SCOPED client: an id from another account simply is not found here, so the
+    // isolation is a property of the query rather than a comparison somebody could later remove.
+    const lead = await db.user.findFirst({ where: { id: leadUserId } });
+    if (!lead) return { status: 'unknown_user' };
+
+    await this.writeLead(accountId, actor, groupId, leadUserId);
+    return { status: 'ok', affectedUserIds: [], groupId };
+  }
+
+  /** The same act in the other direction. A desk with no lead is legitimate — see the schema. */
+  async clearLead(accountId: string, actor: Actor, groupId: string): Promise<GroupOutcome> {
+    const db = this.prisma.forAccount(accountId);
+    const group = await db.group.findFirst({ where: { id: groupId } });
+    if (!group) return { status: 'not_found' };
+
+    await this.writeLead(accountId, actor, groupId, null);
+    return { status: 'ok', affectedUserIds: [], groupId };
+  }
+
+  private async writeLead(
+    accountId: string,
+    actor: Actor,
+    groupId: string,
+    leadUserId: string | null,
+  ): Promise<void> {
+    const db = this.prisma.forAccount(accountId);
+    await db.$transaction([
+      db.group.update({ where: { id: groupId }, data: { lead_user_id: leadUserId } }),
+      this.audit.statement(accountId, {
+        action: 'group.lead_changed',
+        actorUserId: actor.userId,
+        underPreview: actor.underPreview,
+        targetRef: groupId,
+        /**
+         * ⚠️ `scope` and `grant` — the same two keys the routability change uses, and for the same
+         * reason: the `privilege` class's detail allow-list is deliberately narrow, and widening it
+         * for one action weakens «no personal data here» for every action in the class. Naming a lead
+         * IS a grant — that desk's departing colleagues' customers become this person's.
+         *
+         * ⛔ The lead's id is NOT in the detail. It is a person, and the trail's detail is not where
+         * people are named; `target_ref` carries the desk, and who was named is answerable from the
+         * desk's current state. (The same restraint the handover shows by carrying counts only.)
+         */
+        detail: { scope: 'group', grant: leadUserId !== null },
+      }),
+    ] as never);
   }
 
   async remove(accountId: string, actor: Actor, groupId: string): Promise<GroupOutcome> {

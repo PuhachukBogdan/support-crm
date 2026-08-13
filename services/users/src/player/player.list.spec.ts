@@ -21,10 +21,11 @@ const attachStub = (attached = false) =>
     attachedAmong: async () => new Set<string>(),
   }) as never;
 
-
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
-  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+  return {
+    membersOf: jest.fn(async () => []),
+  } as unknown as import('./person.service').PersonService;
 }
 
 /**
@@ -86,7 +87,8 @@ function pagingPrisma(rows = ROWS) {
 
     if (where.OR) {
       const lt = (where.OR[0] as { created_at: { lt: Date } }).created_at.lt;
-      const tie = (where.OR[1] as { AND: [{ created_at: Date }, { player_id: { lt: string } }] }).AND;
+      const tie = (where.OR[1] as { AND: [{ created_at: Date }, { player_id: { lt: string } }] })
+        .AND;
       const at = tie[0].created_at;
       const idLt = tie[1].player_id.lt;
       out = out.filter(
@@ -102,7 +104,9 @@ function pagingPrisma(rows = ROWS) {
     });
     return out.slice(0, args.take as number);
   });
-  const prisma = { forAccount: jest.fn(() => ({ player: { findMany } })) } as unknown as PrismaService;
+  const prisma = {
+    forAccount: jest.fn(() => ({ player: { findMany } })),
+  } as unknown as PrismaService;
   return { prisma, findMany, calls };
 }
 
@@ -236,7 +240,14 @@ describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any 
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused()),
+      ctl: new PlayerReadController(
+        players as never,
+        { getById: jest.fn() } as never,
+        access as never,
+        personsStub(),
+        attachStub(),
+        lookupUnused(),
+      ),
       players,
       access,
       role,
@@ -245,7 +256,9 @@ describe('*** T034: the bulk guard refuses BEFORE the repository and BEFORE any 
 
   it('a linear role is refused, and NOTHING was read or written', async () => {
     const h = guardHarness('support_agent');
-    const res = await failure(h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('support_agent')));
+    const res = await failure(
+      h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('support_agent')),
+    );
 
     expect(res.code).toBe(GrpcStatus.PERMISSION_DENIED);
     // The load-bearing pair. Asserted as the ABSENCE of the calls: a guard that refuses after reading has
@@ -303,7 +316,14 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
     };
     const access = { recordView: jest.fn(), recordBulkRead: jest.fn(async () => undefined) };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused()),
+      ctl: new PlayerReadController(
+        players as never,
+        { getById: jest.fn() } as never,
+        access as never,
+        personsStub(),
+        attachStub(),
+        lookupUnused(),
+      ),
       players,
       access,
     };
@@ -346,7 +366,10 @@ describe('*** T036: the brand is intersected with the caller PERMITTED set ***',
 
   it('a missing brand yields an empty page rather than every customer', async () => {
     const h = brandHarness();
-    expect(await h.ctl.listPlayersByBrand({}, md('am'))).toEqual({ players: [], nextPageToken: '' });
+    expect(await h.ctl.listPlayersByBrand({}, md('am'))).toEqual({
+      players: [],
+      nextPageToken: '',
+    });
     expect(h.players.listByBrand).not.toHaveBeenCalled();
   });
 });
@@ -369,7 +392,14 @@ describe('*** T037/T038: ONE entry per request, and every row masked ***', () =>
       personIdsFor: jest.fn(async () => new Map<string, string>()),
     };
     return {
-      ctl: new PlayerReadController(players as never, { getById: jest.fn() } as never, access as never, personsStub(), attachStub(), lookupUnused()),
+      ctl: new PlayerReadController(
+        players as never,
+        { getById: jest.fn() } as never,
+        access as never,
+        personsStub(),
+        attachStub(),
+        lookupUnused(),
+      ),
       access,
       bulk,
       role,

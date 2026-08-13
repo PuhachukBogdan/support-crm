@@ -159,6 +159,22 @@ export class ProvisioningRepository {
     return rows.map((r) => ({ accountId: r.account_id, userId: r.id }));
   }
 
+  /**
+   * ⭐ W32 — every desk of an account and who leads it. Scoped, unlike `listDisabledStaff` above:
+   * this one is asked ABOUT an account, so it has one to scope by.
+   *
+   * Desks with no lead are returned too, with an empty id. Their absence would be indistinguishable
+   * from a desk that does not exist, and «this desk has nobody answering for it» is exactly the fact
+   * the sweep needs in order to count that outcome separately instead of silently queueing.
+   */
+  async listDeskLeads(accountId: string): Promise<{ groupId: string; leadUserId: string }[]> {
+    const rows = await this.prisma.forAccount(accountId).group.findMany({
+      where: { active: true },
+      select: { id: true, lead_user_id: true },
+    });
+    return rows.map((r) => ({ groupId: r.id, leadUserId: r.lead_user_id ?? '' }));
+  }
+
   // ── the account lifecycle (ADR 0043 §3) ────────────────────────────────────────────────────────
 
   async findUserByEmail(accountId: string, email: string) {

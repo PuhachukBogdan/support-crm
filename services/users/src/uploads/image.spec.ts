@@ -60,7 +60,12 @@ function pngWithDeclaredSize(width: number, height: number, withIdat: boolean): 
   ]);
   // Optionally a truncated IDAT: enough for the header to parse, nowhere near enough to decode.
   const idat = withIdat
-    ? Buffer.concat([Buffer.from([0, 0, 0, 4]), Buffer.from('IDAT', 'ascii'), Buffer.from([0x78, 0x9c, 0x00, 0x00]), Buffer.alloc(4)])
+    ? Buffer.concat([
+        Buffer.from([0, 0, 0, 4]),
+        Buffer.from('IDAT', 'ascii'),
+        Buffer.from([0x78, 0x9c, 0x00, 0x00]),
+        Buffer.alloc(4),
+      ])
     : Buffer.alloc(0);
   return Uint8Array.from(Buffer.concat([Buffer.from(sig), chunk, idat]));
 }

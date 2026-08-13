@@ -99,7 +99,11 @@ function controller() {
     void store.put(r.storage_key, Uint8Array.from([1, 2, 3, 4]), r.content_type);
     if (r.derivative_key) void store.put(r.derivative_key, Uint8Array.from([9, 9]), 'image/webp');
   }
-  return { ctrl: new UploadsGrpcController(new UploadsRepository(prisma, store)), store, forAccount };
+  return {
+    ctrl: new UploadsGrpcController(new UploadsRepository(prisma, store)),
+    store,
+    forAccount,
+  };
 }
 
 const ORIGINAL = 'UPLOAD_VARIANT_ORIGINAL';
@@ -126,21 +130,26 @@ describe('the owner is served — both variants', () => {
 });
 
 describe('*** a cross-account read returns nothing, and looks exactly like a nonexistent id ***', () => {
-  it.each([ORIGINAL, DERIVATIVE])('%s: not-yours and does-not-exist are the same answer', async (variant) => {
-    const { ctrl } = controller();
-    const notYours = await rejection(() =>
-      ctrl.readUpload({ uploadId: 'up-theirs', variant }, md(OURS)),
-    );
-    const neverExisted = await rejection(() =>
-      ctrl.readUpload({ uploadId: 'up-does-not-exist', variant }, md(OURS)),
-    );
-    // Identical code AND identical message: anything else is an existence oracle (FR-011).
-    expect(notYours).toEqual(neverExisted);
-  });
+  it.each([ORIGINAL, DERIVATIVE])(
+    '%s: not-yours and does-not-exist are the same answer',
+    async (variant) => {
+      const { ctrl } = controller();
+      const notYours = await rejection(() =>
+        ctrl.readUpload({ uploadId: 'up-theirs', variant }, md(OURS)),
+      );
+      const neverExisted = await rejection(() =>
+        ctrl.readUpload({ uploadId: 'up-does-not-exist', variant }, md(OURS)),
+      );
+      // Identical code AND identical message: anything else is an existence oracle (FR-011).
+      expect(notYours).toEqual(neverExisted);
+    },
+  );
 
   it('the other account’s bytes and filename never appear in the refusal', async () => {
     const { ctrl } = controller();
-    const err = await rejection(() => ctrl.readUpload({ uploadId: 'up-theirs', variant: ORIGINAL }, md(OURS)));
+    const err = await rejection(() =>
+      ctrl.readUpload({ uploadId: 'up-theirs', variant: ORIGINAL }, md(OURS)),
+    );
     expect(JSON.stringify(err)).not.toContain('their-secret');
   });
 
@@ -153,22 +162,27 @@ describe('*** a cross-account read returns nothing, and looks exactly like a non
 });
 
 describe('*** the same reference stops working when the permission is revoked *** (FR-010 / SC-006)', () => {
-  it.each([ORIGINAL, DERIVATIVE])('%s: served, then refused, with nothing else changed', async (variant) => {
-    const { ctrl } = controller();
-    // Before: the caller holds the purpose's key.
-    const ok = await ctrl.readUpload({ uploadId: 'up-ours', variant }, md(OURS));
-    expect(ok.content.byteLength).toBeGreaterThan(0);
+  it.each([ORIGINAL, DERIVATIVE])(
+    '%s: served, then refused, with nothing else changed',
+    async (variant) => {
+      const { ctrl } = controller();
+      // Before: the caller holds the purpose's key.
+      const ok = await ctrl.readUpload({ uploadId: 'up-ours', variant }, md(OURS));
+      expect(ok.content.byteLength).toBeGreaterThan(0);
 
-    // After: the same id, the same account, the same everything — minus the permission.
-    const err = await rejection(() =>
-      ctrl.readUpload({ uploadId: 'up-ours', variant }, md(OURS, ['crm.inbox.view'])),
-    );
-    expect(err.code).toBe(7); // PERMISSION_DENIED
-  });
+      // After: the same id, the same account, the same everything — minus the permission.
+      const err = await rejection(() =>
+        ctrl.readUpload({ uploadId: 'up-ours', variant }, md(OURS, ['crm.inbox.view'])),
+      );
+      expect(err.code).toBe(7); // PERMISSION_DENIED
+    },
+  );
 
   it('a caller with NO permissions at all is refused', async () => {
     const { ctrl } = controller();
-    const err = await rejection(() => ctrl.readUpload({ uploadId: 'up-ours', variant: ORIGINAL }, md(OURS, [])));
+    const err = await rejection(() =>
+      ctrl.readUpload({ uploadId: 'up-ours', variant: ORIGINAL }, md(OURS, [])),
+    );
     expect(err.code).toBe(7);
   });
 
@@ -184,7 +198,9 @@ describe('*** the same reference stops working when the permission is revoked **
 describe('a derivative that does not exist is NOT_FOUND, never a silent fallback', () => {
   it('a PDF has no thumbnail, and the original is not served in its place', async () => {
     const { ctrl, store } = controller();
-    const err = await rejection(() => ctrl.readUpload({ uploadId: 'up-pdf', variant: DERIVATIVE }, md(OURS)));
+    const err = await rejection(() =>
+      ctrl.readUpload({ uploadId: 'up-pdf', variant: DERIVATIVE }, md(OURS)),
+    );
     expect(err.code).toBe(5); // NOT_FOUND
     // Falling back would serve a PDF to a caller that asked for an image and will render it as one.
     expect(store.ops.filter((o) => o.op === 'get')).toEqual([]);
@@ -200,7 +216,10 @@ describe('a derivative that does not exist is NOT_FOUND, never a silent fallback
 
   it('an unspecified variant reads the original rather than failing', async () => {
     const { ctrl } = controller();
-    const res = await ctrl.readUpload({ uploadId: 'up-ours', variant: 'UPLOAD_VARIANT_UNSPECIFIED' }, md(OURS));
+    const res = await ctrl.readUpload(
+      { uploadId: 'up-ours', variant: 'UPLOAD_VARIANT_UNSPECIFIED' },
+      md(OURS),
+    );
     expect(res.contentType).toBe('image/png');
   });
 });
@@ -230,7 +249,12 @@ describe('*** an unknown purpose is refused HERE too, not only at the gateway **
     // than PERMISSION_DENIED, because "no such purpose" is the true and more useful answer.
     const err = await rejection(() =>
       ctrl.createUpload(
-        { purpose: 'nonsense', declaredContentType: '', filename: '', content: Uint8Array.from([1]) },
+        {
+          purpose: 'nonsense',
+          declaredContentType: '',
+          filename: '',
+          content: Uint8Array.from([1]),
+        },
         md(OURS, []),
       ),
     );

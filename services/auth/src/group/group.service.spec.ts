@@ -197,6 +197,9 @@ describe('GroupService — the entity and its membership', () => {
         active: true,
         memberCount: 1,
         permissionKeys: ['crm.contact.view', 'crm.inbox.view'],
+        // ⭐ W32: a desk with nobody answering for it reads as an empty string, not as an absent
+        // field. The offboarding sweep has a named outcome for that state, so it must be readable.
+        leadUserId: '',
       },
     ]);
   });

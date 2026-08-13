@@ -163,6 +163,88 @@ export class AssignmentRepository {
     })) as AssignmentRow;
   }
 
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — the departing person's OPEN attachments, oldest first.
+   *
+   * The selection IS the idempotence: an attachment already moved no longer matches «theirs and still
+   * open», so a half-finished pass simply resumes and a completed one finds nothing. That is why this
+   * feature needed no «handled» flag and no second table — a flag that says «done» is one more thing
+   * to keep true, and the first failed run makes it lie.
+   */
+  async openAssignmentsOf(
+    accountId: string,
+    amAuthUserId: string,
+    limit: number,
+  ): Promise<AssignmentRow[]> {
+    return (await this.prisma.forAccount(accountId).playerAssignment.findMany({
+      where: { am_auth_user_id: amAuthUserId, ended_at: null },
+      orderBy: { started_at: 'asc' },
+      take: limit,
+    })) as AssignmentRow[];
+  }
+
+  /** How many are left beyond this pass — so the tick converges instead of holding one long lock. */
+  async countOpenAssignmentsOf(accountId: string, amAuthUserId: string): Promise<number> {
+    return this.prisma.forAccount(accountId).playerAssignment.count({
+      where: { am_auth_user_id: amAuthUserId, ended_at: null },
+    });
+  }
+
+  /**
+   * ⭐ W32 — hand ONE player from one manager to another: close the old period, open the new one.
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════
+   * ⚠️ **ONE TRANSACTION, AND THAT IS FORCED BY THE DATABASE — not chosen for tidiness.**
+   * The partial unique index `(account_id, brand_id, player_id) WHERE ended_at IS NULL` permits
+   * exactly one open period per player, so the new one cannot exist beside the old. Doing this as two
+   * transactions would leave a window in which the player belongs to NOBODY — and a crash inside that
+   * window would make it permanent, silently, for a customer whose manager just left.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠️ Returns `false` when the row stopped being theirs between the read and the write — a human
+   * reassigned them, or an earlier pass already moved them. The caller counts that as `skipped`, not
+   * as moved: claiming a move we did not make would inflate the report an administrator acts on.
+   *
+   * Two audit entries, exactly as a human transfer writes — the history is additive and the trail must
+   * say so. `recordAudit` is invoked twice, once per act, inside the same transaction as the writes.
+   */
+  async handOver(
+    accountId: string,
+    assignmentId: string,
+    input: { player: PlayerRef; from: string; to: string; actorRef: string },
+    recordAudit: (tx: unknown, action: 'player.assign' | 'player.unassign', manager: string) => unknown,
+  ): Promise<boolean> {
+    const db = this.prisma.forAccount(accountId);
+    return db.$transaction(async (tx) => {
+      const client = tx as unknown as {
+        playerAssignment: {
+          updateMany(a: Record<string, unknown>): Promise<{ count: number }>;
+          create(a: Record<string, unknown>): Promise<unknown>;
+        };
+      };
+      // ⚠️ The departing person is IN THE PREDICATE, so two racing passes cannot both close it and
+      // the answer is honest about which one did.
+      const closed = await client.playerAssignment.updateMany({
+        where: { id: assignmentId, am_auth_user_id: input.from, ended_at: null },
+        data: { ended_at: new Date(), ended_by: input.actorRef },
+      });
+      if (closed.count === 0) return false;
+
+      await client.playerAssignment.create({
+        data: {
+          account_id: accountId,
+          brand_id: input.player.brandId,
+          player_id: input.player.playerId,
+          am_auth_user_id: input.to,
+          assigned_by: input.actorRef,
+        },
+      });
+      await recordAudit(tx, 'player.unassign', input.from);
+      await recordAudit(tx, 'player.assign', input.to);
+      return true;
+    });
+  }
+
   /** Close the active period. ⚠️ Never a delete — the row survives as history (FR-003). */
   async detach(
     accountId: string,

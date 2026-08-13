@@ -23,7 +23,9 @@ import type { OperatorRepository } from '../operator/operator.repository';
  * looks exactly like a queue with nothing in it.
  */
 
-function build(rows: { operatorId: string; authUserId: string; state: string; blockedChannels: string[] }[]) {
+function build(
+  rows: { operatorId: string; authUserId: string; state: string; blockedChannels: string[] }[],
+) {
   const resolveByAuthUserIds = jest.fn(async () => rows);
   const ctrl = new MaintenanceController(
     {} as unknown as MaintenanceService,
@@ -37,6 +39,7 @@ function build(rows: { operatorId: string; authUserId: string; state: string; bl
         throw new Error('the routing rpc must not touch the participant path');
       },
     } as unknown as import('../channel/channel-participant.service').ChannelParticipantService,
+    {} as never,
     {} as never,
   );
   return { ctrl, resolveByAuthUserIds };
@@ -84,7 +87,9 @@ describe('ResolveRoutingOperators — the machine surface', () => {
     // A machine has no account of its own, so the account is data. Defaulting it — to the first account,
     // to the seed, to anything — is a cross-account read waiting to happen.
     const { ctrl, resolveByAuthUserIds } = build([ROW]);
-    await expect(ctrl.resolveRoutingOperators({ authUserIds: ['u-1'] }, system())).rejects.toBeDefined();
+    await expect(
+      ctrl.resolveRoutingOperators({ authUserIds: ['u-1'] }, system()),
+    ).rejects.toBeDefined();
     await expect(
       ctrl.resolveRoutingOperators({ accountId: '   ', authUserIds: ['u-1'] }, system()),
     ).rejects.toBeDefined();
@@ -95,7 +100,10 @@ describe('ResolveRoutingOperators — the machine surface', () => {
     // One method answers "who can take this work?" completely — the active filter and the presence state
     // side by side. Two implementations would be two places to forget one of them.
     const { ctrl, resolveByAuthUserIds } = build([ROW]);
-    await ctrl.resolveRoutingOperators({ accountId: 'acc-42', authUserIds: ['u-1', 'u-2'] }, system());
+    await ctrl.resolveRoutingOperators(
+      { accountId: 'acc-42', authUserIds: ['u-1', 'u-2'] },
+      system(),
+    );
     expect(resolveByAuthUserIds).toHaveBeenCalledWith('acc-42', ['u-1', 'u-2']);
   });
 
@@ -110,7 +118,8 @@ describe('ResolveRoutingOperators — the machine surface', () => {
 
   it('the rpc is declared on the MAINTENANCE service, not on the read service', () => {
     const proto = readFileSync(USERS_PROTO, 'utf8');
-    const maintenance = /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    const maintenance =
+      /service\s+UsersMaintenanceService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     const read = /service\s+UsersReadService\s*\{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
     expect(maintenance).toMatch(/rpc\s+ResolveRoutingOperators\s*\(/);
     expect(read).not.toMatch(/ResolveRoutingOperators/);

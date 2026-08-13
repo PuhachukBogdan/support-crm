@@ -22,9 +22,19 @@ const PLAYER = {
 
 describe('player masking (anti-pitching, allow-list)', () => {
   it('for a linear role: masked fields are ABSENT, not null (SC-006)', () => {
-    const out = maskPlayer(PLAYER, 'support_agent', { attachedToSubject: false }) as Record<string, unknown>;
+    const out = maskPlayer(PLAYER, 'support_agent', { attachedToSubject: false }) as Record<
+      string,
+      unknown
+    >;
     expect(out.player_id).toBe('p1');
-    for (const masked of ['am_notes', 'preferences', 'portfolio', 'vip', 'segment', 'gr8_snapshot']) {
+    for (const masked of [
+      'am_notes',
+      'preferences',
+      'portfolio',
+      'vip',
+      'segment',
+      'gr8_snapshot',
+    ]) {
       expect(masked in out).toBe(false); // absent, not present-with-null
     }
   });
@@ -39,7 +49,10 @@ describe('player masking (anti-pitching, allow-list)', () => {
   });
 
   it('for VIP Support: operational present, am-only absent', () => {
-    const out = maskPlayer(PLAYER, 'vip_support', { attachedToSubject: false }) as Record<string, unknown>;
+    const out = maskPlayer(PLAYER, 'vip_support', { attachedToSubject: false }) as Record<
+      string,
+      unknown
+    >;
     expect(out.segment).toBe('Premium');
     expect('am_notes' in out).toBe(false);
   });
@@ -70,17 +83,40 @@ describe('person_id masking (feature 022)', () => {
   const LINKED = { ...PLAYER, person_id: 'person-1' } as Record<string, unknown>;
 
   it('a LINEAR role sees the person id — and still sees nothing it could pitch with', () => {
-    const out = maskPlayer(LINKED, 'support_agent', { attachedToSubject: false }) as Record<string, unknown>;
+    const out = maskPlayer(LINKED, 'support_agent', { attachedToSubject: false }) as Record<
+      string,
+      unknown
+    >;
     expect(out.person_id).toBe('person-1');
     // The boundary is unmoved: everything above `open` stays absent, not null.
-    for (const withheld of ['am_notes', 'preferences', 'portfolio', 'segment', 'vip', 'gr8_snapshot']) {
+    for (const withheld of [
+      'am_notes',
+      'preferences',
+      'portfolio',
+      'segment',
+      'vip',
+      'gr8_snapshot',
+    ]) {
       expect(withheld in out).toBe(false);
     }
   });
 
   it('every role sees it, including the ones cleared for PII (it is not a tiered secret)', () => {
-    for (const role of ['support_agent', 'teamlead', 'vip_support', 'am', 'shift_am', 'admin', 'super_admin']) {
-      expect({ role, personId: (maskPlayer(LINKED, role, { attachedToSubject: false }) as Record<string, unknown>).person_id }).toEqual({
+    for (const role of [
+      'support_agent',
+      'teamlead',
+      'vip_support',
+      'am',
+      'shift_am',
+      'admin',
+      'super_admin',
+    ]) {
+      expect({
+        role,
+        personId: (
+          maskPlayer(LINKED, role, { attachedToSubject: false }) as Record<string, unknown>
+        ).person_id,
+      }).toEqual({
         role,
         personId: 'person-1',
       });
@@ -88,7 +124,10 @@ describe('person_id masking (feature 022)', () => {
   });
 
   it('an unknown role — treated as linear — sees it too, and nothing else new', () => {
-    const out = maskPlayer(LINKED, 'not-a-role', { attachedToSubject: false }) as Record<string, unknown>;
+    const out = maskPlayer(LINKED, 'not-a-role', { attachedToSubject: false }) as Record<
+      string,
+      unknown
+    >;
     expect(out.person_id).toBe('person-1');
     expect('am_notes' in out).toBe(false);
   });
@@ -96,7 +135,9 @@ describe('person_id masking (feature 022)', () => {
   it('an UNLINKED record carries the key with a null value, never a fabricated person', () => {
     // The mask must pass `null` through rather than dropping the key: the wire mapper turns absence into an
     // empty string, and "linked to nobody" has to be expressible.
-    const out = maskPlayer({ ...PLAYER, person_id: null }, 'support_agent', { attachedToSubject: false }) as Record<string, unknown>;
+    const out = maskPlayer({ ...PLAYER, person_id: null }, 'support_agent', {
+      attachedToSubject: false,
+    }) as Record<string, unknown>;
     expect('person_id' in out).toBe(true);
     expect(out.person_id).toBeNull();
   });

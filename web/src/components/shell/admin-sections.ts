@@ -66,6 +66,26 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     href: '/admin/api-keys',
   },
   {
+    key: 'denied-addresses',
+    label: 'Denied addresses',
+    summary:
+      'Addresses refused at the door, before anyone signs in. ⚠️ An empty list here denies nobody — the opposite of an API key’s address list.',
+    point: '12.10',
+    // ⭐ W32 (спек №3): beside API keys and Channels, because all three answer one question — how
+    // does anything outside this product reach it, and on whose terms?
+    href: '/admin/denied-addresses',
+  },
+  {
+    key: 'security',
+    label: 'Security posture',
+    summary:
+      'What is protecting the account, read from the system rather than typed: what is on, what needs a look, and what could not be checked.',
+    point: '12.11',
+    // ⭐ W32 (спек №3): the reporting surface the offboarding work needs — the product has no
+    // notification mechanism at all, so «the administrator is told» is delivered as a READ.
+    href: '/admin/security',
+  },
+  {
     key: 'statuses',
     label: 'Ticket statuses',
     summary: 'The nine statuses, their categories and their two names — agent-facing and customer-facing.',

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { UploadsModule } from '../uploads/uploads.module';
+import { AssignmentModule } from '../assignment/assignment.module';
 import { MaintenanceController } from './maintenance.controller';
 import { MaintenanceService } from './maintenance.service';
 import { PresenceModule } from '../presence/presence.module';
@@ -22,7 +23,9 @@ import { loadUsersConfig } from '../config';
  * credential holder, which `tests/uploads/single-ingest-path.spec.ts` exists to prevent.
  */
 @Module({
-  imports: [UploadsModule, PresenceModule],
+  // ⭐ W32: imports rather than re-provides, for the same reason UploadsModule is imported — one
+  // writer for «who looks after this player», reached by two surfaces with two different gates.
+  imports: [UploadsModule, PresenceModule, AssignmentModule],
   controllers: [MaintenanceController],
   // Feature 031: `ResolveRoutingOperators` answers the routing question for a MACHINE, from the same
   // repository the permission-gated human rpc uses. One method, two surfaces, two different gates.

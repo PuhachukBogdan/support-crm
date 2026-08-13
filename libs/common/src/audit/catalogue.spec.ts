@@ -84,6 +84,9 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     'group.create',
     'group.rename',
     'group.routability_changed',
+    // ⭐ W32: who answers for a desk — a grant, because it decides where a departing colleague's own
+    // customers land. And the deny-list, whose address is the TARGET and never the detail.
+    'group.lead_changed',
     'group.delete',
     'group_member.add',
     'group_member.remove',
@@ -123,6 +126,9 @@ describe('AUDIT_ACTIONS — the v1 vocabulary', () => {
     // an admin created or changed a channel row. Audited because that row decides which tenant and
     // brand an arriving delivery belongs to; written by `chats` inside the upsert's own transaction.
     'channel.config_changed',
+    // ⭐ W32: a ban grants nobody anything — it is configuration, filed like every other
+    // `*.config_changed`. Its address is the TARGET; the detail is empty.
+    'ip_ban.config_changed',
     // ⭐ W15a (subpoint 3.14) — an admin created or changed a status definition. A status's category
     // decides which bucket and report a ticket appears in; retiring one changes what agents may set.
     'status.config_changed',
@@ -262,7 +268,8 @@ describe('actionsOfClass', () => {
         'group.create',
         'group.rename',
     'group.routability_changed',
-        'group.delete',
+        'group.lead_changed',
+            'group.delete',
         'group_member.add',
         'group_member.remove',
         'group_permission.grant',

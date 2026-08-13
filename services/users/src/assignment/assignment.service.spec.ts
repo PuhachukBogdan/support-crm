@@ -68,7 +68,9 @@ function makeStore(rows: AssignmentRow[] = [], managers = ['am-1', 'am-2'], play
   const operators = {
     async resolveByAuthUserIds(_a: string, ids: readonly string[]) {
       // Mirrors the real repository: ACTIVE profiles only, and an unknown identity is simply absent.
-      return ids.filter((i) => managers.includes(i)).map((i) => ({ operatorId: `op-${i}`, authUserId: i }));
+      return ids
+        .filter((i) => managers.includes(i))
+        .map((i) => ({ operatorId: `op-${i}`, authUserId: i }));
     },
   } as unknown as OperatorRepository;
 

@@ -92,13 +92,17 @@ describe('PlayerRepository — the person a record belongs to', () => {
     const repo = new PlayerRepository(prisma);
     const p = await repo.getPlayer({ accountId: 'acc-1', brandId: 'brand-a', playerId: 'p1' });
     expect(p).not.toBeNull();
-    expect(await repo.personIdOf({ accountId: 'acc-1', brandId: 'brand-a', playerId: 'p1' })).toBe('person-1');
+    expect(await repo.personIdOf({ accountId: 'acc-1', brandId: 'brand-a', playerId: 'p1' })).toBe(
+      'person-1',
+    );
   });
 
   it('two records of the SAME person both report it — that is what makes them one human', async () => {
     const { prisma } = fakePrisma([row('p1'), row('p2', 'brand-b')]);
     const repo = new PlayerRepository(prisma);
-    expect(await repo.personIdOf({ accountId: 'acc-1', brandId: 'brand-a', playerId: 'p1' })).toBe('person-1');
+    expect(await repo.personIdOf({ accountId: 'acc-1', brandId: 'brand-a', playerId: 'p1' })).toBe(
+      'person-1',
+    );
     expect(await repo.personIdOf({ accountId: 'acc-1', brandId: 'brand-b', playerId: 'p2' })).toBe(
       'person-1',
     );

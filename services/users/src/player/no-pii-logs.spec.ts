@@ -22,10 +22,11 @@ const attachStub = (attached = false) =>
     attachedAmong: async () => new Set<string>(),
   }) as never;
 
-
 /** Feature 020: the controller now collaborates with PersonService; these specs exercise neither. */
 function personsStub() {
-  return { membersOf: jest.fn(async () => []) } as unknown as import('./person.service').PersonService;
+  return {
+    membersOf: jest.fn(async () => []),
+  } as unknown as import('./person.service').PersonService;
 }
 
 /**
@@ -105,7 +106,14 @@ function harness(opts: { row?: PlayerRow | null; auditThrows?: boolean } = {}) {
     })),
   };
   return {
-    ctl: new PlayerReadController(players as never, operators as never, access as never, personsStub(), attachStub(), lookupUnused()),
+    ctl: new PlayerReadController(
+      players as never,
+      operators as never,
+      access as never,
+      personsStub(),
+      attachStub(),
+      lookupUnused(),
+    ),
     players,
     operators,
     access,
@@ -154,7 +162,9 @@ describe('*** a successful read writes no customer value anywhere ***', () => {
     'GetPlayer as %s leaks nothing',
     async (role) => {
       const h = harness();
-      const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role)));
+      const output = await captured(() =>
+        h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md(role)),
+      );
       for (const value of values) expect(output).not.toContain(value);
       expect(output).not.toMatch(/SECRET/);
     },
@@ -166,9 +176,7 @@ describe('*** a successful read writes no customer value anywhere ***', () => {
       rows: [ROW, { ...ROW, player_id: 'ply-2' }],
       nextCursor: { createdAt: ROW.created_at.toISOString(), id: 'ply-2' },
     })) as never;
-    const output = await captured(() =>
-      h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am')),
-    );
+    const output = await captured(() => h.ctl.listPlayersByBrand({ brandId: 'brand-a' }, md('am')));
     expect(output).not.toMatch(/SECRET/);
   });
 
@@ -182,7 +190,9 @@ describe('*** a successful read writes no customer value anywhere ***', () => {
 describe('*** the REFUSAL paths are the ones that leak, and these do not ***', () => {
   it('a record that does not exist logs no identifier beyond what the caller sent', async () => {
     const h = harness({ row: null });
-    const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-missing', brandId: 'brand-a' }, md('am')));
+    const output = await captured(() =>
+      h.ctl.getPlayer({ playerId: 'ply-missing', brandId: 'brand-a' }, md('am')),
+    );
     expect(output).not.toMatch(/SECRET/);
   });
 
@@ -210,10 +220,14 @@ describe('*** the REFUSAL paths are the ones that leak, and these do not ***', (
     // The most dangerous shape: the read has already happened, the row is in hand, and the error branch is
     // the natural place to dump context "for diagnosis".
     const h = harness({ auditThrows: true });
-    const output = await captured(() => h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am')));
+    const output = await captured(() =>
+      h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am')),
+    );
     expect(output).not.toMatch(/SECRET/);
     // And the refusal is real — otherwise this test passes on a path that silently returned the data.
-    await expect(h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am'))).rejects.toBeDefined();
+    await expect(
+      h.ctl.getPlayer({ playerId: 'ply-1', brandId: 'brand-a' }, md('am')),
+    ).rejects.toBeDefined();
   });
 });
 
@@ -257,7 +271,10 @@ describe('*** the source itself has no log line that could carry a value ***', (
   }
 
   const sources = DIRS.flatMap((d) => walk(join(ROOT, ...d.split('/')))).map((abs) => ({
-    path: abs.slice(ROOT.length + 1).split(sep).join('/'),
+    path: abs
+      .slice(ROOT.length + 1)
+      .split(sep)
+      .join('/'),
     code: readFileSync(abs, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^[ \t]*\/\/.*$/gm, '')
@@ -277,7 +294,10 @@ describe('*** the source itself has no log line that could carry a value ***', (
     // needed, this test is where the decision gets made deliberately — with the key-and-class rule from
     // feature 017 — rather than by adding a line.
     for (const s of sources) {
-      expect({ path: s.path, logs: /\bconsole\.\w+\s*\(|\bnew Logger\s*\(|this\.logger\./.test(s.code) }).toEqual({
+      expect({
+        path: s.path,
+        logs: /\bconsole\.\w+\s*\(|\bnew Logger\s*\(|this\.logger\./.test(s.code),
+      }).toEqual({
         path: s.path,
         logs: false,
       });

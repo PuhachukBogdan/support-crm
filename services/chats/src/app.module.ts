@@ -2,6 +2,11 @@ import { Inject, Module, OnModuleInit } from '@nestjs/common';
 import { HealthGrpcController } from './health/health.controller';
 import { PrismaService } from './prisma.service';
 import { ChatsAccessGuard } from './security/permission.guard';
+// ⭐ W32 / feature 039 (roadmap 12.11): chats' half of the security page — channels that are on or
+// off, and how many ticket fields are withheld. A registry of readers; see its header for the one
+// fact (contact masking) deliberately left off it.
+import { SecurityFactsService } from './security/facts.service';
+import { SecurityFactsGrpcController } from './security/facts.grpc.controller';
 import { ConversationRepository } from './conversation/conversation.repository';
 import { ConversationReadController } from './conversation/conversation.grpc.controller';
 import { ConversationWriteController } from './conversation/conversation.write.controller';
@@ -175,6 +180,11 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // ⭐ Feature 037: the authoring surface — fields, option sets, forms; `platform.field.manage`
     // at both tiers, every write audited in-transaction (the status-admin shape).
     FieldsAdminController,
+    // ⭐ W32 / 039 (roadmap 12.11): the security page's chats facts. Registered here because an
+    // unregistered controller answers UNIMPLEMENTED while looking healthy — and the gateway would
+    // then contribute `unknown` for facts that are perfectly fine, which is how the one word on that
+    // page that must never be ignored becomes background noise.
+    SecurityFactsGrpcController,
   ],
   providers: [
     PrismaService,
@@ -214,6 +224,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     OutboundService,
     { provide: MAIL_TRANSPORT, useClass: ChatsSmtpTransport },
     ChatsAccessGuard,
+    // ⭐ W32 / 039: reads the chats registry for one account, account-scoped like every other read.
+    SecurityFactsService,
     // Feature 023 (roadmap 4.8a). The recorder is injected into the repositories that own the write
     // paths — it is never reached from a controller, which is where the automation dispatcher is
     // published from. Two opposite placement rules, protecting two different things (research R1).

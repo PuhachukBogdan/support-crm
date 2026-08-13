@@ -113,8 +113,12 @@ describe('EnsureOwnOperator (roadmap 5.10)', () => {
   });
 
   it('refuses when the caller context is missing — a blank subject would be one shared ownerless profile', async () => {
-    await expect(ctl.ensureOwnOperator({}, md('acc-1', ''))).rejects.toThrow(/account and an identity/);
-    await expect(ctl.ensureOwnOperator({}, md('', 'user-1'))).rejects.toThrow(/account and an identity/);
+    await expect(ctl.ensureOwnOperator({}, md('acc-1', ''))).rejects.toThrow(
+      /account and an identity/,
+    );
+    await expect(ctl.ensureOwnOperator({}, md('', 'user-1'))).rejects.toThrow(
+      /account and an identity/,
+    );
     expect(db.rows).toHaveLength(0);
   });
 

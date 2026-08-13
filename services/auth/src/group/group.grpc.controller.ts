@@ -44,6 +44,13 @@ interface SetGroupRoutableRequest extends CallerCtx {
   /** proto3 omits a false bool, so this may be absent — read as NOT routable. */
   routable?: boolean;
 }
+interface SetGroupLeadRequest extends CallerCtx {
+  groupId: string;
+  leadUserId: string;
+}
+interface ClearGroupLeadRequest extends CallerCtx {
+  groupId: string;
+}
 interface DeleteGroupRequest extends CallerCtx {
   groupId: string;
 }
@@ -73,6 +80,7 @@ const NAME_TAKEN = 'GROUP_STATUS_NAME_TAKEN';
 const INVALID_NAME = 'GROUP_STATUS_INVALID_NAME';
 const UNKNOWN_PERMISSION = 'GROUP_STATUS_UNKNOWN_PERMISSION';
 const ESCALATION = 'GROUP_STATUS_ESCALATION';
+const UNKNOWN_USER = 'GROUP_STATUS_UNKNOWN_USER';
 
 const reply = (status: string, affectedUserIds: string[] = [], groupId = '', message = '') => ({
   status,
@@ -120,6 +128,33 @@ export class GroupGrpcController {
     );
   }
 
+  /**
+   * ⭐ W32 (roadmap 3.16) — name who answers for this desk.
+   *
+   * Same key as every other group mutation: deciding who is responsible for a desk is part of
+   * organising one. What makes it weightier than a rename is recorded in the service and in the
+   * audit catalogue — this value decides where a departing colleague's own customers land.
+   */
+  @GrpcMethod('AuthService', 'SetGroupLead')
+  async setGroupLeadRpc(req: SetGroupLeadRequest) {
+    if (!(await this.mayManage(req))) return reply(FORBIDDEN);
+    const leadUserId = (req.leadUserId ?? '').trim();
+    // An empty id is not "clear" on this rpc — clearing has its own, so a blank that arrived by
+    // accident cannot silently unname the person a desk depends on.
+    if (leadUserId === '') return reply(UNKNOWN_USER);
+    return this.map(
+      await this.groups.setLead(req.callerAccountId, this.actor(req), req.groupId, leadUserId),
+    );
+  }
+
+  @GrpcMethod('AuthService', 'ClearGroupLead')
+  async clearGroupLeadRpc(req: ClearGroupLeadRequest) {
+    if (!(await this.mayManage(req))) return reply(FORBIDDEN);
+    return this.map(
+      await this.groups.clearLead(req.callerAccountId, this.actor(req), req.groupId),
+    );
+  }
+
   @GrpcMethod('AuthService', 'DeleteGroup')
   async deleteGroupRpc(req: DeleteGroupRequest) {
     if (!(await this.mayManage(req))) return reply(FORBIDDEN);
@@ -138,6 +173,9 @@ export class GroupGrpcController {
         active: g.active,
         memberCount: g.memberCount,
         permissionKeys: g.permissionKeys,
+        // ⭐ W32: a value that can be WRITTEN and not READ looks configured while behaving as though
+        // it is not — which is exactly what the live round found before this line existed.
+        leadUserId: g.leadUserId,
       })),
     };
   }
@@ -245,6 +283,8 @@ export class GroupGrpcController {
         return reply(UNKNOWN_PERMISSION);
       case 'escalation':
         return reply(ESCALATION);
+      case 'unknown_user':
+        return reply(UNKNOWN_USER);
       default:
         return reply(NOT_FOUND);
     }

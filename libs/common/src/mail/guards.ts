@@ -15,6 +15,13 @@
  * ⚠️ The **opposite** default governs channel secrets (`CHANNEL_SECRETS`), where absent means *nothing
  * can be verified so nothing is accepted*. That is not an inconsistency: unrestricted egress is a real
  * production setting, whereas an unverifiable webhook never is.
+ *
+ * ⚠️ **And two more live in `net/ip-allow-list.ts`, with two more meanings of empty** — the inbound
+ * per-key allow-list (empty ⇒ nobody may act) and the boundary deny-list (empty ⇒ nobody is refused).
+ * Three files, four lists, three defaults, each correct for its own question. They are named here so
+ * a reader meeting this one second never has to wonder whether the other was a mistake, and
+ * `tests/network/deny-list-semantics.spec.ts` asserts all three side by side — because «making these
+ * consistent» is a one-line change that looks obviously right and is catastrophic in two directions.
  */
 
 /**

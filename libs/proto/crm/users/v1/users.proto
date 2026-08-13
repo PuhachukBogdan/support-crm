@@ -414,6 +414,19 @@ service UsersMaintenanceService {
   // turn a person back on» has one answer rather than a second path nobody audited.
   rpc SetOperatorActive(SetOperatorActiveRequest) returns (SetOperatorActiveResult);
 
+  /**
+   * ⭐ W32 (roadmap 3.16, ADR 0043 §4) — move a departing colleague's PORTFOLIO to a named successor.
+   *
+   * ⚠️ Per player this is CLOSE the current period and OPEN a new one, in ONE transaction — and that
+   * is forced by the database, not chosen for tidiness: the partial unique index permits only one open
+   * period per player, so the new one cannot exist beside the old. Two separate transactions would
+   * leave a window where the player belongs to nobody, and a crash inside it would make that permanent.
+   *
+   * Idempotent by predicate: a moved player no longer matches «theirs and still open», so a
+   * half-finished pass simply resumes. Counts out — never a player id: this answer travels to a log.
+   */
+  rpc ReassignPortfolio(ReassignPortfolioRequest) returns (ReassignPortfolioResult);
+
   // Delete the bytes of ephemeral artefacts past their expiry, then their rows. Idempotent by
   // predicate: a purged row leaves the predicate because the row is gone. Counts only in the response.
   rpc PurgeExpiredArtefacts(MaintenanceBatchRequest) returns (PurgeResult);
@@ -990,3 +1003,23 @@ message SetOperatorActiveRequest {
   string auth_user_id = 1;
   bool active = 2;
 }
+
+message ReassignPortfolioRequest {
+  // A machine has no account of its own; the row carries it, like every other maintenance call here.
+  string account_id = 1;
+  // Both are AUTH user ids — the id space `PlayerAssignment.am_auth_user_id` holds. No translation
+  // happens in this service, deliberately: the one place auth ids become operator ids is the worker.
+  string from_auth_user_id = 2;
+  string to_auth_user_id = 3;
+  int32 limit = 4; // server-clamped, like every maintenance batch
+}
+
+message ReassignPortfolioResult {
+  int32 moved = 1;
+  // Stopped being the departing person's between the read and the write — a human reassigned them, or
+  // an earlier pass already moved them. Counted as neither moved nor failed: claiming a move we did
+  // not make would inflate the report an administrator reads.
+  int32 skipped = 2;
+  int32 remaining = 3;
+}
+

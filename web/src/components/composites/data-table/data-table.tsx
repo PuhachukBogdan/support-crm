@@ -1,13 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-  type RowSelectionState,
-} from '@tanstack/react-table';
+import { type ColumnDef } from '@tanstack/react-table';
 import {
   Table,
   TableBody,
@@ -97,6 +91,55 @@ declare module '@tanstack/react-table' {
   interface ColumnMeta<TData, TValue> {
     tier?: ColumnTier;
   }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════
+ * ⛔⛔ **TANSTACK TABLE'S ROW MODEL IS GONE FROM THE RENDER PATH — this is the freeze fix.**
+ *
+ * The operator froze this page three times. Bisected on the live stand by probe switches shipped in one
+ * deploy, reading React's own scheduler through a patched `MessagePort.postMessage`:
+ *
+ *   at rest                                     0 posts
+ *   ?probe=nolist   (no table at all)            2
+ *   ?probe=norows   (table, row model NOT called) 2
+ *   ?probe=plaincells (row model called)     24 057   ← loops
+ *   no probe                                ~23 000   ← loops, ~9 000/s, for ever
+ *
+ * ResizeObserver callbacks: **zero** throughout, so it is not the width/measurement loop earlier fixes
+ * chased; removing Radix Select from the header and removing the virtualizer changed nothing. The one
+ * line that separates quiet from a commit storm is `table.getRowModel()`.
+ *
+ * ⇒ And the composite used TanStack Table for the CORE ROW MODEL AND NOTHING ELSE — no sorting, no
+ * filtering, no pagination, no grouping lived in it. `items.map` is the whole of what it was doing.
+ * `ColumnDef` stays as the DECLARATION format (so no screen changes) and this file renders it directly:
+ * `renderHeader` / `renderCell` below are the two lines of glue that replace the dependency.
+ *
+ * ⚠️ What we lose, stated: nothing this product used. What we gain: a render path with no library
+ * state machine in it, which is why the page cannot storm any more. If a future screen genuinely needs
+ * grouping or column resizing, the right move is a second composite that owns that complexity — not
+ * putting a state machine back under every list.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Render a column's declared `header`, whatever form it takes (component, element, or string). */
+function renderHeader<T>(col: ColumnDef<T, unknown>): React.ReactNode {
+  const h = col.header;
+  if (typeof h === 'function') {
+    const Comp = h as unknown as React.ComponentType<{ column: { columnDef: ColumnDef<T, unknown> } }>;
+    return <Comp column={{ columnDef: col }} />;
+  }
+  return h ?? null;
+}
+
+/** Render a column's declared `cell`. The shape mirrors what a `ColumnDef` cell already expects. */
+function renderCell<T>(col: ColumnDef<T, unknown>, item: T, id: string): React.ReactNode {
+  const c = (col as { cell?: unknown }).cell;
+  if (typeof c === 'function') {
+    const Comp = c as unknown as React.ComponentType<{ row: { original: T; id: string } }>;
+    return <Comp row={{ original: item, id }} />;
+  }
+  return (c as React.ReactNode) ?? null;
 }
 
 /** Lowest first — the order columns are shed in. `essential` is absent because it is never shed. */
@@ -220,16 +263,11 @@ export function DataTable<T>({
   const items = state.status === 'ready' ? state.data.items : [];
 
   /**
-   * ⚠️ `NO_SELECTION` is a module constant, not `?? []`. A fresh `[]` per render made the memo below
-   * recompute every render, so `state.rowSelection` reached TanStack as a NEW OBJECT on every render —
-   * one link in the "new identity per render" chain that fed the table's own state machinery. Every
-   * such link is a candidate for the commit storm this file's big note describes.
+   * ⚠️ `NO_SELECTION` is a module constant, not `?? []` — a fresh `[]` per render would make every memo
+   * that depends on it recompute per render. Selection is now a plain array of ids: with the row model
+   * gone there is no library state to mirror it into.
    */
   const selected = rowSelection?.selected ?? NO_SELECTION;
-  const rowSelectionState: RowSelectionState = useMemo(
-    () => Object.fromEntries(selected.map((id) => [id, true])),
-    [selected],
-  );
 
   /** Measured here, never handed in: see {@link useMeasuredWidth}. */
   const rootRef = useRef<HTMLDivElement>(null);
@@ -247,45 +285,18 @@ export function DataTable<T>({
     if (!selectable) return fitting;
     const selectCol: ColumnDef<T, unknown> = {
       id: '__select',
-      header: ({ table }) => (
+      header: () => (
         <Checkbox
           aria-label="Select all"
-          checked={table.getIsAllRowsSelected()}
-          onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          aria-label={`Select row ${row.id}`}
-          checked={row.getIsSelected()}
-          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          checked={items.length > 0 && selected.length === items.length}
+          onCheckedChange={(v) => onSelectionChange?.(v ? items.map((r) => getRowId(r)) : [])}
         />
       ),
       size: 40,
     };
     return [selectCol, ...fitting];
-  }, [fitting, selectable]);
+  }, [fitting, selectable, items, selected, onSelectionChange, getRowId]);
 
-  const table = useReactTable({
-    data: items,
-    columns: allColumns,
-    getRowId,
-    getCoreRowModel: getCoreRowModel(),
-    state: { rowSelection: rowSelectionState },
-    enableRowSelection: !!rowSelection,
-    onRowSelectionChange: (updater) => {
-      if (!onSelectionChange) return;
-      const next = typeof updater === 'function' ? updater(rowSelectionState) : updater;
-      onSelectionChange(Object.keys(next).filter((k) => next[k]));
-    },
-  });
-
-  // ⚠️ TEMPORARY probe: `?probe=norows` keeps the table instance but renders no body rows.
-  const probeNoRows =
-    typeof window !== 'undefined' && window.location.search.includes('probe=norows');
-  const probePlainCells =
-    typeof window !== 'undefined' && window.location.search.includes('probe=plaincells');
-  const rows = probeNoRows ? [] : table.getRowModel().rows;
   const parentRef = useRef<HTMLDivElement>(null);
   const colCount = allColumns.length;
 
@@ -355,25 +366,27 @@ export function DataTable<T>({
          */}
         <Table className="table-fixed">
           <TableHeader className="sticky top-0 z-sticky bg-card">
-            {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id}>
-                {hg.headers.map((header) => (
-                  <TableHead key={header.id} className="truncate">
-                    {header.isPlaceholder ? null : onSortChange && header.column.id !== '__select' ? (
+            <TableRow>
+              {allColumns.map((col) => {
+                const id = col.id ?? '';
+                const content = renderHeader(col);
+                return (
+                  <TableHead key={id} className="truncate">
+                    {onSortChange && id !== '__select' ? (
                       <button
                         type="button"
                         className="font-medium hover:underline"
-                        onClick={() => cycleSort(header.column.id)}
+                        onClick={() => cycleSort(id)}
                       >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {content}
                       </button>
                     ) : (
-                      flexRender(header.column.columnDef.header, header.getContext())
+                      content
                     )}
                   </TableHead>
-                ))}
-              </TableRow>
-            ))}
+                );
+              })}
+            </TableRow>
           </TableHeader>
           <TableBody>
             {status === 'loading' && (
@@ -397,33 +410,43 @@ export function DataTable<T>({
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((row, index) => {
+            {items.map((item, index) => {
+              const id = getRowId(item);
+              const isSelected = selected.includes(id);
               return (
                 <TableRow
-                  key={row.id}
-                  // Pinned so the row a browser lays out is the row the virtualizer budgeted for.
+                  key={id}
+                  // Pinned so no cell can make a row taller than the row-height contract.
                   className={ROW_HEIGHT_CLASS}
                   data-index={index}
-                  data-selected={row.getIsSelected()}
+                  data-selected={isSelected}
                 >
-                  {/* ⚠️ TEMPORARY probe: `?probe=plaincells` renders the row id instead of the
-                      declared cells, isolating flexRender's cell components from the row markup. */}
-                  {probePlainCells ? (
-                    <TableCell colSpan={colCount} className="truncate text-xs">
-                      {row.id}
-                    </TableCell>
-                  ) : (
-                  row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      // Single line, clipped — so no cell can make the row taller than the pin.
-                      // ⓘ Not on the checkbox column: `overflow-hidden` there clips its focus ring,
-                      // and a checkbox has nothing to truncate anyway.
-                      className={cell.column.id === '__select' ? undefined : 'truncate'}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  )))}
+                  {allColumns.map((col) => {
+                    const colId = col.id ?? '';
+                    return (
+                      <TableCell
+                        key={colId}
+                        // Single line, clipped — so no cell can make the row taller than the pin.
+                        // ⓘ Not on the checkbox column: `overflow-hidden` there clips its focus ring,
+                        // and a checkbox has nothing to truncate anyway.
+                        className={colId === '__select' ? undefined : 'truncate'}
+                      >
+                        {colId === '__select' ? (
+                          <Checkbox
+                            aria-label={`Select row ${id}`}
+                            checked={isSelected}
+                            onCheckedChange={(v) =>
+                              onSelectionChange?.(
+                                v ? [...selected, id] : selected.filter((s2) => s2 !== id),
+                              )
+                            }
+                          />
+                        ) : (
+                          renderCell(col, item, id)
+                        )}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               );
             })}

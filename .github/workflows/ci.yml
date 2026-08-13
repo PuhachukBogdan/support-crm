@@ -61,8 +61,12 @@ jobs:
             #
             # Newlines are `%0A` and a literal `%` is `%25` — the workflow-command escaping, in that order
             # (escaping `%` after the newlines would double-escape the separators).
-            detail=$(grep -E '^(FAIL |Summary of all failing tests)|^\s+● ' /tmp/test-output.txt \
-              | grep -v '● Console' | sort -u | head -25)
+            # The failing suites and assertions, PLUS the first failure's own block — the diff is what
+            # names the offending line, and a test name alone sends the reader guessing (it did: the first
+            # annotation identified a source-scanning test and not the source it objected to).
+            detail=$( { grep -E '^(FAIL |Summary of all failing tests)' /tmp/test-output.txt | sort -u | head -12
+                        awk '/^[[:space:]]+● /{ if (!/● Console/) { block=1 } } block { print; n++ } n>45{ exit }' \
+                          /tmp/test-output.txt; } | head -60)
             esc=$(printf '%s' "$detail" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r//g;s/\n/%0A/g')
             echo "::error title=Test failures::${esc}"
             {

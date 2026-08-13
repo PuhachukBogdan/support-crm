@@ -149,10 +149,20 @@ running). `ws/ws-path.spec.ts` fails the build on a second class or a bare decor
   enriches nothing, holds no chats client on this path, and stays a fan-out rather than a read path.
 - Subscribes per account on the first socket, unsubscribes on the last; the subscriber is a `duplicate()`d
   Redis connection (a client in subscribe mode may not run commands).
-- ⚠️ **Deployment:** whatever fronts the app must route `/ws` to this gateway on the SAME ORIGIN as the
-  page. A cookie-authenticated socket cannot be cross-origin (`SameSite=Lax` is not sent on a cross-site
-  upgrade; `SameSite=None` requires `Secure`+https), and a reverse proxy's basic-auth must exempt `/ws`
-  (browsers send no basic credentials on an upgrade). The stand's Caddyfile carries the worked example.
+- ⚠️ **Deployment — three things, and all three failed once each.** Whatever fronts the app must:
+  1. route `/ws` on the **SAME ORIGIN as the page** — a cookie-authenticated socket cannot be cross-origin
+     (`SameSite=Lax` is not sent on a cross-site upgrade; `SameSite=None` requires `Secure`+https);
+  2. **exempt `/ws` from any basic-auth**, because browsers send no basic credentials on an upgrade, so the
+     lock answers 401 and every socket dies. This is not a weakening: the handshake check above already
+     refuses a cookie-less socket with 1008, measured on the public origin;
+  3. be able to **reach this container** — `/ws` cannot be proxied through Next.js, so it goes straight to
+     the gateway, which is why `compose.yaml` puts the gateway on the shared `edge` network as well as
+     `default`. ⚠️ Both, not just `edge`: in compose a `networks:` key **replaces** the implicit default
+     membership, and dropping it costs every gRPC target and Redis by name.
+
+  Symptoms are indistinguishable from one another at the browser (a socket that never delivers): 401 from
+  the lock, 502 with the container off `edge`. `tests/integration/local-infra/proxy-reachable-containers-keep-both-networks.spec.ts`
+  guards (3); the stand's Caddyfile carries the worked example of (1) and (2), with the reasoning inline.
 
 Canonical sources: `libs/common/src/realtime/events.ts` (the event contract and why it carries no content),
 `specs/034-realtime-fanout/spec.md`, `deploy/local/live-w4.sh`.

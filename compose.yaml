@@ -124,6 +124,20 @@ services:
     # Set GATEWAY_BIND=0.0.0.0 deliberately if some tool really must reach it from elsewhere.
     ports:
       - '${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-3000}:3000'
+    # ── Why the gateway is on the `edge` network too (feature 034, W4) ─────────────────────────────
+    # The realtime socket is the ONE path the shared Caddy must route to the gateway rather than to
+    # the web container: Next.js does not proxy a WebSocket upgrade, so `/ws` goes straight here.
+    # Caddy is not part of this compose project, so it can only reach a container that shares the
+    # external `edge` network with it — exactly the reason `web` is on two networks (see below).
+    #
+    # ⚠️ This publishes NOTHING new. The host port above stays loopback-bound and Caddy routes only
+    # `/ws` here; joining a docker network is not an internet exposure. The socket is authenticated
+    # in the gateway itself — a handshake without a valid session cookie is closed with 1008 — which
+    # is what lets the stand's outer basic auth skip this one path (a browser sends no basic-auth
+    # credentials on an upgrade, so keeping the lock on `/ws` closed every socket).
+    networks:
+      - default
+      - edge
 
   auth:
     <<: *service-base

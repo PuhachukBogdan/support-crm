@@ -49,12 +49,22 @@ export const PRESENCE_TONE: Readonly<Record<string, string>> = {
 };
 
 /**
- * What to CALL a state on screen: the account's own label when it has one, else the state's plain
- * word. `''` for a state the product does not recognise — never a guess.
+ * What to CALL a state on screen. `''` for a state the product does not recognise — never a guess.
  *
- * `names` comes from `usePresenceLabels()` (the account's table). Omitting it is legitimate and gives
- * the built-in wording; passing it is what lets an administrator's «Обед» reach the screen.
+ * ── Why this does NOT read the account's presence labels, though they exist ──────────────────────
+ * ⚠️ Tried and reverted the same day (2026-08-10), because live data showed it was the wrong model.
+ * A `PresenceLabel` row is a **preset with a reason** («Обед», «Совещание»), and several map to ONE
+ * state: on the stand, `Break`+`Lunch` are both `away`, and `Meeting`+`VIP task` are both
+ * `transfers_only`. So "use the account's label as the state's name" would have
+ *  · silently dropped one of each pair, and
+ *  · renamed the routing state `transfers_only` to «Meeting» — a REASON standing in for a BEHAVIOUR
+ *    («only handed-over work reaches you»), which is a different fact.
+ *
+ * ⇒ The four states keep their own neutral wording here, and offering the account's presets as extra
+ * choices is a separate feature (noted on W22 in the plan), not something to smuggle into a rename.
+ * The contract this file broke on its first day is satisfied by the wording above being the STATE's
+ * own word rather than a seeded label — not by reading the table.
  */
-export function presenceLabel(state: string, names?: Readonly<Record<string, string>>): string {
-  return names?.[state] ?? PRESENCE_CHOICES.find((c) => c.state === state)?.label ?? '';
+export function presenceLabel(state: string): string {
+  return PRESENCE_CHOICES.find((c) => c.state === state)?.label ?? '';
 }

@@ -49,11 +49,6 @@ const SIGNED_IN = {
 
 interface StubOptions {
   presence?: string;
-  /**
-   * The account's own words for the states. Empty ⇒ the built-in fallback wording.
-   * ⚠️ The four seeded words are never written in this file — the contract test scans `.test.tsx`.
-   */
-  presenceLabels?: { id: string; name: string; state: string }[];
   displayName?: string;
   avatarUploadId?: string;
   /** `PUT /presence/me` fails — the optimistic badge must go BACK. */
@@ -69,9 +64,8 @@ interface Stub extends DataAccess {
 function stub(opts: StubOptions = {}): Stub {
   const s: Stub = {
     writes: [],
-    async list<T = unknown>(resource: ResourceName): Promise<PaginatedResult<T>> {
-      const items = resource === 'presence-labels' ? (opts.presenceLabels ?? []) : [];
-      return { items: items as unknown as T[], nextCursor: null, hasMore: false };
+    async list<T = unknown>(): Promise<PaginatedResult<T>> {
+      return { items: [], nextCursor: null, hasMore: false };
     },
     async get<T = unknown>(resource: ResourceName): Promise<T> {
       if (resource === 'me-operator') {
@@ -160,30 +154,33 @@ describe('*** ⭐ the window exists, in the rail, on every screen ***', () => {
   });
 
   /**
-   * ⚠️⚠️ **The words in this menu belong to the ACCOUNT, not to our source.** `Break` · `Lunch` ·
-   * `Meeting` · `VIP task` are rows an administrator edits (ADR 0042 §7), and
+   * ⚠️⚠️ **The menu names the four STATES, and must not name them with a word an administrator owns.**
+   *
+   * `Break` · `Lunch` · `Meeting` · `VIP task` are rows in a table (ADR 0042 §7), and
    * `tests/contracts/presence-label-never-branched-on.spec.ts` fails the build when a screen turns one
    * into a constant: *"The seed may name them; the product may not."* This file's first version wrote
-   * `'Break'` and that test caught it — which is the whole reason the guard exists.
+   * `'Break'` and that test caught it.
    *
-   * ⇒ Asserted with a word that could only have come from the account's own table.
+   * ⓘ Offering those admin PRESETS as extra choices is a separate feature (noted on W22): several map
+   * to one state — on the stand `Break` and `Lunch` are both `away` — so using one as the state's name
+   * would drop the other and rename a routing behaviour after a reason.
    */
-  it('⭐ an administrator’s own word for a state is what the menu says', async () => {
-    renderMenu({
-      presence: 'away',
-      presenceLabels: [{ id: 'pl-1', name: 'Тренировка', state: 'away' }],
-    });
-
+  it('⛔ the menu never names a state with an administrator-owned word', async () => {
+    renderMenu({ presence: 'away' });
     await screen.findByTestId('presence-dot');
-    await waitFor(() =>
-      expect(screen.getByTestId('user-menu-trigger')).toHaveAttribute(
-        'aria-label',
-        expect.stringContaining('Тренировка'),
-      ),
-    );
     open();
-    // The item itself too, not only the accessible name.
-    expect(await screen.findByTestId('presence-away')).toHaveTextContent('Тренировка');
+
+    await screen.findByTestId('user-menu');
+    /**
+     * ⚠️ Asserted POSITIVELY — each item says exactly the state's own built-in word — and that shape is
+     * not a stylistic choice. Listing the forbidden words here to check their absence is itself what
+     * the guard forbids: it scans `.test.tsx`, and the first version of this very test failed on
+     * naming them. So the check has to be "the text is the state's word", which is the stronger claim
+     * anyway: any word from anywhere else, admin-owned or invented, fails it.
+     */
+    for (const c of PRESENCE_CHOICES) {
+      expect(screen.getByTestId(`presence-${c.state}`)).toHaveTextContent(c.label);
+    }
   });
 
   it('renders even when /me/operator fails — chrome must not disappear because a read did', async () => {

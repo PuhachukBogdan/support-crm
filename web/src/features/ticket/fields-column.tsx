@@ -12,7 +12,6 @@ import { relativeTime } from '@/features/inbox/wire-labels';
 import { useStatuses } from '@/features/inbox/use-statuses';
 import { PRIORITY_OPTIONS } from '@/data/priorities';
 import { presenceLabel } from '@/data/presence';
-import { usePresenceLabels } from '@/data/use-presence-labels';
 import { EditableChoice, EditableText, ReadOnlyValue } from './editable';
 import { useAssignableOperators } from './use-assignable-operators';
 import { IdentityPanel } from './identity-panel';
@@ -100,8 +99,6 @@ export function FieldsColumn({
   // ⓘ Empty for anybody without BOTH `users.list.view` and `crm.conversation.assign` — the hook says
   // why, and the field falls back to the read-only name plus «take it» rather than to a broken menu.
   const { operators: assignable } = useAssignableOperators();
-  // The ACCOUNT's word for each state — never a literal here (see `use-presence-labels.ts`).
-  const presenceNames = usePresenceLabels();
 
   // ⭐ From the ACCOUNT's catalogue, active only: a retired status renders on an old ticket (see
   // `EditableChoice`) but cannot be chosen again — the unbuildable-contradiction rule the Inbox
@@ -117,7 +114,7 @@ export function FieldsColumn({
    * colleague from it would hide the reason the ticket then sits still.
    */
   const assigneeOptions = assignable.map((o) => {
-    const state = presenceLabel(o.state, presenceNames);
+    const state = presenceLabel(o.state);
     return { value: o.operatorId, label: state ? `${o.displayName} — ${state}` : o.displayName };
   });
 

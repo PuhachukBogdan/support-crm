@@ -159,27 +159,6 @@ describe('*** ⭐ Assignee is a chooser over the account’s staff, by name ***'
     expect(field).toBeInTheDocument();
   });
 
-  /**
-   * ⚠️⚠️ The presence words are the ACCOUNT's, not this product's. `Break` · `Lunch` · `Meeting` ·
-   * `VIP task` are rows an administrator edits (ADR 0042 §7), and
-   * `tests/contracts/presence-label-never-branched-on.spec.ts` fails the build when a screen writes one
-   * as a literal — it scans `.test.tsx` too, which is how this suite learned the rule.
-   *
-   * So the assertion is made with a word no seed and no source could have supplied.
-   */
-  it('⭐ an administrator’s own word for a state reaches the chooser (never a literal in our code)', async () => {
-    renderWindow({
-      presenceLabels: [{ id: 'pl-1', name: 'Тренировка', state: 'away' }],
-    });
-    await screen.findByTestId('field-assignee');
-
-    openMenu('field-assignee');
-    // Oleg is `away`; the account calls that state «Тренировка», so that is what must be on screen…
-    expect(await screen.findByText('oleg@example.test — Тренировка')).toBeInTheDocument();
-    // …and the built-in fallback wording must NOT be, or the account's word was ignored.
-    expect(screen.queryByText(/oleg@example\.test — Away/)).not.toBeInTheDocument();
-  });
-
   it('asks the translation only for the ids the staff list returned — never an open-ended list', async () => {
     const stub = renderWindow();
     await screen.findByTestId('field-assignee');

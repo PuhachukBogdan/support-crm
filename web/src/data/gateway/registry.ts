@@ -173,9 +173,12 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     resource: 'players',
     path: '/players',
     collection: 'players',
-    // `brandId` is the ONLY accepted filter and it is REQUIRED: an unfiltered read would be "every
-    // customer in the account", which is the anti-pitching failure itself rather than a wider query.
-    params: { brandId: 'brandId' },
+    // `brandId` is REQUIRED: an unfiltered read would be "every customer in the account", which is
+    // the anti-pitching failure itself rather than a wider query.
+    // ⭐ W11 adds `playerIdPrefix` — the directory's search, by the PLATFORM ID the agent already
+    // has. ⛔ There is deliberately no `email`/`phone` key and there must never be one: searching by
+    // a contact is the inversion, and it lives only under a conversation (ADR 0044 §4).
+    params: { brandId: 'brandId', playerIdPrefix: 'playerIdPrefix' },
     required: ['brandId'],
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
@@ -312,6 +315,22 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     pageTokenParam: 'pageToken',
     verbs: { update: 'POST' },
     ops: ['update'],
+  },
+  /**
+   * ⭐ W11 (roadmap 9.17) — the account's brands. It exists because every player read REQUIRES a
+   * brand and the browser had no way to learn which ones there are. ⚠️ A brand is a FILTER, not a
+   * wall (ADR 0038 §1): this list decides nothing about access, and no screen may treat it as if
+   * it did.
+   */
+  {
+    resource: 'brands',
+    path: '/brands',
+    collection: 'brands',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
   },
   /**
    * ⭐ W10 (roadmap 4.13) — the player's contact history, for the card in the right rail. A CHILD of

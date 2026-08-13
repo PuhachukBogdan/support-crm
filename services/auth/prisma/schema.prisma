@@ -288,6 +288,27 @@ model Group {
   /// in the product and no code branches on one — ADR 0039 §9, guarded by a structural test.
   name       String
   active     Boolean  @default(true)
+
+  /// ⭐ Feature 031 (roadmap 4.20/4.21, ADR 0042) — is this desk a ROUTED QUEUE?
+  ///
+  /// Automatic distribution may push work only to a desk marked here. The router asks *"is this desk a
+  /// queue?"* rather than *"who is this person?"* — which is what it always wanted to know, and which
+  /// needs no exception for an account manager who legitimately belongs to a mixed desk.
+  ///
+  /// ⚠️ **DEFAULTS TO FALSE, and that default is the whole point.** Defaulting to true would make every
+  /// existing group a routed desk on deploy — **including the AM desks** — so the migration itself would
+  /// open the hole this column exists to close, silently. False stops automatic distribution until an
+  /// administrator opts each desk in: loud, visible within minutes, and nobody is handed a customer they
+  /// should not have. Same rule as the presence decoder defaulting to `offline` rather than `online`.
+  ///
+  /// ⚠️ **Consequence, stated rather than discovered:** on any existing deployment auto-assignment goes
+  /// quiet until desks are marked. That is in the migration note too.
+  ///
+  /// ⓘ NOT the same fact as `active`. An inactive desk does not exist for anybody; a non-routable desk is
+  /// a perfectly good desk that people are assigned to **by hand** — an AM's book of business is exactly
+  /// that. Collapsing the two would make "not fed by the router" mean "deleted".
+  routable   Boolean  @default(false)
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

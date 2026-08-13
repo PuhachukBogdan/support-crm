@@ -1,0 +1,32 @@
+-- Feature 031 (roadmap 4.20/4.21, ADR 0042) — is a desk a ROUTED QUEUE?
+--
+-- Purely ADDITIVE: one boolean on an existing table, with a default, so no backfill statement is
+-- needed and no existing row is rewritten.
+--
+-- ⚠️⚠️ THE DEFAULT IS THE DECISION, AND IT CHANGES BEHAVIOUR ON DEPLOY.
+--
+-- `routable` defaults to FALSE, which means: **after this migration, automatic distribution pushes
+-- work to NO desk until an administrator marks each one.** That is deliberate, and the alternative was
+-- worse in a way that would not have been visible.
+--
+-- Defaulting to TRUE would have made every existing group a routed queue the moment this shipped —
+-- **including the account managers' desks**. An AM would then be handed a stranger's conversation by
+-- the router, which is precisely what roadmap 4.14 exists to prevent, and the migration itself would
+-- have been what opened the hole. Nobody would have seen it: the router would keep answering
+-- successfully, and the only symptom would be a manager quietly holding work that is not theirs.
+--
+-- FALSE fails in the other direction: routing stops, everyone notices within minutes, and no customer
+-- data reaches anybody who should not have it. The same rule the presence decoder follows when an
+-- unreadable state becomes `offline` rather than `online` — when a default cannot be right for
+-- everybody, pick the direction whose failure is loud.
+--
+-- ⇒ **OPERATIONAL NOTE FOR WHOEVER DEPLOYS THIS:** auto-assignment will go quiet. Mark the queue desks
+-- (support, VIP support) as routable and leave the AM desks alone. If routing appears "broken" after
+-- this migration, this is why, and it is the intended state rather than a regression.
+--
+-- ⓘ Deliberately NOT reusing `active`. An inactive desk does not exist for anybody; a non-routable desk
+-- is a perfectly good desk whose members are assigned work BY HAND — an account manager's book of
+-- business is exactly that. Collapsing the two would make "not fed by the router" mean "deleted", and
+-- an administrator would have to delete a working desk to stop it receiving pushed work.
+
+ALTER TABLE "Group" ADD COLUMN "routable" BOOLEAN NOT NULL DEFAULT false;

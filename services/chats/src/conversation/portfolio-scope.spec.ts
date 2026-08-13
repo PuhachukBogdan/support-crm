@@ -45,16 +45,23 @@ describe('who is narrowed to their own portfolio', () => {
     expect(derived.length).toBeGreaterThan(0);
   });
 
-  it('⚠️ an unreadable role NARROWS — fail closed', () => {
-    // Read as "not an AM", a manager whose role header failed to arrive would see EVERY conversation in
-    // the account: the exact over-reach this point removes, and invisible. Read as narrowed, somebody
-    // sees an empty queue — visible in minutes.
-    expect(narrowsToPortfolio(new Metadata())).toBe(true);
-    expect(narrowsToPortfolio(undefined)).toBe(true);
-    expect(narrowsToPortfolio(asRole(''))).toBe(true);
-    // An unknown role also narrows: `visibleTiersFor` is fail-closed to `open`, so it cannot be an
-    // administrator, and this feature refuses to guess.
-    expect(narrowsToPortfolio(asRole('role_invented_next_year'))).toBe(true);
+  it('⚠️ an absent or unknown role does NOT narrow — it agrees with the tier system', () => {
+    /**
+     * ⚠️ **This assertion was the opposite way round first, and the gateway settled it.**
+     * `actor-metadata.ts` sets `x-actor-effective-role` only `if (resolved?.roleKey)`, so an absent role
+     * is a reachable NORMAL state — narrowing on it would empty the queue for every such caller, a worse
+     * outcome than the over-reach this point removes. Sixteen existing specs failed and proved the state
+     * is ordinary rather than exceptional.
+     *
+     * It is also what the product already answers: `visibleTiersFor('')` → `['open']`, i.e. least
+     * privileged and NOT an AM. Such a caller therefore receives no `am_only` field either, which bounds
+     * the exposure — and narrowing here while masking there would be two mechanisms disagreeing about who
+     * an AM is (ADR 0039 §2).
+     */
+    expect(narrowsToPortfolio(new Metadata())).toBe(false);
+    expect(narrowsToPortfolio(undefined)).toBe(false);
+    expect(narrowsToPortfolio(asRole(''))).toBe(false);
+    expect(narrowsToPortfolio(asRole('role_invented_next_year'))).toBe(false);
   });
 
   it('reads the ACTING role, not the underlying one (view-as preview)', () => {

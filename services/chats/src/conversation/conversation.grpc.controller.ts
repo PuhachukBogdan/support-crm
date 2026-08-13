@@ -6,6 +6,8 @@ import type { Metadata } from '@grpc/grpc-js';
 import { ChatsAccessGuard } from '../security/permission.guard';
 import { RequiresChatsPermission } from '../security/requires-chats-permission.decorator';
 import { readActorContext, resolveBrandIn } from '../security/actor-context';
+import { PersonMembersClient, toPersonRpc } from '../person/person-members.client';
+import { inPortfolio, narrowsToPortfolio } from './portfolio-scope';
 import {
   clampPageSize,
   decodeOrderedCursor,
@@ -58,7 +60,27 @@ export class ConversationReadController {
   constructor(
     @Inject(ConversationRepository) private readonly repo: ConversationRepository,
     @Inject(SlaRepository) private readonly sla: SlaRepository,
+    @Inject(PersonMembersClient) private readonly person: PersonMembersClient,
   ) {}
+
+  /**
+   * The caller's portfolio scope, or `undefined` when they are not portfolio-scoped (feature 030,
+   * roadmap 4.14).
+   *
+   * ⚠️ **Fail closed.** If the portfolio cannot be established the read must FAIL, never fall back to an
+   * unnarrowed list — an unavailable `users` and "attached to nobody" are indistinguishable unless one of
+   * them is an error, and the wrong one of those hands over every VIP conversation in the account. The
+   * refusal keeps the downstream status (a 403 stays a 403) so *"you may not ask this"* and *"the source
+   * is down"* remain different facts.
+   */
+  private async portfolioScope(metadata: Metadata) {
+    if (!narrowsToPortfolio(metadata)) return undefined;
+    try {
+      return await this.person.attachedPlayersOfCaller(metadata);
+    } catch (err) {
+      throw toPersonRpc(err);
+    }
+  }
 
   @GrpcMethod('ChatsReadService', 'ListConversations')
   @RequiresChatsPermission('crm.inbox.view')
@@ -105,7 +127,12 @@ export class ConversationReadController {
       idIn = await this.sla.conversationIdsByOutcome(ctx.accountId, outcome);
     }
 
+    // Feature 030 (roadmap 4.14): resolved BEFORE the query and passed as a scope, so no filter the
+    // caller supplied can widen it — the scope has no wire representation at all.
+    const portfolioIn = await this.portfolioScope(metadata);
+
     const { rows, nextCursor } = await this.repo.list(ctx.accountId, {
+      ...(portfolioIn ? { portfolioIn } : {}),
       status: wireToStatus(req.status),
       priority: req.priority || undefined,
       assigneeOperatorId: req.assigneeOperatorId || undefined,
@@ -133,6 +160,21 @@ export class ConversationReadController {
     // Not in this account, or a brand the caller may not serve → identical NOT_FOUND (no existence
     // disclosure across tenants — spec Edge Cases).
     if (!row) {
+      throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    }
+    /**
+     * ⭐ Feature 030 (roadmap 4.14): the SAME scope on the detail path.
+     *
+     * ⚠️ A list-only narrowing is the defect shape roadmap 9.1 shipped — *the rail stopped rendering the
+     * link and the route kept answering*. An id is guessable from a colleague's screen or a pasted URL,
+     * so a queue narrowed only in the list is not narrowed.
+     *
+     * Refused as **NOT_FOUND**, identical to the cross-tenant answer above: *"outside your portfolio"*
+     * and *"does not exist"* must be indistinguishable, or the refusal itself confirms the conversation
+     * exists and names somebody else's customer by implication.
+     */
+    const portfolioIn = await this.portfolioScope(metadata);
+    if (portfolioIn && !inPortfolio(row, portfolioIn)) {
       throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
     }
     // Feature 014: the first-reply measurement rides on the detail so the UI needs no second call.

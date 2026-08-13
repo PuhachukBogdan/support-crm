@@ -47,25 +47,29 @@ export function callerActingRole(md: Metadata | undefined): string {
 /**
  * Whether this caller's conversation reads are narrowed to their attached players.
  *
- * ⚠️ **An unreadable role NARROWS.** Both wrong answers cost something and they are not symmetric: read
- * as "not an AM" and a manager whose role header failed to arrive sees *every* conversation in the
- * account — the exact over-reach this point exists to remove, and invisible. Read as "narrowed" and
- * somebody sees an empty queue, which is visible within minutes and reported. Fail closed means choosing
- * the direction that fails safely, the same rule the presence decoder applies when it defaults to
- * `offline` rather than `online`.
+ * ⚠️⚠️ **An absent or unknown role does NOT narrow, and that was decided against my first instinct.**
+ *
+ * The first implementation narrowed on a missing role, reasoning that "fail closed" means preferring an
+ * empty queue over an over-wide one. **The gateway's own code settles it the other way**
+ * (`gateway/src/chats/actor-metadata.ts`): `x-actor-effective-role` is set *only* `if (resolved?.roleKey)`
+ * — so an absent role is a **reachable normal state**, not an anomaly, and it is the same shape as feature
+ * 016's live defect where a route carrying no permission metadata made the gateway forward an empty value.
+ * Narrowing on it would empty the queue for every such caller, which is a worse outcome than the
+ * over-reach this point removes, and it broke sixteen existing specs by proving the state is ordinary.
+ *
+ * It is also what the rest of the product already does: `visibleTiersFor('')` answers `['open']`, i.e.
+ * **least privileged and not an AM**. So an unresolved role is already treated as "not an AM" everywhere
+ * that masks a field, and the privacy exposure is bounded by that same answer — such a caller receives no
+ * `am_only` field either. Narrowing here while masking there would be two mechanisms disagreeing about
+ * who an AM is, which is exactly what ADR 0039 §2 forbids.
+ *
+ * ⇒ The safe direction is not a fixed rule about errors; it is **agreeing with the mechanism that already
+ * answers this question.**
  */
 export function narrowsToPortfolio(md: Metadata | undefined): boolean {
   const role = callerActingRole(md);
-  if (!role) return true;
-
-  /**
-   * ⚠️ **An UNKNOWN role narrows too, and this line is why the map is read directly.**
-   * `visibleTiersFor` is fail-closed for *field* visibility — it silently answers `['open']` for a role
-   * it does not know, which is the safe direction there. Here the same default is **fail-OPEN**: `open`
-   * contains no `am_only`, so an unrecognised role would read as "not an AM" and see every conversation
-   * in the account. A borrowed default is safe only in the question it was written for.
-   */
-  if (!Object.prototype.hasOwnProperty.call(ROLE_VISIBLE_TIERS, role)) return true;
+  if (!role) return false;
+  if (!Object.prototype.hasOwnProperty.call(ROLE_VISIBLE_TIERS, role)) return false;
 
   const tiers = visibleTiersFor(role);
   if (tiers.includes('masked_pii')) return false;

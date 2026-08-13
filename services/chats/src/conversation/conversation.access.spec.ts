@@ -7,6 +7,7 @@ import { ConversationReadController } from './conversation.grpc.controller';
 import type { DomainEventPublisher } from '../events/events.publisher';
 import { ConversationWriteController } from './conversation.write.controller';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { PersonMembersClient } from '../person/person-members.client';
 
 function detailRow(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -71,6 +72,19 @@ function md(accountId = 'acc-1'): Metadata {
  * first-reply state on the detail). These specs predate it and are about account/brand scope + paging,
  * so it is stubbed: no filter requested ⇒ never consulted; no clock ⇒ no state on the detail.
  */
+/**
+ * Feature 030: a portfolio client that **throws if it is ever consulted** — every caller in this file is
+ * a role that is not portfolio-scoped, so reaching it means the narrowing fired for the wrong person.
+ * An empty portfolio would look identical to "not scoped" while silently matching nothing.
+ */
+function noPortfolio() {
+  return {
+    attachedPlayersOfCaller: jest.fn(async () => {
+      throw new Error('portfolio must not be consulted for a non-AM caller');
+    }),
+  } as unknown as PersonMembersClient;
+}
+
 function noSla() {
   return {
     conversationIdsByOutcome: jest.fn(async () => [] as string[]),
@@ -81,7 +95,7 @@ function noSla() {
 describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
   it('returns detail for a conversation in a permitted brand', async () => {
     const { prisma, forAccount } = fakePrisma({ findFirst: jest.fn().mockResolvedValue(detailRow()) });
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
     const res = await ctrl.getConversation({ id: 'c1' }, md('acc-1'));
     expect(forAccount).toHaveBeenCalledWith('acc-1');
     expect(res).toMatchObject({ id: 'c1', brandId: 'brand-a', status: 'CONVERSATION_STATUS_OPEN' });
@@ -89,7 +103,7 @@ describe('GetConversation access (US1, Principle I + brand-scope R3)', () => {
 
   it('is NOT_FOUND when the id is absent in this account (no cross-account read)', async () => {
     const { prisma } = fakePrisma({ findFirst: jest.fn().mockResolvedValue(null) });
-    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla());
+    const ctrl = new ConversationReadController(new ConversationRepository(prisma, new TransitionRecorder()), noSla(), noPortfolio());
     await expect(ctrl.getConversation({ id: 'other-acct' }, md('acc-1'))).rejects.toBeInstanceOf(
       RpcException,
     );
@@ -196,6 +210,7 @@ describe('*** account isolation holds for the new channel filter and both orders
       ctrl: new ConversationReadController(
         new ConversationRepository(f.prisma, new TransitionRecorder()),
         noSla(),
+        noPortfolio(),
       ),
     };
   }
@@ -229,6 +244,7 @@ describe('*** account isolation holds for the new channel filter and both orders
     const ctrlA = new ConversationReadController(
       new ConversationRepository(a.prisma, new TransitionRecorder()),
       noSla(),
+      noPortfolio(),
     );
     const page = await ctrlA.listConversations({ pageSize: 50 }, md('acc-1'));
     expect(page.nextPageToken).not.toBe('');
@@ -237,6 +253,7 @@ describe('*** account isolation holds for the new channel filter and both orders
     const ctrlB = new ConversationReadController(
       new ConversationRepository(b.prisma, new TransitionRecorder()),
       noSla(),
+      noPortfolio(),
     );
     await ctrlB.listConversations({ pageToken: page.nextPageToken }, md('acc-2'));
     expect(b.forAccount).toHaveBeenCalledWith('acc-2');

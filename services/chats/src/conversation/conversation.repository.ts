@@ -129,6 +129,23 @@ export interface ListFilters {
    */
   membersIn?: Array<{ brandId: string; playerId: string }>;
   /**
+   * ⭐ Feature 030 (roadmap 4.14) — the AM's portfolio **SCOPE**, not a filter.
+   *
+   * ⚠️ **The difference is the whole point, and it is why this is a separate field from `membersIn`.**
+   * A filter narrows what the caller ASKED FOR; a scope narrows what they are ALLOWED to ask for
+   * (ADR 0038 §1's distinction). So this is `AND`-ed with every other predicate and can only ever
+   * remove rows — writing it into `membersIn` would let one clobber the other, and which one won would
+   * depend on statement order.
+   *
+   * `undefined` = this caller is not portfolio-scoped (an administrator, or a role that never sees the
+   * `am_only` tier). An **empty array** is a real, different answer: *"attached to nobody"*, which
+   * matches nothing.
+   *
+   * ⚠️ Pairs, never bare player ids: the same platform id under two brands is routinely two different
+   * human beings (feature 020 / ADR 0038 §3).
+   */
+  portfolioIn?: ReadonlyArray<{ brandId: string; playerId: string }>;
+  /**
    * Feature 029: the arrival channel. ⚠️ `undefined` means NO FILTER — it must never come to mean
    * "conversations that have no channel". ~1 in 6 rows have none, and a `channel: null` predicate
    * hiding them would remove a fifth of the queue from the default view without looking broken.
@@ -188,6 +205,26 @@ export class ConversationRepository {
         where.OR = f.membersIn.map((m) => ({ brand_id: m.brandId, player_id: m.playerId }));
     }
 
+    /**
+     * Everything that must hold **in addition** to the filters above, accumulated rather than assigned.
+     *
+     * ⚠️ The cursor clause used to assign `where.AND` outright. With a second conjunct to add (the
+     * portfolio scope) that assignment would silently drop whichever landed first — and dropping the
+     * SCOPE is the direction that returns other people's conversations, with no error anywhere.
+     */
+    const and: unknown[] = [];
+
+    if (f.portfolioIn) {
+      // Attached to nobody matches NOTHING. Expressed as `id: { in: [] }` for the same reason
+      // `membersIn` does it: an empty `OR` is a Prisma detail one refactor away from meaning "no
+      // restriction", and "no restriction" here would hand over the whole account.
+      if (f.portfolioIn.length === 0) and.push({ id: { in: [] } });
+      else
+        and.push({
+          OR: f.portfolioIn.map((m) => ({ brand_id: m.brandId, player_id: m.playerId })),
+        });
+    }
+
     if (f.cursor) {
       // ⭐ The keyset predicate MUST name the same column and the same direction as the `orderBy`
       // below. If they ever disagree, page two is drawn from a different sequence than page one — and
@@ -196,12 +233,12 @@ export class ConversationRepository {
       const at = new Date(f.cursor.sortKey);
       const beyond = direction === 'desc' ? { lt: at } : { gt: at };
       const tieBreak = direction === 'desc' ? { lt: f.cursor.id } : { gt: f.cursor.id };
-      where.AND = [
-        {
-          OR: [{ [column]: beyond }, { AND: [{ [column]: at }, { id: tieBreak }] }],
-        },
-      ];
+      and.push({
+        OR: [{ [column]: beyond }, { AND: [{ [column]: at }, { id: tieBreak }] }],
+      });
     }
+
+    if (and.length > 0) where.AND = and;
 
     const rows = (await this.prisma.forAccount(accountId).conversation.findMany({
       where,

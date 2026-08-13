@@ -97,7 +97,17 @@ function cellFor(col: InboxColumn, controls: HeaderControls): ColumnDef<Conversa
         cell: ({ row }) => {
           // ⚠️ The wire sends `CONVERSATION_STATUS_OPEN`. Rendering it lowercased put
           // `conversation_status_open` in the column on the live stand — see `wire-labels.ts`.
-          const status = statusFromWire(row.original.status);
+          /**
+           * ⚠️ `statusKey` FIRST. Feature 032 made the status a per-account key and marked the enum
+           * field deprecated — the server stopped populating it, so this column read
+           * `CONVERSATION_STATUS_UNSPECIFIED` and correctly rendered nothing. The operator's report was
+           * exact: *"в solved тикеты без такого статуса"*.
+           *
+           * ⓘ What shows is the KEY (`solved`, `vip_pending`). The account's agent-facing NAME needs the
+           * catalogue at `GET /conversations/statuses` joined client-side — 032 designed it that way, and
+           * it is a separate step, not something to fake here from a key.
+           */
+          const status = row.original.statusKey?.trim() || statusFromWire(row.original.status);
           return status ? <StatusBadge kind="status" value={status} /> : <EmptyValue />;
         },
       };

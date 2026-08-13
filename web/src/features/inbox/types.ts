@@ -18,7 +18,16 @@ export interface ConversationRow {
   id: string;
   brandId: string;
   playerId: string;
+  /**
+   * ⚠️ DEPRECATED on the wire since feature 032 and **no longer populated** — it arrives as
+   * `CONVERSATION_STATUS_UNSPECIFIED`. Kept only so an older response still renders something.
+   */
   status: string;
+  /**
+   * ⭐ The status in the model of record: a per-account CONFIGURATION key (`open`, `solved`,
+   * `vip_pending`…), not a member of a closed enum. This is what the column must read.
+   */
+  statusKey?: string;
   priority: string;
   assigneeOperatorId: string;
   channel: string;

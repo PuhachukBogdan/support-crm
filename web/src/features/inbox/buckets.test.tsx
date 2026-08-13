@@ -134,3 +134,33 @@ describe('*** the bucket rail ***', () => {
     }
   });
 });
+
+describe('the Status column reads the model of record (feature 032)', () => {
+  /**
+   * ⭐ The operator's report, verbatim: *«не тянуться статусы тикетов. То есть в solved например тикеты
+   * без такого статуса»*.
+   *
+   * Feature 032 made the status a per-account KEY and deprecated the enum field; the server stopped
+   * populating it, so a screen reading `status` got `CONVERSATION_STATUS_UNSPECIFIED` and rendered an
+   * empty cell — correctly, for a field that says nothing. Nothing was broken in the data.
+   *
+   * ⇒ **A deprecated field that still exists is a field somebody is still reading.** Emptying it on the
+   * server is only half the change.
+   */
+  it('renders the key the server sends, not the retired enum', async () => {
+    setDataAccess(stubConversations({ count: 1, rowOverrides: { statusKey: 'vip_pending' } }));
+    renderInbox();
+    await waitFor(() => expect(screen.getByText(/vip_pending/i)).toBeInTheDocument());
+  });
+
+  it('falls back to the old field, so an older response still shows something', async () => {
+    setDataAccess(
+      stubConversations({
+        count: 1,
+        rowOverrides: { statusKey: '', status: 'CONVERSATION_STATUS_OPEN' },
+      }),
+    );
+    renderInbox();
+    await waitFor(() => expect(screen.getByText(/open/i)).toBeInTheDocument());
+  });
+});

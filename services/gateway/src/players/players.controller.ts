@@ -109,7 +109,16 @@ export class PlayersController implements OnModuleInit {
    * bulk-read contacts is refused here as a 403 with nothing read and nothing recorded.
    */
   @Get('players')
-  @RequiresPermission('crm.contact.view')
+  /**
+   * ⭐ Q34's answer, made askable (2026-08-06). The directory now has its OWN key — VIP support, AM,
+   * Shift AM and teamlead hold it; a line agent does not, and reaches a customer through the ticket
+   * they are handling. Previously the entitlement was implicit in a tier comparison inside `users`,
+   * which no rail entry could ask about, so the screen was hidden from people who were allowed it.
+   *
+   * ⚠️ The tier guard in `users` STAYS: it refuses a bulk contact read on its own authority
+   * (SEC-AP2), and this key is the door, not the only lock.
+   */
+  @RequiresPermission('crm.customers.browse')
   async listPlayers(
     @Query() query: Record<string, unknown>,
     @Req() req: PlayerReq,

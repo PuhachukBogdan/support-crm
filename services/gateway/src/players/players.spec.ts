@@ -77,10 +77,18 @@ describe('*** every route carries permission metadata *** (the 016 wire defect, 
     expect({ name, wired: !!(enforces || resolves) }).toEqual({ name, wired: true });
   });
 
-  it('the customer routes require the contact key and the staff route the inbox key', () => {
+  it('one customer at a time is the contact key; BROWSING them all is its own', () => {
     const p = PlayersController.prototype as unknown as Record<string, object>;
+    // Reading the card of a customer you are already working with…
     expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.getPlayer!)).toBe('crm.contact.view');
-    expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.listPlayers!)).toBe('crm.contact.view');
+    /**
+     * ⭐ …is not the same act as paging the whole base. Q34's answer (2026-08-06) made the
+     * directory's entitlement explicit: VIP support, AM, Shift AM and teamlead hold
+     * `crm.customers.browse`; a line agent does not and reaches a customer through their ticket.
+     * Until then the rule lived as a TIER comparison inside `users` that no rail entry could ask
+     * about, so the screen was hidden from people the server was willing to serve.
+     */
+    expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.listPlayers!)).toBe('crm.customers.browse');
     // A STAFF read is not a customer-card read. Reusing the contact key would make one key mean two things.
     expect(Reflect.getMetadata(REQUIRED_PERMISSION_KEY, p.getOperator!)).toBe('crm.inbox.view');
   });

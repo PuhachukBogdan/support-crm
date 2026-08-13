@@ -67,7 +67,13 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
     label: 'Contacts',
     href: '/contacts',
     icon: Users,
-    permission: 'users.list.view',
+    /**
+     * ⭐ Q34, answered by the operator 2026-08-06: *«Клиенты (ВИПЫ) — Випам… все остальные —
+     * обычным саппортам»*. The rail used to gate this on `users.list.view` (teamlead+), so VIP
+     * support and AMs were entitled to the directory by the server and saw no link to it. The
+     * directory now has its own key, which they hold.
+     */
+    permission: 'crm.customers.browse',
     state: 'active',
   },
   // R19: Knowledge Hub keeps its entry from the start and is filled later.

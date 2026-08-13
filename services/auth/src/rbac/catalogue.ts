@@ -58,6 +58,24 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
   // lookup AND attach AND detach (0044 §5: detach requires the same permission as attach). Every
   // use is audited with a salted HASH of the searched value; the raw value is inexpressible.
   { category: 'crm', key: 'crm.contact.lookup', label: 'Look up a player by contact & attach a conversation' },
+  /**
+   * ⭐ W14 follow-up (Q34, the operator's answer 2026-08-06): *«Клиенты (ВИПЫ) — Випам, это ж
+   * прописано, все остальные — обычным саппортам»* — VIP customers are VIP support's, everyone
+   * else's are the line agents'.
+   *
+   * That sentence is about who WORKS with whom; the directory is a different question, and the two
+   * meet here. Browsing the customer base in bulk is the anti-pitching surface (SEC-AP2) — so the
+   * screen stays closed to line agents, who reach a customer through the ticket they are handling,
+   * and opens to the roles that carry portfolios and oversight: **VIP support, AM, Shift AM,
+   * teamlead** (+ the administrators through ALL_KEYS).
+   *
+   * ⚠️ Why a KEY and not a rule: the entitlement was previously implicit in a TIER comparison
+   * inside `users` ("sees anything beyond `open`"), which no rail entry could ask about — so the
+   * nav gated Contacts on `users.list.view` (teamlead+) and VIP support was entitled to a screen it
+   * could not see. A key makes the same rule askable at the edge, grantable per person, and
+   * visible in the catalogue. The tier guard stays where it is: defence in depth, not the only door.
+   */
+  { category: 'crm', key: 'crm.customers.browse', label: 'Browse the customer directory' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -141,6 +159,7 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'crm.contact.view',
     'crm.macros.use',
     'users.portfolio.view',
+    'crm.customers.browse',
     'crm.conversation.assign',
     'crm.labels.manage',
   ],
@@ -152,6 +171,7 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'crm.macros.use',
     'users.portfolio.view',
     'users.am_notes.edit',
+    'crm.customers.browse',
     'analytics.dashboard.view',
     'crm.conversation.assign',
     'crm.labels.manage',
@@ -164,6 +184,7 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'crm.macros.use',
     'users.portfolio.view',
     'users.am_notes.edit',
+    'crm.customers.browse',
     'analytics.dashboard.view',
     'analytics.reports.view',
     'crm.conversation.assign',
@@ -177,6 +198,7 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'analytics.dashboard.view',
     'analytics.reports.view',
     'users.list.view',
+    'crm.customers.browse',
     'crm.conversation.assign',
     'crm.labels.manage',
     // Authoring macros / canned responses is a lead-level configuration task (R2).

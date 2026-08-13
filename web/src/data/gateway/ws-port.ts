@@ -123,7 +123,28 @@ export function createWsPort(options: WsPortOptions = {}): RealtimePort & { clos
     // ⓘ No transport (server render, or a jsdom without WebSocket) ⇒ the port is inert and every screen
     // behaves exactly as it does today. Realtime is an improvement, never a requirement (FR-014).
     if (stopped || !factory || url === '') return;
-    const ws = factory(url);
+    /**
+     * ⚠️⚠️ **CONSTRUCTING A SOCKET CAN THROW SYNCHRONOUSLY, AND IT TOOK THE WHOLE APP DOWN.**
+     *
+     * The operator opened the stand and got the shell's error screen:
+     * `SecurityError: Failed to construct 'WebSocket': An insecure WebSocket connection may not be
+     * initiated from a page loaded over HTTPS.` The URL was wrong (a stale build), but the wrong URL is not
+     * the defect — **the defect is that a bad URL could break the product at all.** FR-014 says a socket
+     * that cannot connect must leave the app behaving exactly as before; instead the throw propagated out
+     * of the composition root and the page rendered nothing.
+     *
+     * ⇒ Every entry into the transport is contained. A realtime edge is an improvement, and an improvement
+     * may not be able to break the thing it improves.
+     */
+    let ws;
+    try {
+      ws = factory(url);
+    } catch {
+      // No retry: a constructor that refuses is refusing the URL, and the next attempt would refuse it
+      // identically. The app keeps working without live updates, which is the pre-034 behaviour.
+      stopped = true;
+      return;
+    }
     socket = ws;
     ws.addEventListener('open', () => {
       attempt = 0;

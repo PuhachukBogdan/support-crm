@@ -229,3 +229,53 @@ describe('no transport means no realtime, and no broken screen (FR-014)', () => 
     expect(sockets).toEqual([]);
   });
 });
+
+describe('the transport cannot break the app that hosts it (FR-014)', () => {
+  /**
+   * ⭐⭐ Found by the operator, on his first look at the stand: the shell's error screen with
+   * `SecurityError: Failed to construct 'WebSocket': An insecure WebSocket connection may not be
+   * initiated from a page loaded over HTTPS.`
+   *
+   * The URL was wrong (a stale build inlined `ws://` into the bundle), but that is not what this test is
+   * about. The defect is that a wrong URL could take the product down at all: the constructor throws
+   * SYNCHRONOUSLY, the throw left the port, and the composition root had no chance. An improvement may not
+   * be able to break the thing it improves.
+   */
+  it('a constructor that throws leaves the port usable and the caller unharmed', () => {
+    const exploding = (() => {
+      throw new Error("Failed to construct 'WebSocket': insecure connection from an HTTPS page");
+    }) as unknown as WsFactory;
+
+    let port!: ReturnType<typeof createWsPort>;
+    expect(() => {
+      port = createWsPort({ url: 'ws://x', factory: exploding });
+    }).not.toThrow();
+
+    // …and it is still a working object: a screen that subscribes simply never hears anything.
+    const off = port.subscribe(() => {
+      throw new Error('nothing should arrive');
+    });
+    expect(typeof off).toBe('function');
+    off();
+    port.close();
+  });
+
+  it('does not retry a URL the constructor refuses', () => {
+    let attempts = 0;
+    const exploding = (() => {
+      attempts += 1;
+      throw new Error('SecurityError');
+    }) as unknown as WsFactory;
+    createWsPort({
+      url: 'ws://x',
+      factory: exploding,
+      backoffMs: [1],
+      setTimeoutFn: (fn) => {
+        fn();
+        return 0;
+      },
+    });
+    // One attempt, not a loop: the next construction would refuse the same URL identically.
+    expect(attempts).toBe(1);
+  });
+});

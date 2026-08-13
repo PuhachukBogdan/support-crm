@@ -112,7 +112,14 @@ describe('AutoAssignConversation — the pool comes from a group', () => {
     // what a per-channel availability switch is matched against. `null` here because this fixture's
     // conversation has no channel recorded — the case feature 022 keeps distinct from every channel
     // NAME, and which the availability predicate answers at state level alone.
-    expect(candidatesFor).toHaveBeenCalledWith('acc-1', 'grp-payments', expect.anything(), null);
+    // Feature 031: the brand travels with the request too — the unit budget is per brand.
+    expect(candidatesFor).toHaveBeenCalledWith(
+      'acc-1',
+      'grp-payments',
+      expect.anything(),
+      null,
+      expect.anything(),
+    );
     // The desk is recorded in the SAME write as the assignee, so the two can never disagree.
     expect(conversation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({

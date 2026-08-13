@@ -74,7 +74,7 @@ describe('GroupPoolService — assembling the pool', () => {
         { operatorId: 'op-b', authUserId: 'u-b', state: 'online', blockedChannels: [] },
       ],
     });
-    const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
 
     // Sorted, deliberately: the rotation cursor is an INDEX into this list, so an unstable order
     // would point it at a different person between calls and quietly break the fairness property.
@@ -92,7 +92,7 @@ describe('GroupPoolService — assembling the pool', () => {
       ],
       load: [{ assignee_operator_id: 'op-a', channel: 'chat' }, { assignee_operator_id: 'op-a', channel: 'chat' }, { assignee_operator_id: 'op-a', channel: 'chat' }, { assignee_operator_id: 'op-a', channel: 'chat' }],
     });
-    const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
 
     expect(candidates.find((c) => c.operatorId === 'op-a')!.currentLoad).toBe(4);
     // Absent from the grouped result = nothing open = 0. Not "unknown".
@@ -106,7 +106,7 @@ describe('GroupPoolService — assembling the pool', () => {
       members: ['u-a', 'u-ghost'],
       operators: [{ operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] }],
     });
-    const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    const { candidates: candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     // Fail-closed: an identity that cannot be resolved to someone who can hold work is not offered
     // work. And the gap between two members and one candidate is what makes a thin pool explainable.
     expect(candidates.map((c) => c.operatorId)).toEqual(['op-a']);
@@ -114,14 +114,14 @@ describe('GroupPoolService — assembling the pool', () => {
 
   it('an EMPTY group is an empty pool, and costs no second hop', async () => {
     const { pool, resolveOperators, findMany } = make({ members: [] });
-    expect((await pool.candidatesFor('acc-1', 'g-1', md())).candidates).toEqual([]);
+    expect((await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1')).candidates).toEqual([]);
     expect(resolveOperators).not.toHaveBeenCalled();
     expect(findMany).not.toHaveBeenCalled();
   });
 
   it('a group whose members are ALL unassignable is an empty pool, and costs no load query', async () => {
     const { pool, findMany } = make({ members: ['u-a'], operators: [] });
-    expect((await pool.candidatesFor('acc-1', 'g-1', md())).candidates).toEqual([]);
+    expect((await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1')).candidates).toEqual([]);
     expect(findMany).not.toHaveBeenCalled();
   });
 
@@ -130,7 +130,7 @@ describe('GroupPoolService — assembling the pool', () => {
       members: ['u-a'],
       operators: [{ operatorId: 'op-a', authUserId: 'u-a', state: 'online', blockedChannels: [] }],
     });
-    await pool.candidatesFor('acc-42', 'g-1', md());
+    await pool.candidatesFor('acc-42', 'g-1', md(), null, 'brand-1');
     expect(listGroupMembers).toHaveBeenCalledWith('acc-42', 'g-1');
     expect(forAccount.mock.calls.every((c) => c[0] === 'acc-42')).toBe(true);
   });
@@ -139,7 +139,7 @@ describe('GroupPoolService — assembling the pool', () => {
 describe('GroupPoolService — an outage is not an empty desk', () => {
   it('RAISES when auth cannot answer, rather than returning an empty pool', async () => {
     const { pool } = make({ members: new AuthorityUnavailableError('rpc failed') });
-    await expect(pool.candidatesFor('acc-1', 'g-1', md())).rejects.toBeInstanceOf(
+    await expect(pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1')).rejects.toBeInstanceOf(
       AuthorityUnavailableError,
     );
   });
@@ -149,7 +149,7 @@ describe('GroupPoolService — an outage is not an empty desk', () => {
       members: ['u-a'],
       operators: new MembershipUnavailableError('rpc failed'),
     });
-    await expect(pool.candidatesFor('acc-1', 'g-1', md())).rejects.toBeInstanceOf(
+    await expect(pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1')).rejects.toBeInstanceOf(
       MembershipUnavailableError,
     );
   });
@@ -159,7 +159,7 @@ describe('GroupPoolService — an outage is not an empty desk', () => {
     // facts, and only one of them is the caller's to fix (the feature-022 lesson).
     const refusal = Object.assign(new Error('forbidden'), { code: 7 });
     const { pool } = make({ members: ['u-a'], operators: refusal });
-    await expect(pool.candidatesFor('acc-1', 'g-1', md())).rejects.toMatchObject({ code: 7 });
+    await expect(pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1')).rejects.toMatchObject({ code: 7 });
   });
 });
 
@@ -197,7 +197,7 @@ describe('T015d — routability is a property of the DESK', () => {
       { operatorId: 'op-2', authUserId: 'u-2', state: 'online', blockedChannels: [] },
     ] });
 
-    const out = await pool.candidatesFor('acc-1', 'g-1', md());
+    const out = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     expect(out.candidates).toEqual([]);
   });
 
@@ -208,7 +208,7 @@ describe('T015d — routability is a property of the DESK', () => {
       { operatorId: 'op-1', authUserId: 'u-1', state: 'online', blockedChannels: [] },
     ] });
 
-    const out = await pool.candidatesFor('acc-1', 'g-1', md());
+    const out = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     expect(out.candidates.map((c) => c.operatorId)).toEqual(['op-1']);
     expect(out.reason).toBeNull();
   });
@@ -217,14 +217,14 @@ describe('T015d — routability is a property of the DESK', () => {
     // `GROUP_ROUTING_NOT_AVAILABLE` means the staffing is unknown. Conflating it with "this desk is not a
     // queue" would send an administrator to look at rotas when the answer is a checkbox.
     const { pool } = make({ routable: false, members: ['u-1'] });
-    const out = await pool.candidatesFor('acc-1', 'g-1', md());
+    const out = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     expect(out.reason).toBe(DESK_NOT_ROUTABLE);
     expect(out.reason).not.toBe(GROUP_ROUTING_NOT_AVAILABLE);
   });
 
   it('costs no second hop — a desk that is not a queue is answered before resolving anybody', async () => {
     const { pool, resolveOperators } = make({ routable: false, members: ['u-1', 'u-2'] });
-    await pool.candidatesFor('acc-1', 'g-1', md());
+    await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     expect(resolveOperators).not.toHaveBeenCalled();
   });
 });
@@ -246,7 +246,7 @@ describe('T010 — capacity is measured in UNITS', () => {
       load: [{ assignee_operator_id: 'op-1', channel: 'voice' }],
     });
 
-    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     // ENV budget is 6. A count of conversations would report 1 of 6 used — five slots free.
     expect(candidates).toHaveLength(1);
     expect(candidates[0]!.currentLoad).toBe(candidates[0]!.capacity);
@@ -259,7 +259,7 @@ describe('T010 — capacity is measured in UNITS', () => {
       load: [{ assignee_operator_id: 'op-1', channel: 'chat' }],
     });
 
-    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     expect(candidates[0]!.currentLoad).toBeLessThan(candidates[0]!.capacity);
   });
 
@@ -270,13 +270,13 @@ describe('T010 — capacity is measured in UNITS', () => {
       load: [{ assignee_operator_id: 'op-1', channel: null }, { assignee_operator_id: 'op-1', channel: null }],
     });
 
-    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md());
+    const { candidates } = await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     expect(candidates[0]!.currentLoad).toBe(2);
   });
 
   it('⛔ the load read carries only the channel — no subject, no player, no body (Principle IV)', async () => {
     const { pool, findMany } = make({ members: ['u-op-1'], operators: [online('op-1')] });
-    await pool.candidatesFor('acc-1', 'g-1', md());
+    await pool.candidatesFor('acc-1', 'g-1', md(), null, 'brand-1');
     const select = findMany.mock.calls[0]?.[0]?.select ?? {};
     expect(Object.keys(select).sort()).toEqual(['assignee_operator_id', 'channel']);
   });

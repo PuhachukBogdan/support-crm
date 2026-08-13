@@ -78,7 +78,14 @@ export class AutoAssignController {
         // switch applies. `null` when it was never recorded — feature 022 keeps that case distinct
         // from every channel NAME, and the availability predicate answers it at state level alone
         // rather than matching it against a switch.
-        await this.pool.candidatesFor(ctx.accountId, groupId, metadata, conversation.channel ?? null)
+        await this.pool.candidatesFor(
+          ctx.accountId,
+          groupId,
+          metadata,
+          conversation.channel ?? null,
+          // Feature 031: the budget is per brand, so the conversation's own brand decides it.
+          conversation.brand_id ?? null,
+        )
       : null;
 
     if (pooled?.reason) {

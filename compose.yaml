@@ -238,6 +238,10 @@ services:
       # capacity budgets, ADR 0042) and 5.9 (presence, which does not exist yet). A caller supplying
       # its own candidate list supplies its own capacities and is unaffected.
       ROUTING_DEFAULT_CAPACITY: ${ROUTING_DEFAULT_CAPACITY:-6}
+      # Feature 031 (roadmap 4.21): OPTIONAL per-brand unit budget, `brand-a:4,brand-b:2`. Empty means
+      # every brand uses ROUTING_DEFAULT_CAPACITY above — which stays the fallback rather than being
+      # replaced, so an upgrade cannot make a deployment's budget vanish.
+      ROUTING_CAPACITY_BY_BRAND: ${ROUTING_CAPACITY_BY_BRAND:-}
 
   brands:
     <<: *service-base

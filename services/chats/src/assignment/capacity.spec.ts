@@ -6,6 +6,7 @@ import {
   PROVISIONAL_UNIT_BUDGET,
   unitsUsed,
 } from './capacity';
+import { capacityForBrand } from './group-pool';
 
 /**
  * T006–T008 (feature 031, roadmap 4.21 / ADR 0042 §3).
@@ -97,5 +98,50 @@ describe('⭐ FR-013 holds BY CONSTRUCTION, and the coupling is asserted', () =>
     expect(hasRoomFor([], 'chat', 4, { chat: 'exclusive' })).toBe(true);
     expect(hasRoomFor(chat(1), 'chat', 4, { chat: 'exclusive' })).toBe(false);
     expect(PROVISIONAL_CHANNEL_COST.voice).toBe('exclusive');
+  });
+});
+
+/**
+ * T012/T013 (feature 031, roadmap 4.21) — the unit budget per BRAND, with the deployment default as the
+ * fallback.
+ *
+ * ⚠️ **Per ROLE is absent and that is recorded, not forgotten.** ADR 0042 §3 asks for role × brand, and the
+ * candidate pool does not know anybody's role — neither membership nor the operator lookup carries one,
+ * which is exactly why routability became a property of the DESK (option C, research R12). A per-role budget
+ * has the identical blocker, and a budget per desk is the natural substitute: capacity is a property of the
+ * queue, not of a job title.
+ */
+describe('T012 — the budget resolves per brand, and the default survives', () => {
+  const env = (v: Record<string, string>) => v as NodeJS.ProcessEnv;
+
+  it('a brand override wins', () => {
+    expect(capacityForBrand('b-1', env({ ROUTING_DEFAULT_CAPACITY: '6', ROUTING_CAPACITY_BY_BRAND: 'b-1:2' }))).toBe(2);
+  });
+
+  it('⭐ the deployment default is the FALLBACK, not replaced', () => {
+    // Replacing it would make every existing deployment's budget vanish on upgrade, and two sources for
+    // one number is the same defect as two gates.
+    expect(capacityForBrand('b-9', env({ ROUTING_DEFAULT_CAPACITY: '6', ROUTING_CAPACITY_BY_BRAND: 'b-1:2' }))).toBe(6);
+    expect(capacityForBrand(null, env({ ROUTING_DEFAULT_CAPACITY: '6' }))).toBe(6);
+  });
+
+  it('⚠️ a typo in ONE brand does not stop routing for the others', () => {
+    // An unparseable entry is ignored rather than fatal: the fallback is a safe number by construction,
+    // and a broken budget for one brand must not be an outage for every brand.
+    const e = env({ ROUTING_DEFAULT_CAPACITY: '6', ROUTING_CAPACITY_BY_BRAND: 'b-1:oops,b-2:3' });
+    expect(capacityForBrand('b-1', e)).toBe(6);
+    expect(capacityForBrand('b-2', e)).toBe(3);
+  });
+
+  it('⛔ zero is not a budget — "this brand receives nothing" is a routability decision', () => {
+    // It belongs on the desk, where an administrator can see it, not hidden inside a capacity number.
+    expect(capacityForBrand('b-1', env({ ROUTING_DEFAULT_CAPACITY: '6', ROUTING_CAPACITY_BY_BRAND: 'b-1:0' }))).toBe(6);
+  });
+
+  it('T013 — a change applies to the NEXT decision, with no restart', () => {
+    // The value is read per decision rather than captured at boot, so the assertion is simply that two
+    // reads of different environments answer differently.
+    expect(capacityForBrand('b-1', env({ ROUTING_DEFAULT_CAPACITY: '6', ROUTING_CAPACITY_BY_BRAND: 'b-1:2' }))).toBe(2);
+    expect(capacityForBrand('b-1', env({ ROUTING_DEFAULT_CAPACITY: '6', ROUTING_CAPACITY_BY_BRAND: 'b-1:5' }))).toBe(5);
   });
 });

@@ -63,6 +63,50 @@ export interface PoolOutcome {
 /** Statuses that count against an operator's load: work that is still theirs to finish. */
 const OPEN_STATUSES = ['open', 'pending'] as const;
 
+/**
+ * ⭐ Feature 031 (roadmap 4.21, ADR 0042 §3) — the unit budget, **per brand**, with the deployment-wide
+ * number as the fallback.
+ *
+ * ⚠️ **Per ROLE is deliberately absent, and it is blocked on the same thing routability was.** ADR 0042 §3
+ * asks for a budget per role × brand. The candidate pool does not know anybody's role — neither
+ * `ListGroupMembers` nor `ListOperatorsByAuthUsers` carries one, which is exactly why routability became a
+ * property of the **desk** (option C, research R12). A per-role budget has the identical blocker.
+ *
+ * ⇒ Per BRAND ships now, because the conversation carries `brand_id` and the answer is available. Per-role
+ * is recorded as **deferred**, and the natural substitute is a budget per **desk** — expressible today, and
+ * arguably the truer model for the same reason C is: capacity is a property of the queue, not of a job title.
+ *
+ * ⚠️ `ROUTING_DEFAULT_CAPACITY` is kept as the fallback rather than replaced. Replacing it would make every
+ * existing deployment's budget vanish on upgrade, and **two sources for one number is the same defect as two
+ * gates** — so there is exactly one resolution order, stated here: brand override, then the deployment
+ * default.
+ *
+ * Format: `ROUTING_CAPACITY_BY_BRAND=brand-a:4,brand-b:2`. An unparseable entry is IGNORED rather than
+ * fatal: a typo in one brand's budget must not stop routing for every other brand, and the fallback is a
+ * safe number by construction.
+ */
+export const ROUTING_CAPACITY_BY_BRAND_ENV = 'ROUTING_CAPACITY_BY_BRAND';
+
+export function capacityForBrand(
+  brandId: string | null | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const fallback = defaultCapacity(env);
+  const raw = (env[ROUTING_CAPACITY_BY_BRAND_ENV] ?? '').trim();
+  const key = (brandId ?? '').trim();
+  if (!raw || !key) return fallback;
+
+  for (const entry of raw.split(',')) {
+    const [brand, value] = entry.split(':');
+    if ((brand ?? '').trim() !== key) continue;
+    const n = Number((value ?? '').trim());
+    // A positive integer or nothing. Zero would mean "this brand receives no pushed work", which is a
+    // routability decision and belongs on the desk, not hidden in a capacity number.
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return fallback;
+}
+
 export function defaultCapacity(env: NodeJS.ProcessEnv = process.env): number {
   // Validated at boot by the refuse-to-start config guard (SEC-6), so this cannot silently fall back
   // to a made-up number in production. The floor is here for the one caller that is not the service:
@@ -91,6 +135,13 @@ export class GroupPoolService {
     groupId: string,
     metadata: Metadata,
     channel: string | null = null,
+    /**
+     * ⚠️ **Required, deliberately** (FR-024). The budget is per brand, so the brand is an input to the
+     * decision rather than an optional refinement — and making it required is what makes the compiler
+     * enumerate every call site. Feature 026 proved the alternative: an optional parameter enumerates
+     * nothing, and the one caller that forgot it would silently get the deployment-wide budget.
+     */
+    brandId: string | null,
   ): Promise<PoolOutcome> {
     const desk = await this.auth.listGroupMembers(accountId, groupId);
 
@@ -150,7 +201,9 @@ export class GroupPoolService {
       accountId,
       operators.map((o) => o.operatorId),
     );
-    const budget = defaultCapacity();
+    // Feature 031: per-brand budget, falling back to the deployment default. Read per decision, so an
+    // administrator's change applies to the next routing decision with no restart.
+    const budget = capacityForBrand(brandId ?? null);
 
     // Sorted by operator id, deliberately: the rotation cursor is an INDEX into this list, so an
     // unstable order would make the cursor point at a different person between calls and quietly

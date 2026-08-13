@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { ComingSoonBadge } from '@/features/inbox/coming-soon';
 import { ADMIN_SECTIONS } from '@/components/shell/admin-sections';
 
@@ -35,8 +36,19 @@ export default function AdminCenterPage() {
         {ADMIN_SECTIONS.map((s) => (
           <li key={s.key} className="rounded-md border border-border p-3" data-testid={`admin-section-${s.key}`}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="font-medium">{s.label}</span>
-              <ComingSoonBadge />
+              {/* ⭐ W14: a section that EXISTS is a link; a reserved one is plain text and carries
+                  the badge. That difference is the whole point of the convention — a placeholder
+                  must never be indistinguishable from a working control. */}
+              {s.href ? (
+                <Link href={s.href} className="font-medium underline underline-offset-4">
+                  {s.label}
+                </Link>
+              ) : (
+                <>
+                  <span className="font-medium">{s.label}</span>
+                  <ComingSoonBadge />
+                </>
+              )}
               {/* The point that owns it: a reserved slot with no owner is how a screen stays
                   reserved for ever. */}
               <span className="ml-auto text-xs text-muted-foreground">point {s.point}</span>

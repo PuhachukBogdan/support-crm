@@ -139,7 +139,9 @@ export class GatewayDataAccess implements DataAccess {
       return base;
     }
     if (id === '') throw clientRefusal(`"${row.resource}" requires an id`);
-    return `${base}/${encodeURIComponent(id)}`;
+    const item = `${base}/${encodeURIComponent(id)}`;
+    // W14: a fixed trailing segment where the gateway names the write by what it changes.
+    return row.itemSuffix ? `${item}/${row.itemSuffix}` : item;
   }
 
   /**

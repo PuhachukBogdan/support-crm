@@ -73,7 +73,7 @@ describe('*** the transport branches on no resource ***', () => {
     // W7 added `verbs` (write verbs) and `singleton`/`{within}` handling — still row facts, read
     // the same way. If a verb or a path shape ever appears as a constant here, this list is where
     // the omission shows.
-    for (const field of ['path', 'collection', 'params', 'required', 'pageSizeParam', 'pageTokenParam', 'ops', 'orderParam', 'orders', 'verbs', 'singleton']) {
+    for (const field of ['path', 'collection', 'params', 'required', 'pageSizeParam', 'pageTokenParam', 'ops', 'orderParam', 'orders', 'verbs', 'singleton', 'itemSuffix']) {
       expect(code).toContain(`row.${field}`);
     }
   });

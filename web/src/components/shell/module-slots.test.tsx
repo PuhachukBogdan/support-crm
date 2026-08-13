@@ -53,9 +53,28 @@ describe('the admin centre says what it will hold', () => {
     }
   });
 
-  it('⛔ nothing on it is a control — a reserved slot must not look clickable', () => {
+  /**
+   * ⭐ SHARPENED in W14, not relaxed. The rule was "nothing here is clickable", which held while
+   * every section was a promise. Now that People & groups EXISTS, the rule it was standing for is
+   * the precise one: **a RESERVED section must not look clickable, and a real one must**. Anything
+   * else makes a placeholder indistinguishable from a working control — in either direction.
+   */
+  it('⛔ a reserved section is plain text; a built one is a link', () => {
     const { container } = render(<AdminCenterPage />);
-    expect(container.querySelectorAll('a')).toHaveLength(0);
+    const built = ADMIN_SECTIONS.filter((s) => s.href);
+    const reserved = ADMIN_SECTIONS.filter((s) => !s.href);
+    expect(built.length).toBeGreaterThan(0);
+    expect(reserved.length).toBeGreaterThan(0);
+
+    // Exactly as many links as there are built sections — no reserved one sneaks in.
+    expect(container.querySelectorAll('a')).toHaveLength(built.length);
+    for (const s of built) {
+      expect(screen.getByRole('link', { name: s.label })).toHaveAttribute('href', s.href!);
+    }
+    for (const s of reserved) {
+      expect(screen.queryByRole('link', { name: s.label })).toBeNull();
+    }
+    // And no buttons at all: a reserved slot that looks pressable is a control that does nothing.
     expect(container.querySelectorAll('button')).toHaveLength(0);
   });
 

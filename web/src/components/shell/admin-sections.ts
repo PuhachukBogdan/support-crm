@@ -23,6 +23,11 @@ export interface AdminSection {
   readonly summary: string;
   /** The roadmap point that ships it. A section without one has no owner. */
   readonly point: string;
+  /**
+   * W14: set once the section EXISTS. Absent means reserved — and the page renders a reserved
+   * section as plain text precisely so that a placeholder can never look like a working control.
+   */
+  readonly href?: string;
 }
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
@@ -37,6 +42,9 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     label: 'People & groups',
     summary: 'Invite, change a role, deactivate; desks and their membership.',
     point: '3.8 / 3.9',
+    // ⭐ W14: the first section that stopped being a promise. `href` is what makes the card a link
+    // — the others have none, and the page renders them as plain text for exactly that reason.
+    href: '/admin/people',
   },
   {
     key: 'channels',

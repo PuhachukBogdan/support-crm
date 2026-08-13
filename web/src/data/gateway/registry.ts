@@ -82,6 +82,13 @@ export interface RouteRow {
    * the transport stays verb-agnostic). A field, not a branch.
    */
   readonly verbs?: { readonly update?: 'PATCH' | 'PUT' | 'POST' };
+  /**
+   * W14: a fixed segment AFTER the item id — `/admin/access/users/{id}/role`. The gateway names
+   * some writes by what they change rather than by the resource they change it on, and the
+   * transport must be able to express that without learning a resource's name. A field, not a
+   * branch: `itemPath` appends it and nothing else knows it exists.
+   */
+  readonly itemSuffix?: string;
 }
 
 /**
@@ -315,6 +322,62 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     pageTokenParam: 'pageToken',
     verbs: { update: 'POST' },
     ops: ['update'],
+  },
+  /**
+   * ⭐ W14 (roadmap 3.8) — the account's PEOPLE, and the mutations that need one.
+   *
+   * ⚠️ `staff` is a READ of `/admin/access/users`, gated `users.list.view`. Its sibling
+   * `staff-role` writes through `/admin/access/users/:id/role`, which is **super-admin only** — two
+   * different authorization models on one screen, and the screen must not pretend otherwise: the
+   * list renders for a teamlead, the role control does not.
+   */
+  {
+    resource: 'staff',
+    path: '/admin/access/users',
+    collection: 'users',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
+    // PUT /admin/access/users/:id/role — body `{roleKey, op}`. A placement, not a partial edit.
+    resource: 'staff-role',
+    path: '/admin/access/users',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    itemSuffix: 'role',
+    ops: ['update'],
+  },
+  /**
+   * ⭐ W14 (roadmap 3.9) — desks and their membership (the feature-024 engine, unchanged).
+   * `groups` lists and creates; `group-members` adds/removes by user id under a group.
+   */
+  {
+    resource: 'groups',
+    path: '/groups',
+    collection: 'groups',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list', 'create'],
+  },
+  {
+    resource: 'group-members',
+    path: '/groups/{within}/members',
+    collection: 'userIds',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'PUT' },
+    ops: ['list', 'update', 'remove'],
   },
   /**
    * ⭐ W11 (roadmap 9.17) — the account's brands. It exists because every player read REQUIRES a

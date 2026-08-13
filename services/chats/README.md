@@ -102,7 +102,8 @@ conversations, messages incl. protected private notes, player feed) and the **wo
   `FirstReplySlaPolicy` and `ConversationSlaState`. Feature 016 adds `MessageAttachment`. Feature 022 adds
   **two maintained columns on `Conversation`** — `last_inbound_at` / `last_outbound_at` — and no table.
   Feature 023 adds `ConversationTransition` plus **two more columns on `Conversation`** (`subject`,
-  `subject_source`) and one index on the derivation WINDOW. All are enrolled in
+  `subject_source`) and one index on the derivation WINDOW. Feature 031 adds **two more columns and no
+  table** — `backlog_at` (the queue) and `priority_rank` (the urgency order) — each with its own index. All are enrolled in
   [`src/prisma.scoped-models.ts`](src/prisma.scoped-models.ts), cross-checked against the schema by
   `tests/data-model/account-scope-coverage.spec.ts`.
 - Isolation extension: [`libs/common/src/account-scope.ts`](../../libs/common/src/account-scope.ts).
@@ -110,7 +111,9 @@ conversations, messages incl. protected private notes, player feed) and the **wo
 ## Config (refuse-to-start, SEC-6)
 `NODE_ENV`, `GRPC_URL`, `DATABASE_URL`, **`AUTH_GRPC_TARGET`**, **`USERS_GRPC_TARGET`**, and — new in 023 —
 **`TRANSITION_RETENTION_DAYS`**, **`TRANSITION_RESTRICTED_RETENTION_DAYS`**,
-**`SUBJECT_WINDOW_TIMEOUT_MINUTES`**. Validated at boot by [`src/config.ts`](src/config.ts).
+**`SUBJECT_WINDOW_TIMEOUT_MINUTES`**, **`ROUTING_DEFAULT_CAPACITY`** and — new in 031 — the optional
+**`ROUTING_CAPACITY_BY_BRAND`** (`brand-a:4,brand-b:2`; an unparseable entry is ignored, never fatal, and the
+default stays the fallback). Validated at boot by [`src/config.ts`](src/config.ts).
 
 ⚠️ **`loadConfig` treats every key in the shape as required, whatever its zod schema says** — the presence
 check runs before validation, so a `.default()` never applies. Feature 023's first draft carried defaults
@@ -468,7 +471,7 @@ id**, so the pool performs an explicit translation. Nothing validates that colum
 actor reference in this service is an auth user id — recorded as a candidate repair point on roadmap 5.3
 rather than reinterpreted here.
 
-## The Inbox's filter and its two orders (feature 029, roadmap 9.2)
+## The Inbox's filter and its orders (feature 029, roadmap 9.2; third order added by 031)
 
 `ListConversations` gained a **`channel` filter** and an **`order`** — the only list in this service
 with more than one order. Contract: [`libs/proto/crm/chats/v1/chats.proto`](../../libs/proto/crm/chats/v1/chats.proto).
@@ -481,11 +484,13 @@ Prisma `@updatedAt`, so relabelling, reassigning and resolving all bump it. A qu
 called "last activity" reports our own bookkeeping as customer contact, and looks right doing so.
 
 ⇒ **Genuine customer contact is `last_inbound_at` / `last_outbound_at`** (feature 022). They stay
-deliberately **unindexed** — projected and aggregated, never ordered or filtered on — and they belong
-to urgency, roadmap 4.20.
+deliberately **unindexed** — projected and aggregated, never ordered or filtered on.
 
-⛔ **There is no urgency / "recommended" order**, and the gateway refuses one with a 400. Nothing
-computes urgency; a sort asserting a property the data lacks is invisible to whoever trusts it.
+⭐ **There are THREE orders since feature 031** (`updated_desc`, `updated_asc`, `urgency_desc`). This
+paragraph used to read *"there is no urgency / 'recommended' order, and the gateway refuses one with a
+400 — nothing computes urgency"*. Something does now — see **The urgency rank** below. ⚠️ Still nothing
+called **"recommended"**: the new order sorts by a stated key, and no code in this product makes a
+recommendation.
 
 ### The cursor now carries its order
 
@@ -518,3 +523,86 @@ Inbox picks `updated_desc` at its own edge (`DEFAULT_INBOX_ORDER`).
   dropped export filter *widens* the file.
 
 Index: `@@index([account_id, updated_at])` — index-only migration, no column change (Principle VII).
+
+---
+
+## Push routing: capacity in UNITS, one backlog, and the drain (feature 031, roadmap 4.20 / 4.21 — ADR 0042)
+
+**Capacity already existed** — `group-pool.ts` and `round-robin-state.repository.ts` counted a person's open
+conversations against a fixed number. 4.21 changed its **shape**; it did not create it:
+
+- **Units, not conversations.** [`src/assignment/capacity.ts`](src/assignment/capacity.ts) is arithmetic
+  only (`costOfChannel`, `unitsUsed`, `hasRoomFor`), and a channel's cost may be **`'exclusive'`** — which
+  is *not* a big number. 🅿 **Provisional operator defaults**: chat/messenger = 1 unit, budget 4; voice =
+  exclusive. To be re-confirmed, not treated as decided.
+- ⚠️ **An exclusive channel needs the agent HOLDING NOTHING**, not merely having room. "Four units free"
+  and "holding nothing" are different facts and a voice call needs the second — hence `holdsNothing`
+  alongside the number.
+- **The budget is per brand** (`ROUTING_CAPACITY_BY_BRAND`, falling back to `ROUTING_DEFAULT_CAPACITY`).
+  Per-role capacity is **not built**, and is recorded as blocked rather than forgotten.
+
+**Routability is a property of the DESK, not of the person** (operator's decision, 2026-08-04).
+`Group.routable` in *auth* answers *"is this desk a queue?"*, so the router never asks who anybody is.
+⚠️ **It defaults to `false`**, so automatic distribution goes quiet until desks are marked — a deliberate,
+loud, reversible silence in place of a quiet mis-route. `SetGroupRoutable` writes
+`group.routability_changed` **even on a no-op**.
+
+⛔ **An AM is never chosen by the machine.** `am-not-a-queue-agent-030.spec.ts` fails if any
+routing/capacity/SLA module names a role that sees the `am_only` tier. This feature honours it by building
+the pool from **queue roles** — there is no allow-list to be added to. Assignment **by a person** to an AM
+stays allowed; what is forbidden is the machine choosing one.
+
+**The backlog** ([`src/assignment/backlog.ts`](src/assignment/backlog.ts)) is one ordered sequence
+(`backlog_at ASC, id ASC`) on the conversation row — no table.
+
+- `enqueue` is **idempotent and the first instant wins**: a full desk produces retries, and an
+  unconditional write would make every retry a demotion.
+- The drain takes **the first item the freed capacity can SERVE**, not strictly the head. Strict FIFO
+  starves everything behind work nobody can take, and reads as *"the queue is stuck"* rather than as a bug.
+- ⚠️ **A skipped item keeps its place because NOTHING about it is rewritten.** That absence *is* the
+  guarantee — rewriting `backlog_at` would send a conversation to the back for being briefly unservable.
+- Capacity is **re-read for every item**, never once per batch: a batch snapshot hands the same freed unit
+  to several conversations.
+- `DrainBacklog` is a **worker-called maintenance rpc** (like the SLA sweep) answering **counts only**.
+  High `skipped` with `assigned: 0` is the head-of-line condition — diagnosable without naming anybody.
+- ⛔ **Nobody can pick from the queue.** There is no rpc and no route by which an agent takes a queued item;
+  `no-backlog-take-path-031.spec.ts` asserts the *absence* rather than a refusal.
+
+**Work that can reach nobody** becomes the audited event `conversation.unroutable`, carrying a reason
+**class** (`desk_not_routable` / `nobody_available`) and no contact value. ⚠️ **An event and not a
+notification, deliberately**: there is no alerting surface in this product (7.5 is the n8n ingest, 9.18 the
+audit viewer), and an alarm with no consumer is the defect this repo already shipped once — the audit log
+ran for five features with nothing reading it.
+
+## The urgency rank (feature 031, roadmap 4.19)
+
+`Conversation.priority_rank` (`Int`, default 0) plus the declared order `urgency_desc` =
+`(priority_rank DESC, updated_at ASC, id ASC)`, indexed as
+`@@index([account_id, priority_rank, updated_at])`.
+
+⚠️ **What recomputes it: nothing periodic, by design.** The key is split by what moves each half.
+
+| half | moves when | where it lives |
+|---|---|---|
+| the priority **word** | somebody changes it | stored as `priority_rank`, written by `priorityWrite()` |
+| how long it has **waited** | by itself, with the clock | read at query time from `updated_at` |
+
+⇒ **No stored value can go stale.** A rank that embedded age would need a sweep over the whole history to
+stay true and would be wrong in between — invisibly, because a list in a plausible order looks like a list
+in the right order.
+
+⭐ **`priorityWrite()` is the only sanctioned writer of the priority column** and returns the word *and* the
+rank together. `tests/data-model/priority-rank-recomputed-031.spec.ts` fails when any path writes
+`priority:` by hand inside a `data:` object. Two paths write it: conversation create, and the
+macro/automation action applier (`SET_PRIORITY`) — the second is the one a search for "the conversation
+write path" misses.
+
+⚠️ **Rank 0 is NOT `normal`.** Unset — and any word the product does not recognise, since the column is
+free-form by design — sorts **below** everything set. Guessing `normal` would promote untriaged work above
+work somebody deliberately marked `low`.
+
+⚠️ **The keyset is GENERATED** ([`src/conversation/order-parts.ts`](src/conversation/order-parts.ts)):
+`orderBy` and the cursor predicate both derive from one `ORDERS` declaration. This is the first order with
+two columns, and a hand-written predicate for it is three clauses no review can check — while a predicate
+that disagrees with the sort produces a plausible page two with rows repeated and rows missing. The token
+format is **unchanged** for a single-column order (the bare ISO string), so nothing minted before 031 broke.

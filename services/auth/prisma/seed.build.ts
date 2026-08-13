@@ -107,8 +107,31 @@ export function buildSeed() {
      * they are neutral rather than the operation's real desk names.
      */
     groups: [
-      { id: SEED_GROUP_A_ID, account_id: SEED_ACCOUNT_ID, name: 'Seed Desk A', active: true },
-      { id: SEED_GROUP_B_ID, account_id: SEED_ACCOUNT_ID, name: 'Seed Desk B', active: true },
+      /**
+       * ⭐ Feature 031 (roadmap 4.20): `routable` — whether the router PUSHES work to this desk. It
+       * defaults to **false** in the schema, deliberately, so a deployment that has not decided stays
+       * quiet instead of routing to desks nobody meant.
+       *
+       * Desk A is marked routable here for the same reason `SEED_PRESENCE_ONLINE_USER_IDS` exists: the
+       * demo desk has to be able to receive work or the seeded database is not usable, and feature 024's
+       * live assertions would go red for a CORRECT reason. And like that constant, it is an explicit
+       * STATEMENT ("this demo desk is a queue"), never a default — desk B stays not routable, which also
+       * gives the stand a fixture for the refusal.
+       */
+      {
+        id: SEED_GROUP_A_ID,
+        account_id: SEED_ACCOUNT_ID,
+        name: 'Seed Desk A',
+        active: true,
+        routable: true,
+      },
+      {
+        id: SEED_GROUP_B_ID,
+        account_id: SEED_ACCOUNT_ID,
+        name: 'Seed Desk B',
+        active: true,
+        routable: false,
+      },
     ],
     // Three members on desk A so a rotation has something to rotate over, and one of them also on
     // desk B so multiple membership (ADR 0039 §Open item 4) is exercised by the seeded data itself.

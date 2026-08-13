@@ -72,7 +72,10 @@ interface GroupsGrpc {
   deleteGroup(d: CallerCtx & { groupId: string }): Observable<MutationWire>;
   addGroupMember(d: CallerCtx & { groupId: string; userId: string }): Observable<MutationWire>;
   removeGroupMember(d: CallerCtx & { groupId: string; userId: string }): Observable<MutationWire>;
-  listGroupMembers(d: { accountId: string; groupId: string }): Observable<{ userIds: string[] }>;
+  listGroupMembers(
+    d: { accountId: string; groupId: string },
+  ): Observable<{ userIds: string[]; routable?: boolean }>;
+  setGroupRoutable(d: CallerCtx & { groupId: string; routable: boolean }): Observable<MutationWire>;
   setGroupPermission(
     d: CallerCtx & { groupId: string; permissionKey: string; grant: boolean },
   ): Observable<MutationWire>;
@@ -174,6 +177,44 @@ export class GroupsController implements OnModuleInit {
     const claims = this.caller(req);
     const r = await firstValueFrom(
       this.auth.removeGroupMember({ ...this.ctx(claims), groupId: id, userId }),
+    );
+    return this.finish(claims.accountId, r);
+  }
+
+  /**
+   * ⭐ Feature 031 (roadmap 4.20): whether this desk is a **routed queue desk** — whether the router pushes
+   * work to it.
+   *
+   * ── Why the flag needs an HTTP surface at all, before its screen exists ─────────────────────────
+   * The rpc was added with the routing engine and had no route. The admin screen is a later roadmap point,
+   * so the only way to flip the flag was a direct database write — which would bypass the audit entry the
+   * decision is *supposed* to leave (`group.routability_changed`, written even on a no-op). An audited act
+   * that no human can perform through the product is an audit trail that records nothing, and the receipt
+   * cannot be produced live. Two lines here make the capability reachable by a permitted person.
+   *
+   * `PUT`/`DELETE` rather than a body flag, matching the permission grant below: the state is binary and
+   * the verb should say which one is being asked for.
+   */
+  @Put(':id/routable')
+  @RequiresPermission(GROUP_MANAGE)
+  async markRoutable(@Param('id') id: string, @Req() req: Request & { claims?: RequestClaims }) {
+    return this.setRoutable(req, id, true);
+  }
+
+  @Delete(':id/routable')
+  @RequiresPermission(GROUP_MANAGE)
+  async unmarkRoutable(@Param('id') id: string, @Req() req: Request & { claims?: RequestClaims }) {
+    return this.setRoutable(req, id, false);
+  }
+
+  private async setRoutable(
+    req: Request & { claims?: RequestClaims },
+    groupId: string,
+    routable: boolean,
+  ) {
+    const claims = this.caller(req);
+    const r = await firstValueFrom(
+      this.auth.setGroupRoutable({ ...this.ctx(claims), groupId, routable }),
     );
     return this.finish(claims.accountId, r);
   }

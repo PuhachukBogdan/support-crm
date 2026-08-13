@@ -89,16 +89,26 @@ export class AssignmentController implements OnModuleInit {
   }
 
   /**
-   * Round-robin auto-assign (US3). Candidates are supplied by the caller until the Users service
-   * resolves teams + capacity (roadmap 5.3 / research R3) — the gateway makes no Users call here,
-   * and an absent candidate set is answered by the service with GROUP_ROUTING_NOT_AVAILABLE rather
-   * than a guess.
+   * Round-robin auto-assign (US3).
+   *
+   * ⭐ **`groupId` names a DESK and the service builds the pool itself** — membership from auth, operator
+   * profiles from users, load counted in chats, capacity per brand, presence and per-channel blocks
+   * applied, and the desk's own `routable` flag consulted first (features 024/025/031).
+   *
+   * ⚠️ **This field was on the wire since feature 024 and this route never forwarded it.** Everything the
+   * pool knows was therefore unreachable from outside the cluster: the only live path was `candidates`,
+   * where the CALLER states capacity and load — so a live run could not have exercised routability,
+   * per-channel cost, the backlog or the unroutable event, and every one of those receipts would have been
+   * a Track-A claim only. A contract field with no caller is indistinguishable from an unbuilt one.
+   *
+   * PRECEDENCE is the service's: a named desk wins and `candidates` is ignored, never merged. The
+   * caller-supplied form stays fully supported — it is how a test rig and the 013-era callers work.
    */
   @Post('auto-assign')
   @RequiresPermission('crm.conversation.assign')
   async autoAssign(
     @Param('id') id: string,
-    @Body() body: { groupKey?: string; candidates?: CandidateBody[] },
+    @Body() body: { groupId?: string; groupKey?: string; candidates?: CandidateBody[] },
     @Req() req: ChatsReq,
   ) {
     const candidates = (Array.isArray(body?.candidates) ? body.candidates : []).map((c) => ({
@@ -108,7 +118,12 @@ export class AssignmentController implements OnModuleInit {
     }));
     return callChats(
       this.write.autoAssignConversation(
-        { conversationId: id, groupKey: (body?.groupKey ?? '').trim(), candidates },
+        {
+          conversationId: id,
+          groupId: (body?.groupId ?? '').trim(),
+          groupKey: (body?.groupKey ?? '').trim(),
+          candidates,
+        },
         this.meta(req),
       ),
     );

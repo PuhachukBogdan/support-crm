@@ -93,6 +93,14 @@ describe('the seeded configuration restricts nothing (FR-027)', () => {
     expect(seed.groupPermissions).toEqual([]);
   });
 
+  it('⭐ feature 031: exactly ONE seeded desk is routable, and the other is the refusal fixture', () => {
+    // Not "at least one": a seed that marked every desk routable would make the DESK_NOT_ROUTABLE path
+    // unreachable on the stand, and that path is the default for every real deployment.
+    const routable = seed.groups.filter((g) => g.routable);
+    expect(routable).toHaveLength(1);
+    expect(seed.groups.filter((g) => !g.routable)).toHaveLength(1);
+  });
+
   it('no seeded group name is one the operator’s current system uses (ADR 0039 §9)', () => {
     for (const g of seed.groups) {
       for (const real of ['Support', 'VIP', 'Deposit requests', 'Directa24', 'PayCord']) {

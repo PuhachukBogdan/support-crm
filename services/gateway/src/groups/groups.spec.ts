@@ -47,6 +47,7 @@ function make(mutation: Partial<Record<string, unknown>> = {}) {
     removeGroupMember: jest.fn(() => of(wire)),
     listGroupMembers: jest.fn(() => of({ userIds: ['u-1'] })),
     setGroupPermission: jest.fn(() => of(wire)),
+    setGroupRoutable: jest.fn(() => of(wire)),
   };
   const client = { getService: () => auth } as never;
   const c = new GroupsController(client, cache);
@@ -117,6 +118,44 @@ describe('GroupsController — invalidation is the feature', () => {
     c.onModuleInit();
     await c.grant('g-1', 'crm.inbox.view', req());
     expect(resolved).toBe(true);
+  });
+});
+
+describe('⭐ marking a desk routable (feature 031, roadmap 4.20)', () => {
+  it('PUT asks for routable, DELETE asks for not-routable — the verb carries the value', async () => {
+    const { c, auth } = make();
+    await c.markRoutable('g-1', req());
+    await c.unmarkRoutable('g-1', req());
+    const calls = (auth.setGroupRoutable as jest.Mock).mock.calls.map((c2) => c2[0].routable);
+    expect(calls).toEqual([true, false]);
+  });
+
+  it('caller identity comes from the CLAIMS, like every other group mutation', async () => {
+    const { c, auth } = make();
+    await c.markRoutable('g-1', req());
+    expect((auth.setGroupRoutable as jest.Mock).mock.calls[0][0]).toMatchObject({
+      callerAccountId: 'acct-1',
+      callerUserId: 'admin-1',
+      groupId: 'g-1',
+    });
+  });
+
+  it('⚠️ invalidates NOBODY — routability is not a permission', async () => {
+    // Deciding which desks receive pushed work changes what the router does, not what anybody may see.
+    // Dropping caches here would be harmless and misleading: it would suggest this flag is an access
+    // control, and the next reader would look for the authorization it does not carry.
+    // The receipt is upstream: `setRoutable` answers `affectedUserIds: []` on purpose, so the shared
+    // `finish()` has nobody to invalidate. Asserted with the default fixture (an empty list) rather than
+    // by mocking a non-empty one, because the empty list IS the claim.
+    const { c, invalidate, auth } = make();
+    await c.markRoutable('g-1', req());
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(auth.setGroupRoutable).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refusal from auth maps to its own HTTP answer, not to a generic failure', async () => {
+    const { c } = make({ status: 'GROUP_STATUS_FORBIDDEN' });
+    await expect(c.markRoutable('g-1', req())).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 

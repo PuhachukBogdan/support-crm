@@ -74,6 +74,26 @@ describe('AssignmentController (gateway proxy)', () => {
     expect(autoAssignConversation.mock.calls[1][0]).toMatchObject({ groupKey: '', candidates: [] });
   });
 
+  it('⭐ forwards `groupId` — the DESK path, which this route silently dropped until feature 031', () => {
+    // The field has been on the wire since feature 024. Not forwarding it made everything the pool knows
+    // (routability, per-channel cost, presence, the backlog, the unroutable event) unreachable from
+    // outside the cluster, so no live run could have exercised any of it.
+    const { ctrl, autoAssignConversation } = makeCtrl();
+    return ctrl.autoAssign('c1', { groupId: ' desk-1 ' }, req()).then(() => {
+      expect(autoAssignConversation.mock.calls[0][0]).toMatchObject({
+        conversationId: 'c1',
+        groupId: 'desk-1',
+      });
+    });
+  });
+
+  it('⚠️ an absent desk is `''`, never undefined — proto3 and "not asked for" must agree', () => {
+    const { ctrl, autoAssignConversation } = makeCtrl();
+    return ctrl.autoAssign('c1', {}, req()).then(() => {
+      expect(autoAssignConversation.mock.calls[0][0]).toMatchObject({ groupId: '' });
+    });
+  });
+
   it('translates a downstream NOT_FOUND into 404, not 500 (feature-012 Track-B regression)', async () => {
     const rpcNotFound = Object.assign(new Error('5 NOT_FOUND: not found'), { code: 5 });
     const { ctrl } = makeCtrl({ assign: jest.fn().mockReturnValue(throwError(() => rpcNotFound)) });

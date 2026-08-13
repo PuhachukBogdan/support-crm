@@ -163,3 +163,78 @@ describe('chats — the contact-summary path logs nothing (feature 022)', () => 
     }
   });
 });
+
+/**
+ * T040 (feature 031, roadmap 4.20/4.19) — **routing is the newest way to leak a customer.**
+ *
+ * Three surfaces arrived with this feature and each is a plausible place for a contact value:
+ *
+ *  • the **routing diagnostic** — a reason why a desk could serve nobody. The tempting version names the
+ *    conversation and the person it is for, because that is what a human debugging it wants;
+ *  • the **backlog view** — a queue an agent may SEE. What it may show about *whose* customer is waiting
+ *    is D-4 and undecided; what it may never show is a contact value (FR-021);
+ *  • the **unroutable event** — audited, and therefore permanent (FR-022).
+ *
+ * ⚠️ The maintenance responses are asserted to be COUNTS in their own specs. This is the log/PII half:
+ * the modules that make routing decisions must not log the work they are deciding about.
+ */
+describe('chats — feature 031: routing carries no contact value', () => {
+  const files = tsFiles(SRC);
+  const routing = files.filter((f) =>
+    /\/(assignment|conversation\/urgency|conversation\/order-parts)/u.test(f.split(sep).join('/')),
+  );
+
+  it('the routing modules were actually scanned (a guard that scans nothing must fail)', () => {
+    expect(routing.length).toBeGreaterThan(4);
+    expect(routing.some((f) => f.endsWith('backlog.grpc.controller.ts'))).toBe(true);
+  });
+
+  it('⛔ no log line in the assignment path references an identifier', () => {
+    const offenders: string[] = [];
+    for (const file of routing) {
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          if (LOG_CALL.test(line) && SENSITIVE.test(line)) offenders.push(`${file}:${i + 1}`);
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('⭐ the unroutable event carries a reason CLASS and no free text', () => {
+    const src = readFileSync(
+      files.find((f) => f.endsWith('backlog.grpc.controller.ts'))!,
+      'utf8',
+    );
+    const detail = src.slice(src.indexOf('detail: {'), src.indexOf('} as never'));
+    // The class values, and nothing that could hold a sentence or a contact.
+    // ⓘ Word-boundary, not `toContain`: `nobody_available` contains "body", and a substring check made
+    // this assertion fail on the reason class it exists to permit.
+    expect(detail).toMatch(/reasonClass/);
+    for (const forbidden of ['body', 'message', 'player_id', 'playerId', 'reasonText', 'contact']) {
+      expect(detail).not.toMatch(new RegExp(`\b${forbidden}\b`));
+    }
+  });
+
+  it('⚠️ the ROUTING DIAGNOSTIC is a reason token, not a sentence about a person', () => {
+    // The pool answers `{ candidates, reason }` and the reason is an UPPER_SNAKE token from a closed set.
+    // A free-text reason is the shape that ends up naming the customer, because that is the useful
+    // version to a human debugging it — and it is then logged, graphed and kept.
+    const src = readFileSync(files.find((f) => f.endsWith('group-pool.ts'))!, 'utf8');
+    for (const m of src.matchAll(/reason:\s*(.+)$/gm)) {
+      const value = m[1]!;
+      // Allowed: a named constant, a token in quotes, `null`, or a field reference. Not a template.
+      expect(value).not.toMatch(/\$\{/);
+    }
+  });
+
+  it('the urgency rank is derived from a WORD, so no contact value can reach the order', () => {
+    // Structural rather than a log scan: the ordering key's only inputs are the priority word and a
+    // timestamp column. There is no path by which a customer fact becomes part of a sort key.
+    const src = readFileSync(files.find((f) => f.endsWith('urgency.ts'))!, 'utf8');
+    expect(LOG_CALL.test(src)).toBe(false);
+    for (const forbidden of ['player_id', 'playerId', 'body', 'author_id']) {
+      expect(src).not.toMatch(new RegExp(`\b${forbidden}\b`));
+    }
+  });
+});

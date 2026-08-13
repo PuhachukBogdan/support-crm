@@ -63,7 +63,7 @@ describe('gateway single ingress (REST + WS)', () => {
 
   it('upgrades a WebSocket connection on the SAME port and round-trips a message', async () => {
     const reply = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { cookie: accessCookie() } });
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { cookie: accessCookie() } });
       const timer = setTimeout(() => {
         ws.close();
         reject(new Error('timed out waiting for pong'));

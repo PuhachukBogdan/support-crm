@@ -59,7 +59,14 @@ interface Socket {
  * commands, and `RedisService.client` is already the readiness probe's.
  */
 @Injectable()
-@WebSocketGateway()
+/**
+ * ⚠️ **AN EXPLICIT PATH, added after the headed browser check (2026-08-05).** The socket used to accept the
+ * root path, which is unproxyable: whatever fronts the app cannot tell a page request from an upgrade
+ * without matching headers. `/ws` is a path a reverse proxy can route on its own — which is what the
+ * hosted stand needs, since the gateway's port is loopback-bound (SEC-40) and a browser can only ever
+ * reach it through the edge.
+ */
+@WebSocketGateway({ path: '/ws' })
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   private readonly logger = new Logger(RealtimeGateway.name);
   /** account id → the sockets watching it. The only routing table. */

@@ -470,9 +470,22 @@ services:
       args:
         # Build-time, not runtime: Next bakes `rewrites()` into the build. See the Dockerfile.
         GATEWAY_ORIGIN: http://gateway:3000
+        # ── Feature 034 (W4): where the BROWSER dials the socket ──────────────────────────────────
+        #
+        # ⚠️ Build-time for the same reason as the line above: `NEXT_PUBLIC_*` is inlined into the client
+        # bundle, so setting it only at runtime changes nothing at all — a trap worth naming, because the
+        # symptom is a socket that quietly keeps using the default.
+        #
+        # ⭐ Empty means SAME ORIGIN (`/ws` on whatever serves the page), which is the correct production
+        # shape: one origin, one cookie, one certificate, with the edge proxy routing `/ws` to the gateway.
+        # It is set here because on this stand a browser reaches the containers directly, and Next's rewrite
+        # covers REST only — a WebSocket upgrade is not a rewrite. Getting this wrong is what made W4's first
+        # headed check receive 0 frames while `live-w4.sh` passed 13/13.
+        NEXT_PUBLIC_WS_ORIGIN: ${NEXT_PUBLIC_WS_ORIGIN:-}
     environment:
       NODE_ENV: production
       GATEWAY_ORIGIN: http://gateway:3000
+      NEXT_PUBLIC_WS_ORIGIN: ${NEXT_PUBLIC_WS_ORIGIN:-}
     # ⚠️ **LOOPBACK ONLY**, and that is the whole point of writing the address out.
     #
     # Bound to 127.0.0.1 so the UI is reachable over an SSH tunnel (`ssh -L 3002:localhost:3002`)

@@ -82,11 +82,36 @@ export function createWsPort(options: WsPortOptions = {}): RealtimePort & { clos
   let stopped = false;
   let opened = false;
 
+  /**
+   * ⚠️⚠️ **`NEXT_PUBLIC_WS_ORIGIN` EXISTS BECAUSE THE FIRST HEADED CHECK FAILED ON EXACTLY THIS.**
+   *
+   * The first draft built the URL from `window.location.host` alone — the app's origin. But the socket
+   * lives on the GATEWAY, whose port is loopback-bound (SEC-40), and Next's rewrite covers REST only: a
+   * WebSocket upgrade is not a rewrite. So the browser dialled the Next server, which closed it, ten times
+   * in a row, and received **0 frames** — while `live-w4.sh` was passing 13/13, because that socket dialled
+   * the gateway directly inside the compose network. *Two halves, each verified alone.*
+   *
+   * ⚠️⚠️ **AND THE OVERRIDE CANNOT SOLVE IT, which the second headed check proved.** Pointed at
+   * `ws://crm-gateway-1:3000/ws` the socket reached the right process and was closed 1008 twenty-seven times:
+   * a browser sends a cookie only to the origin that set it, so a CROSS-ORIGIN socket carries no `access`
+   * cookie and cannot be authorized. Cookie authentication and a foreign socket origin are mutually
+   * exclusive — no configuration reconciles them.
+   *
+   * ⇒ **The socket must be SAME-ORIGIN, and the edge in front of the app must route `/ws` to the gateway.**
+   * That is the only shape that works with an httpOnly session: one origin, one cookie, one certificate.
+   * The override below therefore exists for one narrow case — a deployment whose socket origin sets its own
+   * cookie (a different auth model, or a same-site subdomain) — and it is **not** the way to reach a gateway
+   * on another host. Left in place with its limits written down, because deleting it would invite the next
+   * person to add it back for the reason that does not work.
+   */
+  const origin = (process.env.NEXT_PUBLIC_WS_ORIGIN ?? '').trim();
   const url =
     options.url ??
-    (typeof window === 'undefined'
-      ? ''
-      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`);
+    (origin !== ''
+      ? `${origin.replace(/\/$/, '')}/ws`
+      : typeof window === 'undefined'
+        ? ''
+        : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`);
 
   const factory: WsFactory | undefined =
     options.factory ??

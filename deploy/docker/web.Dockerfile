@@ -20,6 +20,17 @@ RUN npm ci
 # reachable by service name; nothing about the gateway is exposed to the browser.
 ARG GATEWAY_ORIGIN=http://gateway:3000
 ENV GATEWAY_ORIGIN=${GATEWAY_ORIGIN}
+# ── Feature 034 (W4): where the BROWSER dials the realtime socket ────────────────────────────────
+#
+# ⚠️ It must be present at BUILD time. `NEXT_PUBLIC_*` is inlined into the client bundle, so passing it
+# only to the runtime container changes nothing — the socket silently keeps the default, which is the
+# failure mode that cost W4's first headed check (0 frames while the wire test passed 13/13).
+#
+# ⭐ Empty = SAME ORIGIN (`/ws` on whatever serves the page), the correct production shape: one origin,
+# one cookie, one certificate, with the edge proxy routing `/ws` to the gateway. Set it only where the
+# app and the socket are not behind the same front door.
+ARG NEXT_PUBLIC_WS_ORIGIN=
+ENV NEXT_PUBLIC_WS_ORIGIN=${NEXT_PUBLIC_WS_ORIGIN}
 ENV NODE_ENV=production
 RUN npm run build --workspace web
 

@@ -8,7 +8,15 @@ import { MessageBody, SubscribeMessage, WebSocketGateway } from '@nestjs/websock
  * With the native `ws` adapter, clients send `{"event":"ping","data":...}`; this replies
  * `{"event":"pong","data":...}`.
  */
-@WebSocketGateway()
+/**
+ * ⚠️ **`/ws`, the same path as `RealtimeGateway` — and sharing it is the point.**
+ *
+ * When the realtime gateway moved to an explicit path (so a reverse proxy can route it), leaving this one on
+ * `/` would have re-opened an UNAUTHENTICATED socket surface: nothing would have been handling the root
+ * path's handshake, and this gateway accepts anybody. One path, authorized once, carrying both — which is
+ * also what spec 003's US4 claim needs, since a browser opens one connection and not two.
+ */
+@WebSocketGateway({ path: '/ws' })
 export class IngressGateway {
   @SubscribeMessage('ping')
   handlePing(@MessageBody() data: unknown): { event: 'pong'; data: unknown } {

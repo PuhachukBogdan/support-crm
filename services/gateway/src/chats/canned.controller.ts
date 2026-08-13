@@ -46,7 +46,8 @@ export class CannedController implements OnModuleInit {
   }
 
   @Get()
-  @RequiresPermission('crm.templates.manage')
+  // W8: same move as GET /macros — the list is for the agent picking a template, not for authoring.
+  @RequiresPermission('crm.macros.use')
   async list(@Req() req: ChatsReq) {
     return callChats(this.read.listCannedResponses({}, this.meta(req)));
   }

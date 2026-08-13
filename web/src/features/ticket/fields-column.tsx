@@ -49,7 +49,8 @@ export function FieldsColumn({
   return (
     <aside
       data-testid="ticket-fields"
-      className="w-64 shrink-0 space-y-4 overflow-y-auto border-r border-border py-4 pr-4"
+      // Width belongs to the wrapper in ticket-window (9.9: the drag writes ONE element's style).
+      className="h-full w-full space-y-4 overflow-y-auto border-r border-border py-4 pr-4"
     >
       {detail.status === 'ready' ? (
         <>

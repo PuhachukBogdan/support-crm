@@ -105,3 +105,14 @@ describe('Canned responses', () => {
     await expect(build(prisma).listCannedResponses({}, bare)).rejects.toBeInstanceOf(RpcException);
   });
 });
+
+describe('W8 — the list gate is the USE key, structurally', () => {
+  // Same pin as macros.spec: unit calls bypass the guard, so the decorator value is the fact.
+  const required = (method: object) =>
+    Reflect.getMetadata('rbac:chats_required_permission', method);
+
+  it('ListCannedResponses requires crm.macros.use; CreateCannedResponse stays crm.templates.manage', () => {
+    expect(required(CannedController.prototype.listCannedResponses)).toBe('crm.macros.use');
+    expect(required(CannedController.prototype.createCannedResponse)).toBe('crm.templates.manage');
+  });
+});

@@ -73,3 +73,17 @@ export interface LabelWire {
   name: string;
   color?: string;
 }
+
+/** W8 — a macro (`GET /macros`): a named bundle of actions the service applies all-or-nothing. */
+export interface MacroWire {
+  id: string;
+  name: string;
+  actions: { type: string; value?: string }[];
+}
+
+/** W8 — a canned response (`GET /canned-responses`): text a lead wrote for agents to insert. */
+export interface CannedResponseWire {
+  id: string;
+  name: string;
+  body: string;
+}

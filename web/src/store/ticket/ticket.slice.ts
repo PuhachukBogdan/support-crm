@@ -149,6 +149,17 @@ export const ticketSlice = createSlice({
       },
       prepare: (payload: { id: string; labelId: string }) => ({ payload }),
     },
+    /**
+     * W8 — apply a macro. All-or-nothing SERVER-side (FR-008): a refused bundle leaves zero
+     * changes, so the re-read after either outcome shows the truth. The service re-checks the
+     * permission of every action inside, so this can never widen what the caller may do.
+     */
+    applyMacro: {
+      reducer: (state): void => {
+        state.mutation = { status: 'busy' };
+      },
+      prepare: (payload: { id: string; macroId: string }) => ({ payload }),
+    },
     mutationSucceeded: (state, action: PayloadAction<{ id: string }>) => {
       if (stale(state, action.payload.id)) return;
       state.mutation = { status: 'idle' };

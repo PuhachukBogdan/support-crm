@@ -9,6 +9,8 @@ import { useStatuses } from '@/features/inbox/use-statuses';
 import { useMyOperator } from '@/features/inbox/use-my-operator';
 import { useTicket } from './use-ticket';
 import { useTicketLive } from './use-ticket-live';
+import { useTemplates } from './use-templates';
+import { PanelDivider, useStoredPanelWidth } from './panel-divider';
 import { FieldsColumn } from './fields-column';
 import { Thread } from './thread';
 import { Composer } from './composer';
@@ -34,6 +36,10 @@ export function TicketWindow({ id }: { id: string }) {
   const { statuses } = useStatuses();
   // «take it» needs to know who I am; until /me/operator answers the control simply is not there.
   const me = useMyOperator();
+  // W8 — the composer's pickers (empty lists ⇒ the buttons do not render).
+  const { macros, canned } = useTemplates();
+  // W8 (9.9) — the left column's width: a live CSS value during the drag, a stored number after it.
+  const fields = useStoredPanelWidth();
 
   const statusName = (key: string) => statuses.find((s) => s.key === key)?.agentName ?? key;
   // «Submit as …» offers the ACTIVE catalogue by agent name — a retired status renders on old rows
@@ -81,21 +87,33 @@ export function TicketWindow({ id }: { id: string }) {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <FieldsColumn
-          detail={t.detail}
-          labels={t.labels}
-          accountLabels={t.accountLabels}
-          mutation={t.mutation}
-          myOperatorId={me.operatorId ?? ''}
-          onTakeIt={t.takeIt}
-          onAttachLabel={t.attachLabel}
-          onDetachLabel={t.detachLabel}
-        />
+      <div className="flex min-h-0 flex-1">
+        {/* 9.9: the wrapper owns the WIDTH so the drag writes one style property on one element —
+            never a React render per pixel (the anti-storm rule, applied before it is needed). */}
+        <div ref={fields.ref} style={{ width: fields.width }} className="min-h-0 shrink-0">
+          <FieldsColumn
+            detail={t.detail}
+            labels={t.labels}
+            accountLabels={t.accountLabels}
+            mutation={t.mutation}
+            myOperatorId={me.operatorId ?? ''}
+            onTakeIt={t.takeIt}
+            onAttachLabel={t.attachLabel}
+            onDetachLabel={t.detachLabel}
+          />
+        </div>
+        <PanelDivider target={fields} />
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col pl-3">
           <Thread state={t.thread} truncated={t.threadTruncated} onRetry={t.refresh} />
-          <Composer send={t.send} sendState={t.sendState} statusOptions={submitStatuses} />
+          <Composer
+            send={t.send}
+            sendState={t.sendState}
+            statusOptions={submitStatuses}
+            macros={macros}
+            canned={canned}
+            onApplyMacro={t.applyMacro}
+          />
         </main>
 
         {/* The right rail's future home (W10): the shell's context-panel slot, not this file. */}

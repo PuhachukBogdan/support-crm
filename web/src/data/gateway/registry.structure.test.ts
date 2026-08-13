@@ -110,9 +110,9 @@ describe('the registry is well formed', () => {
     }
   });
 
-  it('W7: write verbs, where declared, come from the closed set the gateway uses', () => {
+  it('W7/W8: write verbs, where declared, come from the closed set the gateway uses', () => {
     for (const row of ROUTE_REGISTRY) {
-      if (row.verbs?.update) expect(['PATCH', 'PUT']).toContain(row.verbs.update);
+      if (row.verbs?.update) expect(['PATCH', 'PUT', 'POST']).toContain(row.verbs.update);
     }
   });
 

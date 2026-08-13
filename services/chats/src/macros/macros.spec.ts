@@ -373,3 +373,17 @@ describe('ListMacros', () => {
     expect(res.macros[1]!.actions).toEqual([]); // unreadable blob surfaces as empty, never as junk
   });
 });
+
+describe('W8 — the list gate is the USE key, structurally', () => {
+  // Unit calls above bypass the guard (direct method invocation), so the DECORATOR VALUE is the
+  // fact to pin: LISTING rides `crm.macros.use` (the picker is for agents — no agent role holds
+  // `templates.manage`, which is why the W7 window's macro button had nothing to offer), while
+  // AUTHORING stays lead-level. The guard's deny-by-default behaviour has its own spec.
+  const required = (method: object) =>
+    Reflect.getMetadata('rbac:chats_required_permission', method);
+
+  it('ListMacros requires crm.macros.use; DefineMacro stays crm.templates.manage', () => {
+    expect(required(MacrosController.prototype.listMacros)).toBe('crm.macros.use');
+    expect(required(MacrosController.prototype.defineMacro)).toBe('crm.templates.manage');
+  });
+});

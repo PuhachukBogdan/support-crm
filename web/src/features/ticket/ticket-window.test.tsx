@@ -187,6 +187,66 @@ describe('the left column writes what the operator does', () => {
   });
 });
 
+describe('W8 — the composer’s pickers', () => {
+  const TEMPLATES = {
+    macros: [{ id: 'mac1', name: 'triage', actions: [{ type: 'MACRO_ACTION_TYPE_SET_STATUS', value: 'pending' }] }],
+    canned: [{ id: 'can1', name: 'greeting', body: 'Thanks for reaching out.' }],
+  };
+
+  it('a template INSERTS its text into the draft — it never sends anything', async () => {
+    const stub = stubTicket(TEMPLATES);
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    fireEvent.change(screen.getByTestId('composer-body'), { target: { value: 'Hello,' } });
+    openMenu('composer-canned');
+    fireEvent.click(await screen.findByText('greeting'));
+
+    expect(screen.getByTestId('composer-body')).toHaveValue('Hello,\nThanks for reaching out.');
+    expect(stub.writes).toHaveLength(0); // insertion is a draft edit, not a request
+  });
+
+  it('applying a macro POSTs to the macro under the conversation, then re-reads detail + labels', async () => {
+    const stub = stubTicket(TEMPLATES);
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+    const detailReadsBefore = stub.detailReads;
+
+    openMenu('composer-macro');
+    fireEvent.click(await screen.findByText('triage'));
+
+    await waitFor(() => expect(stub.writes).toHaveLength(1));
+    expect(stub.writes[0]).toMatchObject({
+      op: 'update',
+      resource: 'conversation-macros',
+      id: 'mac1',
+      within: 'c1',
+    });
+    expect(stub.writes[0]!.payload).toBeUndefined(); // the macro IS the payload; nothing rides along
+    await waitFor(() => expect(stub.detailReads).toBeGreaterThan(detailReadsBefore));
+  });
+
+  it('a refused macro names itself (all-or-nothing server-side, so nothing partial to render)', async () => {
+    const stub = stubTicket({
+      ...TEMPLATES,
+      failMacroWith: { message: 'macro needs a permission you lack', retryable: false },
+    });
+    renderWindow(stub);
+    await screen.findByTestId('ticket-subject');
+
+    openMenu('composer-macro');
+    fireEvent.click(await screen.findByText('triage'));
+    expect(await screen.findByTestId('fields-error')).toHaveTextContent('permission');
+  });
+
+  it('⛔ with no templates configured, neither picker renders — no button that leads nowhere', async () => {
+    renderWindow(stubTicket());
+    await screen.findByTestId('ticket-subject');
+    expect(screen.queryByTestId('composer-macro')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('composer-canned')).not.toBeInTheDocument();
+  });
+});
+
 describe('the live subscription re-reads, never merges', () => {
   it('an event for THIS conversation re-reads the thread; another ticket’s event does not', async () => {
     const stub = stubTicket();

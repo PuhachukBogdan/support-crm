@@ -52,7 +52,12 @@ export class MacrosController {
   ) {}
 
   @GrpcMethod('ChatsReadService', 'ListMacros')
-  @RequiresChatsPermission('crm.templates.manage')
+  // W8 (2026-08-06): LISTING dropped from `crm.templates.manage` to `crm.macros.use` — reading the
+  // list is the first half of USING one, and every agent role holds the use key while none held
+  // manage, so the ticket window's «Apply macro» had nothing to offer its intended user. Widens no
+  // capability: applying still re-checks the permission of every action in the bundle, and
+  // AUTHORING (DefineMacro below) stays a lead-level configuration task.
+  @RequiresChatsPermission('crm.macros.use')
   async listMacros(_req: unknown, metadata: Metadata) {
     const ctx = readActorContext(metadata);
     const rows = await this.macros.list(ctx.accountId);

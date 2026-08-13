@@ -76,11 +76,12 @@ export interface RouteRow {
   readonly singleton?: true;
   /**
    * W7: non-default write verbs. Defaults — `create` POST · `update` PATCH · `remove` DELETE —
-   * cover every row that does not say otherwise; the only declared exception so far is PUT, which
-   * the gateway uses where the write is an idempotent *placement* (assignee, label attach) rather
-   * than a partial edit. A field, not a branch: the transport reads it like everything else.
+   * cover every row that does not say otherwise. PUT marks an idempotent *placement* (assignee,
+   * label attach); W8 adds POST for an *action on an item* (`POST /conversations/{id}/macros/{id}`
+   * — applying is neither an edit nor idempotent, and the verb is the gateway's, declared here so
+   * the transport stays verb-agnostic). A field, not a branch.
    */
-  readonly verbs?: { readonly update?: 'PATCH' | 'PUT' };
+  readonly verbs?: { readonly update?: 'PATCH' | 'PUT' | 'POST' };
 }
 
 /**
@@ -269,6 +270,44 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     pageSizeParam: 'pageSize',
     pageTokenParam: 'pageToken',
     ops: ['create'],
+  },
+  /**
+   * ⭐ W8 — the composer's pickers (roadmap 4.5). Both lists ride `crm.macros.use` since W8 dropped
+   * the read gate (the picker is for agents; authoring stays `crm.templates.manage` and has no row
+   * here — the admin surface is a later block's).
+   */
+  {
+    resource: 'macros',
+    path: '/macros',
+    collection: 'macros',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
+    resource: 'canned-responses',
+    path: '/canned-responses',
+    collection: 'canned',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
+    // Applying a macro: POST to the macro's path under the conversation — an ACTION on an item.
+    // The service re-checks the permission of every bundled action, all-or-nothing (FR-008).
+    resource: 'conversation-macros',
+    path: '/conversations/{within}/macros',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    verbs: { update: 'POST' },
+    ops: ['update'],
   },
 ] as const;
 

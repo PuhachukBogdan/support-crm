@@ -67,7 +67,9 @@ export class MacrosController implements OnModuleInit {
   }
 
   @Get('macros')
-  @RequiresPermission('crm.templates.manage')
+  // W8: the list rides the USE key (mirrors the chats-side gate) — the picker is for agents;
+  // authoring below stays `crm.templates.manage`. Applying re-checks each bundled action's key.
+  @RequiresPermission('crm.macros.use')
   async list(@Req() req: ChatsReq) {
     return callChats(this.read.listMacros({}, this.meta(req)));
   }

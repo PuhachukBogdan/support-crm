@@ -1,7 +1,7 @@
 import type { DataAccess, RealtimeEvent } from '@/data/data-access';
 import type { DataError, PaginatedResult, Query, ResourceName } from '@/data/types';
 import { WIRE_STATUSES, type StatusWireRow } from '@/features/inbox/test-support';
-import type { ConversationDetail, LabelWire, ThreadMessage } from './types';
+import type { CannedResponseWire, ConversationDetail, LabelWire, MacroWire, ThreadMessage } from './types';
 
 /**
  * A `DataAccess` for the ticket window (W7). Same philosophy as the Inbox's stub: it proves the
@@ -18,10 +18,15 @@ export interface TicketStubOptions {
   accountLabels?: LabelWire[];
   myOperatorId?: string | null;
   statuses?: readonly StatusWireRow[];
+  /** W8 — the composer's pickers. Defaults EMPTY: the buttons must not render out of nothing. */
+  macros?: MacroWire[];
+  canned?: CannedResponseWire[];
   /** Every `create conversation-messages` fails with this. */
   failSendWith?: DataError;
   /** The detail read fails (the thread may still answer). */
   failDetailWith?: DataError;
+  /** W8 — applying a macro fails with this (the all-or-nothing refusal). */
+  failMacroWith?: DataError;
 }
 
 export interface WriteRecord {
@@ -105,6 +110,8 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
       }
       if (resource === 'conversation-labels') return page(labels as unknown as T[]);
       if (resource === 'labels') return page(accountLabels as unknown as T[]);
+      if (resource === 'macros') return page((opts.macros ?? []) as unknown as T[]);
+      if (resource === 'canned-responses') return page((opts.canned ?? []) as unknown as T[]);
       throw new Error(`unexpected list: ${resource}`);
     },
     async get<T = unknown>(resource: ResourceName, id: string): Promise<T> {
@@ -143,6 +150,7 @@ export function stubTicket(opts: TicketStubOptions = {}): TicketStub {
     },
     async update<T = unknown>(resource: ResourceName, id: string, patch: unknown, within?: string): Promise<T> {
       writes.push({ op: 'update', resource, id, payload: patch, within });
+      if (resource === 'conversation-macros' && opts.failMacroWith) throw opts.failMacroWith;
       return {} as T;
     },
     async remove(resource: ResourceName, id: string, within?: string): Promise<void> {

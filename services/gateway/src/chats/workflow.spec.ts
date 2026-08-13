@@ -63,14 +63,16 @@ describe('Workflow REST edge — permissions declared per route (SC-005)', () =>
     }
   });
 
-  it('macro AUTHORING requires crm.templates.manage but APPLYING requires crm.macros.use', () => {
-    expect(perm(MacrosController.prototype.list)).toBe('crm.templates.manage');
+  it('macro AUTHORING requires crm.templates.manage but LISTING and APPLYING ride crm.macros.use', () => {
+    // W8: reading the list is the first half of USING one — no agent role held templates.manage,
+    // so the picker had nothing to offer its intended user. Authoring stays lead-level.
+    expect(perm(MacrosController.prototype.list)).toBe('crm.macros.use');
     expect(perm(MacrosController.prototype.define)).toBe('crm.templates.manage');
     expect(perm(MacrosController.prototype.apply)).toBe('crm.macros.use');
   });
 
-  it('canned-response routes require crm.templates.manage', () => {
-    expect(perm(CannedController.prototype.list)).toBe('crm.templates.manage');
+  it('canned responses: creating requires crm.templates.manage, listing rides crm.macros.use (W8)', () => {
+    expect(perm(CannedController.prototype.list)).toBe('crm.macros.use');
     expect(perm(CannedController.prototype.create)).toBe('crm.templates.manage');
   });
 });

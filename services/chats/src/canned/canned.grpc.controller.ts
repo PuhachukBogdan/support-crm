@@ -25,7 +25,10 @@ export class CannedController {
   constructor(@Inject(CannedRepository) private readonly canned: CannedRepository) {}
 
   @GrpcMethod('ChatsReadService', 'ListCannedResponses')
-  @RequiresChatsPermission('crm.templates.manage')
+  // W8 (2026-08-06): same move as ListMacros — reading is the first half of using; a canned
+  // response is text written by leads FOR agents to insert, so the use key is its natural gate.
+  // Creating stays `crm.templates.manage`.
+  @RequiresChatsPermission('crm.macros.use')
   async listCannedResponses(_req: unknown, metadata: Metadata) {
     const ctx = readActorContext(metadata);
     return { canned: await this.canned.list(ctx.accountId) };

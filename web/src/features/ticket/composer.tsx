@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { useAttachmentUpload } from './use-attachment-upload';
+import type { CannedResponseWire, MacroWire } from './types';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,9 @@ export function Composer({
   send,
   sendState,
   statusOptions = [],
+  macros = [],
+  canned = [],
+  onApplyMacro,
 }: {
   send: (input: { kind: 'reply' | 'note'; body: string; statusTo?: string }) => void;
   sendState: TicketState['send'];
@@ -45,6 +49,14 @@ export function Composer({
    * same rule the Inbox funnel learned. Empty ⇒ the split half simply does not render.
    */
   statusOptions?: readonly SubmitStatusOption[];
+  /**
+   * W8 — the two pickers (frame 031's «Apply macro» bar). A macro APPLIES to the conversation
+   * (server-side bundle, all-or-nothing); a canned response INSERTS its text into the draft. Empty
+   * list ⇒ the picker does not render — an absent button reads as "not set up", which is the truth.
+   */
+  macros?: readonly MacroWire[];
+  canned?: readonly CannedResponseWire[];
+  onApplyMacro?: (macroId: string) => void;
 }) {
   const [kind, setKind] = useState<'reply' | 'note'>('reply');
   const [body, setBody] = useState('');
@@ -147,6 +159,43 @@ export function Composer({
           >
             {files.uploading ? 'Uploading…' : '📎 Attach'}
           </Button>
+          {macros.length > 0 && onApplyMacro && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" data-testid="composer-macro" disabled={sending}>
+                  ⚡ Apply macro
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {macros.map((m) => (
+                  <DropdownMenuItem key={m.id} onSelect={() => onApplyMacro(m.id)}>
+                    {m.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {canned.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" data-testid="composer-canned" disabled={sending}>
+                  📋 Template
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {canned.map((c) => (
+                  <DropdownMenuItem
+                    key={c.id}
+                    // INSERTS into the draft — the person still reads and sends it themselves. A
+                    // template that sent itself would be a macro with none of a macro's checks.
+                    onSelect={() => setBody((prev) => (prev.trim() === '' ? c.body : `${prev}\n${c.body}`))}
+                  >
+                    {c.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {sendState.status === 'error' && (
             <p className="text-xs text-destructive" data-testid="composer-error">
               {sendState.error.message}

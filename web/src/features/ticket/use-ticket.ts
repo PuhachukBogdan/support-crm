@@ -21,6 +21,7 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
   takeIt: (operatorId: string) => void;
   attachLabel: (labelId: string) => void;
   detachLabel: (labelId: string) => void;
+  applyMacro: (macroId: string) => void;
 } {
   const dispatch = useDispatch<AppDispatch>();
   const state = useSelector((s: RootState) => s.ticket);
@@ -51,7 +52,11 @@ export function useTicket(id: string): Omit<TicketState, 'send'> & {
     (labelId: string) => dispatch(ticketActions.detachLabel({ id, labelId })),
     [dispatch, id],
   );
+  const applyMacro = useCallback(
+    (macroId: string) => dispatch(ticketActions.applyMacro({ id, macroId })),
+    [dispatch, id],
+  );
 
   const { send: sendState, ...rest } = state;
-  return { ...rest, sendState, refresh, send, takeIt, attachLabel, detachLabel };
+  return { ...rest, sendState, refresh, send, takeIt, attachLabel, detachLabel, applyMacro };
 }

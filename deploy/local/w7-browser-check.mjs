@@ -230,7 +230,59 @@ try {
   );
   pass('the tag detached (dom) — the pair is idempotent server-side, so re-runs stay safe');
 
-  // ── 7. the way back ─────────────────────────────────────────────────────────────────────────────
+  // ── 7. W8 — the template inserts, the macro applies, the panel drags ────────────────────────────
+  // (Same screen, next block: the two pickers ride the RE-GATED lists — crm.macros.use — so their
+  // very presence for this agent proves the W8 permission move end to end.)
+  await p.focus('[data-testid="composer-canned"]');
+  await p.keyboard.press('Enter');
+  const cannedItem = await p.waitForSelector('[role="menuitem"]:has-text("seed-greeting")', { timeout: 8000 });
+  await cannedItem.click();
+  const draft = await p.inputValue('[data-testid="composer-body"]');
+  if (draft.includes('Thanks for reaching out')) pass('the template INSERTED its text into the draft (nothing was sent)');
+  else fail('template insert', `draft: «${draft.slice(0, 60)}»`);
+  await p.fill('[data-testid="composer-body"]', ''); // leave no accidental draft behind
+
+  const statusBeforeMacro = ((await p.textContent('[data-testid="ticket-status"]')) ?? '').trim();
+  await p.focus('[data-testid="composer-macro"]');
+  await p.keyboard.press('Enter');
+  const macroItem = await p.waitForSelector('[role="menuitem"]:has-text("seed-triage")', { timeout: 8000 });
+  // Two seed macros share the prefix — pick the exact one (the other needs assign and may refuse).
+  const macroName = await macroItem.textContent();
+  if ((macroName ?? '').trim() !== 'seed-triage') {
+    const exact = await p.$$('[role="menuitem"]');
+    for (const item of exact) {
+      if (((await item.textContent()) ?? '').trim() === 'seed-triage') { await item.click(); break; }
+    }
+  } else {
+    await macroItem.click();
+  }
+  await p.waitForFunction(
+    () => document.querySelector('[data-testid="ticket-status"]')?.textContent?.trim() === 'Pending',
+    undefined,
+    { timeout: 15000 },
+  );
+  pass(`the macro APPLIED server-side («${statusBeforeMacro}» → «Pending», the seed-triage bundle) — and its label landed in Tags`);
+
+  // The drag: synthetic pointer events through the app's own handler (real-input drags risk the
+  // container's ~6-click wedge; the LIMIT is stated — a real mouse drag is the operator's own step).
+  // Direction picked by HEADROOM: the width persists across runs, so a fixed +80 would hit the
+  // 480px ceiling on the third run and assert movement where the clamp correctly allows none.
+  const widthBefore = await p.$eval('[data-testid="ticket-fields"]', (el) => el.parentElement.getBoundingClientRect().width);
+  const delta = widthBefore > 400 ? -80 : 80;
+  await p.$eval('[data-testid="panel-divider"]', (el, d) => {
+    el.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 300, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 300 + d, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 300 + d, bubbles: true }));
+  }, delta);
+  await p.waitForTimeout(300);
+  const widthAfter = await p.$eval('[data-testid="ticket-fields"]', (el) => el.parentElement.getBoundingClientRect().width);
+  const stored = await p.evaluate(() => window.localStorage.getItem('crm.ticket.fields-width'));
+  const expected = Math.min(480, Math.max(200, Math.round(widthBefore) + delta));
+  if (Math.round(widthAfter) === expected && stored === String(expected))
+    pass(`the panel drags and REMEMBERS (${Math.round(widthBefore)} → ${expected}px, stored) — synthetic pointer, limit stated`);
+  else fail('panel resize', `${widthBefore} → ${widthAfter} (expected ${expected}), stored=${stored}`);
+
+  // ── 8. the way back ─────────────────────────────────────────────────────────────────────────────
   await p.$eval('[data-testid="ticket-back"]', (el) => el.click());
   await p.waitForSelector('[data-testid="bucket-rail"]', { timeout: 15000 });
   pass('← Inbox returns to the queue');

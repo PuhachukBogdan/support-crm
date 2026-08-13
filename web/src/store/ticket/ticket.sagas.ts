@@ -155,6 +155,23 @@ function* detachLabel(action: ReturnType<typeof ticketActions.detachLabel>) {
   }
 }
 
+/**
+ * W8 — apply a macro: POST to the macro's path under the conversation, then re-read what a macro
+ * can touch (status/priority/assignee → detail; add_label → labels). The thread is untouched by
+ * every action type in the catalogue, so it is deliberately not re-read.
+ */
+function* applyMacro(action: ReturnType<typeof ticketActions.applyMacro>) {
+  const { id, macroId } = action.payload;
+  try {
+    const da = getDataAccess();
+    yield call([da, da.update], 'conversation-macros', macroId, undefined, id);
+    yield put(ticketActions.mutationSucceeded({ id }));
+    yield all([call(loadDetail, id), call(loadLabels, id)]);
+  } catch (e) {
+    yield put(ticketActions.mutationFailed({ id, error: toDataError(e) }));
+  }
+}
+
 export function* ticketSaga() {
   yield fork(function* () {
     yield takeLatest(ticketActions.open.type, loadBoth);
@@ -173,5 +190,8 @@ export function* ticketSaga() {
   });
   yield fork(function* () {
     yield takeLeading(ticketActions.detachLabel.type, detachLabel);
+  });
+  yield fork(function* () {
+    yield takeLeading(ticketActions.applyMacro.type, applyMacro);
   });
 }

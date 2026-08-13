@@ -31,6 +31,10 @@ ENV GATEWAY_ORIGIN=${GATEWAY_ORIGIN}
 # app and the socket are not behind the same front door.
 ARG NEXT_PUBLIC_WS_ORIGIN=
 ENV NEXT_PUBLIC_WS_ORIGIN=${NEXT_PUBLIC_WS_ORIGIN}
+# ⚠️ OFF unless a deployment sets `on`: W4's screen is not verified end to end, and an unverified
+# transport does not get to be on by default. With it off there is no socket and no subscription at all.
+ARG NEXT_PUBLIC_REALTIME=
+ENV NEXT_PUBLIC_REALTIME=${NEXT_PUBLIC_REALTIME}
 ENV NODE_ENV=production
 RUN npm run build --workspace web
 

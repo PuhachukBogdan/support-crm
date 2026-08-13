@@ -63,7 +63,21 @@ export function Providers({
      * subscription, so the screen that owns a query is the thing that re-reads (FR-013). The composition
      * root deliberately knows nothing about queries — it chooses an implementation and nothing else.
      */
-    dataAccessRef.current = dataAccess ?? new GatewayDataAccess(undefined, createWsPort());
+    /**
+     * ⚠️⚠️ **REALTIME IS OPT-IN, AND OFF BY DEFAULT** (added 2026-08-05, after the operator's second report).
+     *
+     * W4's wire is proven (`live-w4.sh`, 13/13 twice) and its SCREEN is not: on the stand the handshake is
+     * refused, and a refused handshake has now produced two user-visible faults — a shell crash from a
+     * synchronous constructor throw, and a page freeze from a reconnect loop that re-read the whole list
+     * once a second. Both are fixed. Neither should have been discoverable by the operator.
+     *
+     * ⇒ So the transport does not exist unless a deployment asks for it. With the flag off, this is
+     * byte-for-byte the pre-034 product: no socket, no subscription, no timers — nothing to be slow or to
+     * break. A feature that is not verified end to end does not get to be on by default.
+     */
+    const realtimeOn = (process.env.NEXT_PUBLIC_REALTIME ?? '').trim() === 'on';
+    dataAccessRef.current =
+      dataAccess ?? new GatewayDataAccess(undefined, realtimeOn ? createWsPort() : undefined);
   }
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>

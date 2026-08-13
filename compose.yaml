@@ -482,6 +482,8 @@ services:
         # covers REST only — a WebSocket upgrade is not a rewrite. Getting this wrong is what made W4's first
         # headed check receive 0 frames while `live-w4.sh` passed 13/13.
         NEXT_PUBLIC_WS_ORIGIN: ${NEXT_PUBLIC_WS_ORIGIN:-}
+        # `on` enables the realtime subscription. Off by default — see providers.tsx for why.
+        NEXT_PUBLIC_REALTIME: ${NEXT_PUBLIC_REALTIME:-}
     environment:
       NODE_ENV: production
       GATEWAY_ORIGIN: http://gateway:3000

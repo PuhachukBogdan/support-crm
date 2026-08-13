@@ -56,6 +56,32 @@ describe('the catalogue is well formed (nothing below can pass vacuously)', () =
     expect(MODULE_CATALOGUE.find((m) => m.key === 'dashboard')).toBeUndefined();
     expect(MODULE_CATALOGUE.find((m) => m.href === '/')!.key).toBe('inbox');
   });
+
+  it('⭐ Admin Center is a RESERVED slot on the rail (roadmap 9.8, ADR 0034)', () => {
+    const admin = MODULE_CATALOGUE.find((m) => m.key === 'admin');
+    expect(admin).toBeDefined();
+    expect(admin!.label).toBe('Admin Center');
+    expect(admin!.href).toBe('/admin');
+    // Marked, not built: the rail says "soon" and the route serves the reserved screen.
+    expect(admin!.state).toBe('coming_soon');
+  });
+
+  it('⚠️ Admin Center carries its permission ALREADY, before it is switched on', () => {
+    // `coming_soon` is shown regardless of permission, so this key does nothing today — which is
+    // exactly why it is easy to omit. Omitting it would make an admin surface visible to everybody
+    // on the day it flips to `active`. The key itself is cross-checked against the RBAC catalogue by
+    // `nav-permissions.test.ts`; here we only pin that ONE is declared.
+    const admin = MODULE_CATALOGUE.find((m) => m.key === 'admin')!;
+    expect(admin.permission).toBe('platform.role.manage');
+  });
+
+  it('⭐ Admin Center sits directly ABOVE Analytics — the position was the instruction', () => {
+    // Asserted as adjacency rather than an index: inserting an unrelated module elsewhere in the rail
+    // must not fail this test, but moving Analytics above Admin Center must.
+    const keys = MODULE_CATALOGUE.map((m) => m.key);
+    expect(keys.indexOf('admin')).toBeGreaterThanOrEqual(0);
+    expect(keys.indexOf('analytics')).toBe(keys.indexOf('admin') + 1);
+  });
 });
 
 describe('*** the rail is assembled from permissions (FR-020) ***', () => {

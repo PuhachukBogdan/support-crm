@@ -5,6 +5,7 @@ import {
   Settings,
   BookOpen,
   Phone,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -69,6 +70,24 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
   },
   // R19: Knowledge Hub keeps its entry from the start and is filled later.
   { key: 'knowledge', label: 'Knowledge Base', href: '/knowledge', icon: BookOpen, state: 'coming_soon' },
+  /**
+   * ⭐ Admin Center — the access-management surface over the RBAC backbone (roadmap 9.8, ADR 0034).
+   * Reserved as `coming_soon` on the operator's instruction, and deliberately placed ABOVE Analytics.
+   *
+   * ⚠️ It declares `platform.role.manage` even though a `coming_soon` module is shown regardless of
+   * permission. That is not decoration: the day this flips to `active`, the gate must already be the
+   * right one. A placeholder that ships without its permission becomes an admin entry visible to the
+   * whole company the moment somebody switches it on — the failure this catalogue is shaped to
+   * prevent. `nav-permissions.test.ts` checks the key against the service that owns it.
+   */
+  {
+    key: 'admin',
+    label: 'Admin Center',
+    href: '/admin',
+    icon: ShieldCheck,
+    permission: 'platform.role.manage',
+    state: 'coming_soon',
+  },
   {
     key: 'analytics',
     label: 'Analytics',

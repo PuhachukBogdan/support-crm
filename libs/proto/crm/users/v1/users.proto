@@ -443,6 +443,27 @@ service UsersMaintenanceService {
   // customer wrote FROM — which a hash cannot give and the player's registered address must not, since
   // they may differ and answering the wrong one sends a stranger's conversation to them.
   rpc GetChannelEnvelope(GetChannelEnvelopeRequest) returns (ChannelEnvelope);
+
+  // ── ⭐ W17 (subpoint 4.6) — the opaque handle for WRITING FIRST ────────────────────────────────
+  // "Write to my player" needs somewhere to send, and the product's only real address source today is
+  // a ChannelParticipant this player has already written from (GR8 sync 5.4 does not exist; the Player
+  // row carries no address by design). This answers with the OPAQUE participant id — never the address,
+  // which continues to leave this service only through GetChannelEnvelope on the delivery path — and
+  // `""` when the product knows no address for this player, which the screen renders as a labelled
+  // absence rather than a broken button. Same fencing as its siblings: system actor, no gateway route.
+  rpc GetPlayerEmailParticipant(GetPlayerEmailParticipantRequest) returns (PlayerEmailParticipant);
+}
+
+// W17 — which (brand, player) pair. The PAIR, as everywhere since ADR 0038 §3: a bare platform id
+// names two different human beings under two brands.
+message GetPlayerEmailParticipantRequest {
+  string account_id = 1;
+  string brand_id = 2;
+  string player_id = 3;
+}
+
+message PlayerEmailParticipant {
+  string participant_id = 1; // "" = no address known for this player yet
 }
 
 // Feature 033 — resolve who wrote, and remember where to answer, in one call.

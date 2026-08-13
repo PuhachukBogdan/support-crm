@@ -78,6 +78,11 @@ interface UsersMaintenanceGrpc {
     },
     md?: Metadata,
   ): Observable<ParticipantWire>;
+  // ⭐ W17 (subpoint 4.6): the opaque handle for writing FIRST. An id or '' — never an address.
+  getPlayerEmailParticipant(
+    d: { accountId: string; brandId: string; playerId: string },
+    md?: Metadata,
+  ): Observable<{ participantId?: string }>;
 }
 
 @Injectable()
@@ -162,6 +167,39 @@ export class ChannelParticipantClient implements OnModuleInit {
       playerId: typeof res.playerId === 'string' ? res.playerId : '',
       ambiguous: res.ambiguous === true,
     };
+  }
+
+  /**
+   * ⭐ W17 (subpoint 4.6) — this player's most recent email handle, for WRITING FIRST.
+   *
+   * Returns `null` when the product knows no address for the player — the ordinary state until GR8
+   * sync (5.4) exists, and the caller's job is to REFUSE the initiation with a class the screen can
+   * word, never to fall through to the registered address (there is none) or to a guess.
+   *
+   * `x-actor-kind: system` for the same reason `resolve` above states: the far rpc answers an
+   * OPAQUE id — no permission a human holds is being laundered, and the human's own authorization
+   * (reply key + portfolio rule) was already checked by the calling handler at this service's tier.
+   *
+   * @throws {@link IdentitySourceUnavailableError} when `users` cannot be reached — distinct from
+   *         "knows no address", exactly as `resolve` distinguishes the two.
+   */
+  async playerEmailParticipant(
+    accountId: string,
+    brandId: string,
+    playerId: string,
+  ): Promise<string | null> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+    let res: { participantId?: string };
+    try {
+      res = await firstValueFrom(
+        this.machine.getPlayerEmailParticipant({ accountId, brandId, playerId }, md),
+      );
+    } catch (err) {
+      throw new IdentitySourceUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+    }
+    const id = typeof res?.participantId === 'string' ? res.participantId : '';
+    return id === '' ? null : id;
   }
 
   /**

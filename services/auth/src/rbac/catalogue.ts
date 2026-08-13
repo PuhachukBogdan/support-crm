@@ -76,6 +76,14 @@ export const SYSTEM_CATALOGUE: readonly CatalogueEntry[] = [
    * visible in the catalogue. The tier guard stays where it is: defence in depth, not the only door.
    */
   { category: 'crm', key: 'crm.customers.browse', label: 'Browse the customer directory' },
+  /**
+   * ⭐ W17 (subpoint 4.5, roadmap 9.10) — the VIP MODULE itself as a permission (ADR 0034's rule:
+   * support cannot self-enable it; there is no toggle, only a grant). Held by `am` and `shift_am` —
+   * NOT `vip_support`, whose place is the queue (roadmap 9.7: the AM workspace is a portfolio, not
+   * a faster inbox). The rail assembles from this key (W13), and the server refuses the
+   * portfolio-scoped writes regardless of what any rail shows.
+   */
+  { category: 'crm', key: 'crm.vip.workspace', label: 'VIP workspace (AM portfolio tab)' },
   // Analytics
   { category: 'analytics', key: 'analytics.dashboard.view', label: 'View dashboards' },
   { category: 'analytics', key: 'analytics.reports.view', label: 'View reports' },
@@ -175,6 +183,12 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'analytics.dashboard.view',
     'crm.conversation.assign',
     'crm.labels.manage',
+    // ⭐ W17 (9.10): the VIP tab — the AM's own workspace. ⚠️ `users.player.assign` is deliberately
+    // NOT here: W17's live round tried adding it and feature 026's own spec refused — the key is a
+    // self-granted route into the `am_only` tier (attach → read → detach), off for everyone until
+    // granted PER PERSON. Building a portfolio is an administrator's act or a per-person grant; the
+    // tab only needs the portfolio to EXIST.
+    'crm.vip.workspace',
   ],
   shift_am: [
     'crm.inbox.view',
@@ -189,6 +203,9 @@ export const ROLE_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
     'analytics.reports.view',
     'crm.conversation.assign',
     'crm.labels.manage',
+    // ⭐ W17 (9.10): the shift AM covers the portfolio work when the AM is away. (`users.player.assign`
+    // deliberately absent — see the `am` entry above.)
+    'crm.vip.workspace',
   ],
   teamlead: [
     'crm.inbox.view',

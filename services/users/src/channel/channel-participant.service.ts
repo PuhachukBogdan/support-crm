@@ -178,6 +178,31 @@ export class ChannelParticipantService {
   }
 
   /**
+   * ⭐ W17 (subpoint 4.6) — the handle for WRITING FIRST: this player's most recent email
+   * participant, as an OPAQUE id. The address itself does not cross this method's boundary — the
+   * delivery path fetches it later through `envelopeOf`, under that method's terms.
+   *
+   * Most recent, because a player may have written from several addresses over the years and "the
+   * one they used last" is the closest thing to an intention the data carries — the same reasoning
+   * as `defaultKeyOfCategory`'s lowest-order rule. `null` = the product knows no address for this
+   * player, which the screen must render as a labelled absence (GR8 sync 5.4 is the future writer
+   * that will make this rare).
+   */
+  async emailParticipantOf(
+    accountId: string,
+    brandId: string,
+    playerId: string,
+  ): Promise<string | null> {
+    if (!brandId || !playerId) return null;
+    const row = (await this.prisma.forAccount(accountId).channelParticipant.findFirst({
+      where: { brand_id: brandId, player_id: playerId, kind: 'email' },
+      orderBy: { created_at: 'desc' },
+      select: { id: true },
+    })) as { id: string } | null;
+    return row?.id ?? null;
+  }
+
+  /**
    * Which player this identifier names — or none, stated (FR-019…FR-022).
    *
    * ── The two classes resolve by two different mechanisms, and neither is a guess ─────────────────

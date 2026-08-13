@@ -266,4 +266,33 @@ export class MaintenanceController {
     }
     return { address };
   }
+
+  /**
+   * ⭐ W17 (subpoint 4.6) — the opaque email handle for writing FIRST. Same fencing as its two
+   * siblings (system actor, no gateway route), and one notch safer: the answer is an opaque id or
+   * `""` — no contact value can leave through it. `""` rather than NOT_FOUND, because "the product
+   * knows no address for this player" is the ordinary state until GR8 sync (5.4) exists, and the
+   * caller renders it as a labelled absence, not an error.
+   */
+  @GrpcMethod('UsersMaintenanceService', 'GetPlayerEmailParticipant')
+  async getPlayerEmailParticipant(
+    req: { accountId?: string; brandId?: string; playerId?: string },
+    metadata: Metadata,
+  ) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const accountId = String(req?.accountId ?? '').trim();
+    const brandId = String(req?.brandId ?? '').trim();
+    const playerId = String(req?.playerId ?? '').trim();
+    if (!accountId || !brandId || !playerId) {
+      // The PAIR is required (ADR 0038 §3): a bare platform id names two people under two brands.
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'account_id, brand_id and player_id are required',
+      });
+    }
+    const participantId = await this.participants.emailParticipantOf(accountId, brandId, playerId);
+    return { participantId: participantId ?? '' };
+  }
 }

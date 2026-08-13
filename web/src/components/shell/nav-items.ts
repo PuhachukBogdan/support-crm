@@ -76,6 +76,20 @@ export const MODULE_CATALOGUE: readonly NavModule[] = [
     permission: 'crm.customers.browse',
     state: 'active',
   },
+  /**
+   * ⭐ W17 (subpoint 4.5, roadmap 9.10) — the AM's own workspace: their portfolio and the write-first
+   * act. Gated by the MODULE's own key (`crm.vip.workspace`, held by am/shift_am — ADR 0034: support
+   * cannot self-enable it; there is no toggle, only a grant). Assembled-from-permissions means a line
+   * agent's rail simply never contains it — and the server refuses the portfolio writes regardless.
+   */
+  {
+    key: 'vip',
+    label: 'VIP',
+    href: '/vip',
+    icon: Users,
+    permission: 'crm.vip.workspace',
+    state: 'active',
+  },
   // R19: Knowledge Hub keeps its entry from the start and is filled later.
   { key: 'knowledge', label: 'Knowledge Base', href: '/knowledge', icon: BookOpen, state: 'coming_soon' },
   /**

@@ -479,6 +479,33 @@ export const ROUTE_REGISTRY: readonly RouteRow[] = [
     ops: ['create', 'update'],
   },
   /**
+   * ⭐ W17 (subpoint 4.4) — the caller's OWN portfolio (`GET /me/players`, feature 026's read). The
+   * subject is the session — there is nobody else this path can name, which is what makes it safe
+   * for every role: a non-AM simply owns an empty portfolio.
+   */
+  {
+    resource: 'my-players',
+    path: '/me/players',
+    collection: 'players',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['list'],
+  },
+  {
+    // ⭐ W17 (subpoint 4.6) — write first: POST creates the conversation AND posts its first mail.
+    // The server owns every rule (portfolio, address, channel, status) — this row only names the path.
+    resource: 'initiate-email',
+    path: '/conversations/initiate-email',
+    collection: '',
+    params: {},
+    required: [],
+    pageSizeParam: 'pageSize',
+    pageTokenParam: 'pageToken',
+    ops: ['create'],
+  },
+  /**
    * ⭐ W11 (roadmap 9.17) — the account's brands. It exists because every player read REQUIRES a
    * brand and the browser had no way to learn which ones there are. ⚠️ A brand is a FILTER, not a
    * wall (ADR 0038 §1): this list decides nothing about access, and no screen may treat it as if

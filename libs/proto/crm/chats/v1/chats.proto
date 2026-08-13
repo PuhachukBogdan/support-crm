@@ -649,6 +649,16 @@ service ChatsWriteService {
   // its handler (`channel/channel-admin.grpc.controller.ts`), per the standing rule above.
   rpc UpsertEmailChannel(UpsertEmailChannelRequest) returns (ChannelConfig);
 
+  // ── ⭐ W17 (subpoint 4.6) — WRITE FIRST: one button, one channel (email) ─────────────────────────
+  // Creates the conversation AND posts its first outbound message in one act: an email-channel
+  // ticket attached to the (brand, player) pair, addressed to the participant handle the player has
+  // already written from (users' GetPlayerEmailParticipant — the product's only real address source
+  // until GR8 sync 5.4). Gated `crm.conversation.reply` at both tiers, PLUS the portfolio rule: a
+  // caller whose role narrows to their own portfolio (feature 030's predicate, reused not restated)
+  // may only initiate to a player attached to them. Refusals, each its own: no known address, no
+  // enabled email channel for the brand, no active `open`-category status configured.
+  rpc InitiateEmailConversation(InitiateEmailConversationRequest) returns (Conversation);
+
   // ── ⭐ W15a (subpoint 3.14 — O6 reversed R21) — the status authoring screen's writes ──────────────
   // The write counterpart the StatusReadController's header promised to 3.14. Feature 032 made these an
   // INSERT/UPDATE by design (the six categories live in code; statuses are rows), which is why neither
@@ -657,6 +667,17 @@ service ChatsWriteService {
   // (`status/status-admin.grpc.controller.ts`).
   rpc CreateConversationStatus(CreateConversationStatusRequest) returns (ConversationStatusDef);
   rpc UpdateConversationStatus(UpdateConversationStatusRequest) returns (ConversationStatusDef);
+}
+
+// ── ⭐ W17 (subpoint 4.6) — write first, by email ───────────────────────────────────────────────────
+// The PAIR names the player (ADR 0038 §3). `subject` optional — it becomes the conversation's title
+// with source `manual` (the AM chose the words) and the mail's Subject; empty means ordinary mail
+// with a derived-later title. `body` required: an initiation with nothing to say is not a message.
+message InitiateEmailConversationRequest {
+  string brand_id = 1;
+  string player_id = 2;
+  string subject = 3;
+  string body = 4;
 }
 
 // ── ⭐ W15a — creating a status (subpoint 3.14) ──────────────────────────────────────────────────────

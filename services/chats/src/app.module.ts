@@ -84,6 +84,8 @@ import { CHANNEL_CONFIG, loadChannelConfig } from './config';
 import { StatusReadController } from './status/status.grpc.controller';
 // ⭐ W15a (subpoint 3.14): the status authoring writes — the counterpart the read's header promised.
 import { StatusAdminController } from './status/status-admin.grpc.controller';
+// ⭐ W17 (subpoint 4.6): write first — one button, one channel (email).
+import { InitiateConversationController } from './conversation/initiate.grpc.controller';
 import { AuditAccessGuard } from './audit/audit.guard';
 // Feature 016 (roadmap 4.9): attachments. chats holds a SOFT upload_id and validates it over the
 // users contract — never a cross-database join (Principle VIII). Acyclic: users never calls chats.
@@ -138,6 +140,8 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     // ⭐ W15a (subpoint 3.14): that authoring screen's writes — create + edit, `platform.settings.manage`
     // at both tiers, audited in-transaction. A controller nobody registers serves nothing.
     StatusAdminController,
+    // ⭐ W17 (subpoint 4.6): write first, by email — the portfolio rule enforced server-side.
+    InitiateConversationController,
     // ⭐ Feature 033 (roadmap 6.1): the channel ingress. ⚠️ The ONLY write controller in this service
     // with no actor context to read — its caller holds no session, and its authentication is the
     // signature the intake service verifies against the channel's own secret.

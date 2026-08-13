@@ -109,6 +109,10 @@ const CALLER_KIND: Readonly<Record<string, 'tick' | 'service' | 'reader'>> = {
   // unmasked contact value** — which is why it lives on a surface no gateway route reaches, and why its
   // answer is fetched per send rather than stored beside the queue row.
   'UsersMaintenanceService.GetChannelEnvelope': 'service',
+  // ⭐ W17 (subpoint 4.6): asked by CHATS while an AM writes FIRST — per act, like its two siblings.
+  // Answers an OPAQUE participant id, never an address; the human's own authorization (the module key
+  // + the portfolio rule) is checked at chats' tier before this is ever asked.
+  'UsersMaintenanceService.GetPlayerEmailParticipant': 'service',
   // ⭐ Feature 033: a THIRD kind of caller, and the reason this map gained a value rather than bending an
   // existing one. `ResolveIntakeChannel` is asked by the worker — so it is not `service` — but not from a
   // repeatable job either, because the mailbox reader holds a PERSISTENT IMAP connection rather than firing
@@ -170,6 +174,10 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // delivery. It is the one rpc here that returns a customer's contact value, and the reason it may:
       // replying to an email needs the address they wrote FROM, which a hash cannot give back.
       'UsersMaintenanceService.GetChannelEnvelope',
+      // ⭐ W17 (subpoint 4.6). The review moment again, and the answer to "what calls it?" is chats'
+      // initiate handler, once per write-first act. It answers an OPAQUE id — the address itself still
+      // leaves users only through GetChannelEnvelope, on the delivery path.
+      'UsersMaintenanceService.GetPlayerEmailParticipant',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
       // ⭐ Feature 033 (roadmap 6.4): asked by chats per inbound email. It is the only rpc in the product
       // whose REQUEST carries a customer's contact value, which is why it lives on a surface no gateway

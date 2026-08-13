@@ -75,6 +75,11 @@ interface ChatsWriteGrpc {
     md?: unknown,
   ): Observable<ConversationWire>;
   detachConversationPlayer(d: { conversationId: string }, md?: unknown): Observable<unknown>;
+  // ⭐ W17 (subpoint 4.6): write first — creates the conversation AND posts its first mail.
+  initiateEmailConversation(
+    d: { brandId: string; playerId: string; subject: string; body: string },
+    md?: unknown,
+  ): Observable<ConversationWire>;
 }
 
 type ChatsReq = Request & { claims?: RequestClaims; effective?: EffectivePermissions };
@@ -186,6 +191,37 @@ export class ConversationsController implements OnModuleInit {
   @RequiresPermission('crm.inbox.view')
   async statuses(@Req() req: ChatsReq) {
     return callChats(this.read.listConversationStatuses({}, this.meta(req)));
+  }
+
+  /**
+   * ⭐ W17 (subpoint 4.6) — `POST /conversations/initiate-email`: write to a player FIRST.
+   *
+   * Gated by the MODULE's own key (`crm.vip.workspace`) — NOT the reply key: reply is every
+   * agent's, the narrowing binds only portfolio roles, and the pair would let a line agent write
+   * first to any customer. The OWNING service re-checks the key AND the portfolio rule (a narrowed
+   * caller may only initiate to their own attached player — feature 030's predicate), plus the
+   * three preconditions each with its own refusal: no known address for the player, no enabled
+   * email channel for the brand, no active `open` status configured. A fixed segment, so it cannot
+   * be read as a conversation id — declared with the other non-`:id` routes for the reason the
+   * note above `statuses` states.
+   */
+  @Post('initiate-email')
+  @RequiresPermission('crm.vip.workspace')
+  async initiateEmail(
+    @Body() body: { brandId?: string; playerId?: string; subject?: string; body?: string },
+    @Req() req: ChatsReq,
+  ) {
+    return callChats(
+      this.write.initiateEmailConversation(
+        {
+          brandId: typeof body?.brandId === 'string' ? body.brandId.trim() : '',
+          playerId: typeof body?.playerId === 'string' ? body.playerId.trim() : '',
+          subject: typeof body?.subject === 'string' ? body.subject.trim() : '',
+          body: typeof body?.body === 'string' ? body.body : '',
+        },
+        this.meta(req),
+      ),
+    );
   }
 
   /**

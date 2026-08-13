@@ -1,4 +1,5 @@
-import { loadConfig, z } from '@crm/common';
+import { ConfigError, loadConfig, z } from '@crm/common';
+import { CODE_ALPHABET_RE } from './auth/code-alphabet';
 
 /**
  * Required config for the auth service. Validated at boot — the service refuses to start on
@@ -93,10 +94,76 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env) {
       MAIL_ALLOWED_RECIPIENT_DOMAINS: z.string().default(''),
       MAIL_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
       MAIL_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(15_000),
+      // ── The FIXED sign-in code — a stand convenience, and a hole if it ever escapes ──────────
+      //
+      // Named `DEV_` so the name itself is the warning. Empty (the default) = off, which is every
+      // deployment that does not deliberately set it. See `assertFixedLoginCodeUsable` below for
+      // the four ways it refuses to start rather than misbehave quietly.
+      DEV_FIXED_LOGIN_CODE: z.string().default(''),
+      /** Comma-separated addresses the fixed code applies to. Empty = the feature is off. */
+      DEV_FIXED_LOGIN_CODE_EMAILS: z.string().default(''),
     })
     .parse(env);
 
-  return { ...required, ...tunables };
+  const cfg = { ...required, ...tunables };
+  assertFixedLoginCodeUsable(cfg);
+  return cfg;
+}
+
+/** Parse the fixed-code allow-list — trimmed, lower-cased, empties dropped. Empty = feature off. */
+export function parseFixedLoginCodeEmails(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Normalise a configured fixed code the way the BROWSER normalises a typed one
+ * (`web/src/lib/otp-code.ts`): strip every whitespace, upper-case. Without this, a code written in
+ * `.env` as `abc 234` is submitted by the browser as `ABC234` and refused by a server comparing
+ * against the literal — correct in every way a person can see, and wrong.
+ */
+export function normalizeFixedLoginCode(raw: string): string {
+  return raw.replace(/\s+/g, '').toUpperCase();
+}
+
+/**
+ * The gate on the fixed code. ⚠️ **Every branch here is refuse-to-start, on purpose.**
+ *
+ * This knob's whole failure mode is silence: it is set by somebody who then stops watching, and
+ * every way it can be wrong looks identical from the outside — the person types the code they
+ * configured and is told it is not right, with no way to tell a typo from a knob that never applied.
+ * A crash at boot, naming the key, is the only symptom this feature can have.
+ *
+ * ⛔ And the one that is not about convenience: **it refuses to run under `NODE_ENV=production`.**
+ * A fixed code is a permanent password for the second factor; the security gate (rule 5) says no
+ * real data enters this system until the P0 findings are closed, and this knob must not be what
+ * survives into the deployment that holds it. Deleting the two variables is how it is turned off.
+ */
+function assertFixedLoginCodeUsable(cfg: {
+  NODE_ENV: string;
+  CODE_LENGTH: number;
+  DEV_FIXED_LOGIN_CODE: string;
+  DEV_FIXED_LOGIN_CODE_EMAILS: string;
+}): void {
+  const code = normalizeFixedLoginCode(cfg.DEV_FIXED_LOGIN_CODE);
+  const emails = parseFixedLoginCodeEmails(cfg.DEV_FIXED_LOGIN_CODE_EMAILS);
+  if (code === '' && emails.length === 0) return; // off — the default everywhere
+
+  const bad: string[] = [];
+  // Half-configured in either direction is the silent case: one variable set, nothing happens.
+  if (code === '') bad.push('DEV_FIXED_LOGIN_CODE');
+  if (emails.length === 0) bad.push('DEV_FIXED_LOGIN_CODE_EMAILS');
+  // A character the generator never emits is refused by the server and looks fine in `.env`.
+  if (code !== '' && !CODE_ALPHABET_RE.test(code)) bad.push('DEV_FIXED_LOGIN_CODE');
+  // A different length than the product's: the sign-in field is sized to CODE_LENGTH, so a short
+  // code cannot be finished and a long one cannot be typed at all.
+  if (code !== '' && code.length !== cfg.CODE_LENGTH) bad.push('DEV_FIXED_LOGIN_CODE');
+  if (cfg.NODE_ENV === 'production') bad.push('DEV_FIXED_LOGIN_CODE (not allowed in production)');
+
+  // ⚠️ Key names only — never the code itself. ConfigError is read out of a crash log.
+  if (bad.length > 0) throw new ConfigError([...new Set(bad)].sort());
 }
 
 /**

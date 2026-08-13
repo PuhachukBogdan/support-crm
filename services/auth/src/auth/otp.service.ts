@@ -1,8 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as argon2 from 'argon2';
-import { AUTH_CONFIG, type AuthConfig } from '../config';
+import {
+  AUTH_CONFIG,
+  normalizeFixedLoginCode,
+  parseFixedLoginCodeEmails,
+  type AuthConfig,
+} from '../config';
 import { PrismaService } from '../prisma.service';
+import { CODE_ALPHABET } from './code-alphabet';
 import { CLOCK, type Clock } from './ports/clock';
 import { EMAIL_PORT, type EmailPort } from './ports/email.port';
 
@@ -24,8 +30,10 @@ export type CodeVerifyResult =
   | { ok: true; userId: string; accountId: string }
   | { ok: false; reason: 'invalid' | 'expired' | 'consumed' | 'exhausted' };
 
-// Unambiguous alphabet (no 0/O/1/I) for the emailed code — 6 chars by default.
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// The alphabet moved to `./code-alphabet` — the configuration gate is its second reader and
+// cannot import this file (it would import the config back). Re-exported so nothing that already
+// imports it from here breaks.
+export { CODE_ALPHABET };
 
 /**
  * OtpService (feature 009, T016). Owns the one-time email code for step 2 of login:
@@ -41,7 +49,14 @@ export class OtpService {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EMAIL_PORT) private readonly email: EmailPort,
-  ) {}
+  ) {
+    // Resolved once: the allow-list is configuration, not per-request input.
+    this.fixedCode = normalizeFixedLoginCode(cfg.DEV_FIXED_LOGIN_CODE ?? '');
+    this.fixedCodeEmails = new Set(parseFixedLoginCodeEmails(cfg.DEV_FIXED_LOGIN_CODE_EMAILS));
+  }
+
+  private readonly fixedCode: string;
+  private readonly fixedCodeEmails: ReadonlySet<string>;
 
   private generateCode(length: number): string {
     const bytes = randomBytes(length);
@@ -50,6 +65,28 @@ export class OtpService {
       out += CODE_ALPHABET[bytes[i]! % CODE_ALPHABET.length];
     }
     return out;
+  }
+
+  /**
+   * The code this subject gets: the configured fixed one when their address is on the allow-list,
+   * a fresh random one otherwise (feature: `DEV_FIXED_LOGIN_CODE`, 2026-08-10).
+   *
+   * ⚠️ **Only the STRING changes.** The code is still argon2-hashed, still expires after `CODE_TTL`,
+   * is still single-use, still attempt-capped, and still supersedes the previous challenge. A fixed
+   * code removes the trip to the mailbox; it does not turn the second factor off, and nothing
+   * downstream can tell the two apart — which is what keeps this one branch wide rather than a
+   * second sign-in path to maintain.
+   *
+   * ⚠️ Off unless BOTH variables are set, and `loadAuthConfig` refuses to start on any half or
+   * malformed configuration — including under `NODE_ENV=production`, where a permanent second
+   * factor must never exist.
+   */
+  private codeFor(email: string): string {
+    if (this.fixedCode === '') return this.generateCode(this.cfg.CODE_LENGTH);
+    if (!this.fixedCodeEmails.has(email.trim().toLowerCase())) {
+      return this.generateCode(this.cfg.CODE_LENGTH);
+    }
+    return this.fixedCode;
   }
 
   /**
@@ -69,7 +106,7 @@ export class OtpService {
     });
 
     const challengeId = randomUUID();
-    const code = this.generateCode(this.cfg.CODE_LENGTH);
+    const code = this.codeFor(subject.email);
     const codeHash = await argon2.hash(code, {
       type: argon2.argon2id,
       memoryCost: this.cfg.ARGON2_MEMORY_COST,

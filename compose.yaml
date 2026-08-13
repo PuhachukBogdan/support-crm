@@ -173,6 +173,18 @@ services:
       # deployment changes behaviour until somebody sets it.
       MAIL_ALLOWED_HOSTS: ${MAIL_ALLOWED_HOSTS:-}
       MAIL_MAX_ATTEMPTS: ${MAIL_MAX_ATTEMPTS:-5}
+      # ── The FIXED sign-in code (2026-08-10) — a STAND convenience, off unless both are set ────
+      #
+      # Set together, they make the emailed code the SAME STRING every time for the listed
+      # addresses. Everything else about the second factor is unchanged: the code is still hashed,
+      # still expires, still single-use, still emailed. It exists because a stand's owner is signing
+      # in many times a day through a mailbox behind the edge proxy's password.
+      #
+      # ⛔ `auth` REFUSES TO START if only one of the two is set, if the code is not `CODE_LENGTH`
+      # characters of the code alphabet, or if `NODE_ENV=production` — a permanent second factor
+      # must not be what survives into the deployment holding real data (rule 5 / SEC gate).
+      DEV_FIXED_LOGIN_CODE: ${DEV_FIXED_LOGIN_CODE:-}
+      DEV_FIXED_LOGIN_CODE_EMAILS: ${DEV_FIXED_LOGIN_CODE_EMAILS:-}
       # Session lifetimes. The DEFAULTS here are the product's (15 min / 1 day / 7 days) — a
       # deployment that sets nothing behaves exactly as before.
       #

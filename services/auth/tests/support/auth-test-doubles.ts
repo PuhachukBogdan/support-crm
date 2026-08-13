@@ -31,6 +31,9 @@ export function makeAuthConfig(overrides: Partial<AuthConfig> = {}): AuthConfig 
     INVITE_RATE_WINDOW: 3_600,
     ONBOARD_REQUEST_RATE_MAX: 5,
     ONBOARD_REQUEST_RATE_WINDOW: 900,
+    // Off by default — the fixed sign-in code is opt-in configuration, never a test default.
+    DEV_FIXED_LOGIN_CODE: '',
+    DEV_FIXED_LOGIN_CODE_EMAILS: '',
     ...overrides,
   } as AuthConfig;
 }

@@ -76,6 +76,108 @@ describe('OtpService (feature 009)', () => {
 });
 
 /**
+ * The FIXED sign-in code (2026-08-10) — a stand convenience for named accounts.
+ *
+ * ⚠️ What these tests are really guarding is the part that does NOT change. It is easy to build
+ * "a code that is always the same" by short-circuiting the challenge, and the result would be a
+ * second sign-in path with none of the first one's properties. The code string is the only thing
+ * this feature is allowed to touch: expiry, single use, the attempt cap and supersession must read
+ * identically, and an address that is not on the list must be unable to tell the feature exists.
+ */
+describe('OtpService — the fixed sign-in code', () => {
+  const owner = { id: 'user-1', account_id: 'acct-A', email: 'warden@stand.test' };
+  const someoneElse = { id: 'user-2', account_id: 'acct-A', email: 'agent@example.test' };
+  const cfg = makeAuthConfig({
+    DEV_FIXED_LOGIN_CODE: 'ABCD23',
+    DEV_FIXED_LOGIN_CODE_EMAILS: 'warden@stand.test',
+  });
+
+  let prisma: FakePrisma;
+  let clock: FixedClock;
+  let email: OutboxEmailAdapter;
+  let otp: OtpService;
+
+  beforeEach(() => {
+    prisma = makeFakePrisma();
+    clock = new FixedClock();
+    email = new OutboxEmailAdapter();
+    otp = new OtpService(cfg, clock, prisma as unknown as PrismaService, email);
+  });
+
+  it('emails the SAME code to a listed address, every time', async () => {
+    await otp.issueChallenge(owner);
+    await otp.issueChallenge(owner);
+    await otp.issueChallenge(owner);
+
+    expect(email.last()!.code).toBe('ABCD23');
+    // Three separate challenges, one code — and each was still hashed independently.
+    expect(prisma._tables.loginCodes).toHaveLength(3);
+    const hashes = new Set(prisma._tables.loginCodes.map((r) => r.code_hash));
+    expect(hashes.size).toBe(3);
+  });
+
+  it('⭐ still stores only the hash — a fixed code is not a stored code', async () => {
+    const { challengeId } = await otp.issueChallenge(owner);
+    const row = prisma._tables.loginCodes.find((r) => r.challenge_id === challengeId)!;
+    expect(row.code_hash).not.toContain('ABCD23');
+    expect(row.code_hash.startsWith('$argon2')).toBe(true);
+  });
+
+  it('⚠️ leaves an address that is NOT listed on a random code', async () => {
+    // The failure this prevents is the one that would matter: a knob meant for one account
+    // quietly becoming the second factor for everybody on the stand.
+    await otp.issueChallenge(someoneElse);
+    const first = email.last()!.code;
+    await otp.issueChallenge(someoneElse);
+    const second = email.last()!.code;
+
+    expect(first).not.toBe('ABCD23');
+    expect(second).not.toBe('ABCD23');
+    expect(first).not.toBe(second);
+  });
+
+  it('matches the address case-insensitively, the way a person types it', async () => {
+    await otp.issueChallenge({ ...owner, email: 'Warden@Stand.TEST' });
+    expect(email.last()!.code).toBe('ABCD23');
+  });
+
+  it('⭐ is still SINGLE-USE — knowing the code is not a second session', async () => {
+    const { challengeId } = await otp.issueChallenge(owner);
+    expect(await otp.verifyCode(challengeId, 'ABCD23')).toEqual({
+      ok: true,
+      userId: 'user-1',
+      accountId: 'acct-A',
+    });
+    expect(await otp.verifyCode(challengeId, 'ABCD23')).toEqual({ ok: false, reason: 'consumed' });
+  });
+
+  it('⭐ still EXPIRES, and a superseded challenge stays dead', async () => {
+    const stale = await otp.issueChallenge(owner);
+    const fresh = await otp.issueChallenge(owner);
+    // The earlier challenge was superseded even though the code it carries is still correct.
+    expect(await otp.verifyCode(stale.challengeId, 'ABCD23')).toEqual({
+      ok: false,
+      reason: 'consumed',
+    });
+    clock.advanceSeconds(cfg.CODE_TTL + 1);
+    expect(await otp.verifyCode(fresh.challengeId, 'ABCD23')).toEqual({
+      ok: false,
+      reason: 'expired',
+    });
+  });
+
+  it('is OFF when only the allow-list is set, with no code', async () => {
+    // `loadAuthConfig` refuses to start on this pairing; the service itself must also not
+    // improvise — a half-configuration produces ordinary random codes, never an empty one.
+    const half = makeAuthConfig({ DEV_FIXED_LOGIN_CODE_EMAILS: 'warden@stand.test' });
+    const svc = new OtpService(half, clock, prisma as unknown as PrismaService, email);
+    await svc.issueChallenge(owner);
+    expect(email.last()!.code).toHaveLength(cfg.CODE_LENGTH);
+    expect(email.last()!.code).not.toBe('');
+  });
+});
+
+/**
  * T017 / T019 (feature 028) — the code and the intent to deliver it are ONE transaction, and a
  * refused sign-in produces no message at all.
  */

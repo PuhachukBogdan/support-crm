@@ -236,6 +236,7 @@ export class RbacGrpcController {
           displayName: u.displayName,
           status: u.status,
           roleKey: u.roleKey,
+          inheritsRole: u.inheritsRole,
         })),
         nextPageToken,
       };

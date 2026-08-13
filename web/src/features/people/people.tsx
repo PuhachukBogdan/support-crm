@@ -129,6 +129,14 @@ function PersonRow({
         {person.displayName && <div className="truncate text-xs text-muted-foreground">{person.displayName}</div>}
       </div>
       {person.status !== 'active' && <Badge variant="outline">{person.status}</Badge>}
+      {/* ⭐⭐ Personalised people no longer follow their role — a role change would move the word
+          beside their name and nothing else. Said here, because the alternative is a control that
+          silently does nothing (found live in W14). */}
+      {person.inheritsRole === false && (
+        <Badge variant="outline" title="Permissions were personalised, so a role change will not move this person's access until they are reset to defaults" data-testid={`personalised-${person.userId}`}>
+          personalised
+        </Badge>
+      )}
       <span className="w-32 shrink-0 text-xs text-muted-foreground" data-testid={`role-${person.userId}`}>
         {person.roleKey || 'no role'}
       </span>

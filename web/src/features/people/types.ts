@@ -9,6 +9,16 @@ export interface StaffWire {
   status: string;
   /** One role per person: assigning replaces. `''` for somebody with none yet. */
   roleKey: string;
+  /**
+   * ⭐⭐ Does this person still INHERIT their role's permissions? `false` once they have been
+   * personalised: their set is a standalone snapshot from that moment, so **changing their role
+   * does not change what they may do** until somebody resets them to defaults (ADR 0034).
+   *
+   * Found by W14's live round — the probe's role changed and their access did not, because an
+   * earlier block had granted them one override. The screen says it; a role control that silently
+   * does nothing is worse than one that is absent.
+   */
+  inheritsRole?: boolean;
 }
 
 export interface GroupWire {

@@ -18,6 +18,12 @@ export interface StaffRow {
   displayName: string;
   status: string;
   roleKey: string;
+  /**
+   * ⭐ Does this person still inherit their role's permissions? `false` once they have been
+   * personalised — the set is then a standalone snapshot, and a role change no longer moves their
+   * access (ADR 0034). Found live: the probe's role changed and their permissions did not.
+   */
+  inheritsRole: boolean;
 }
 
 /** `email|id`, base64url — opaque to the caller, and re-derived from the last row of each page. */
@@ -68,6 +74,8 @@ export class StaffRepository {
         status: true,
         // One role per person: assigning replaces, so `take: 1` is the shape, not a truncation.
         roles: { select: { role: { select: { key: true } } }, take: 1 },
+        // `mode: 'standalone'` = personalised, and therefore no longer following the role.
+        permissionSet: { select: { mode: true } },
       },
     });
 
@@ -84,6 +92,10 @@ export class StaffRepository {
         displayName: u.display_name ?? '',
         status: u.status,
         roleKey: u.roles[0]?.role.key ?? '',
+        // Absent row = never personalised = still inheriting. Fail-safe in the informative
+        // direction: if the shape ever changes, the screen says "inherits" and a wrong "does not"
+        // never scares somebody away from a role change that would in fact work.
+        inheritsRole: (u.permissionSet?.mode ?? 'inherited') !== 'standalone',
       })),
       nextPageToken: hasMore && last ? encode(last.email, last.id) : '',
     };

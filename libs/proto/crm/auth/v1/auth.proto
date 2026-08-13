@@ -486,6 +486,19 @@ message StaffUser {
   string status = 4;
   // One role per person (assigning replaces), so this is a value and not a list.
   string role_key = 5;
+  /**
+   * ⭐⭐ W14, found by the live round: does this person still INHERIT their role's permissions?
+   *
+   * The moment anybody is personalised (a per-person override, ADR 0034), their permission set
+   * becomes **standalone** — a snapshot — and from then on **changing their role does not change
+   * what they may do** until somebody resets them to defaults. That is the override mechanism
+   * working as designed, and it is invisible: the role beside their name changes, their access does
+   * not, and nothing on screen explains why.
+   *
+   * ⇒ The list carries the fact so the screen can say it. A role control that silently does nothing
+   * is worse than one that is absent.
+   */
+  bool inherits_role = 6;
 }
 
 message ListUsersRequest {

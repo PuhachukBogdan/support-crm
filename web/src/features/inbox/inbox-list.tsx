@@ -5,29 +5,17 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { DataTable } from '@/components/composites/data-table';
 import { StatusBadge } from '@/components/composites/status-badge/status-badge';
 import { INBOX_COLUMNS, type InboxColumn } from './columns';
-import { ColumnFilter, type FilterOption } from './column-filter';
+import type { FilterOption } from './column-filter';
 import type { InboxFilters } from './use-inbox-query';
-
-/** What a header (sort + funnel) and the status cell need. Passed down whole. */
-interface HeaderControls {
-  readonly order: string;
-  readonly onOrderChange: (order: string) => void;
-  /** key -> the account's agent-facing name, from the catalogue (`use-statuses`). May be empty. */
-  readonly statusLabels: Readonly<Record<string, string>>;
-  /** The status funnel's options — the catalogue narrowed to the CURRENT bucket's categories. */
-  readonly statusOptions: readonly FilterOption[];
-  readonly filters: InboxFilters;
-  readonly onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
-}
-
-/** Resolve a column's declared options: static lists as-is, `'catalogue'` from the bucket slice. */
-function optionsFor(col: InboxColumn, controls: HeaderControls): readonly FilterOption[] {
-  if (!col.filter) return [];
-  if (col.filter.options === 'catalogue') return controls.statusOptions;
-  return col.filter.options.map((v) => ({ value: v, label: v }));
-}
+import {
+  HeaderControlsProvider,
+  InboxHeaderCell,
+  StatusLabelsProvider,
+  useStatusLabels,
+  type HeaderControls,
+  type InboxColumnMeta,
+} from './header-cell';
 import { relativeTime, statusFromWire } from './wire-labels';
-import { SortableHeader } from './sortable-header';
 import type { ConversationRow } from './types';
 import type { AsyncState, PaginatedResult } from '@/data/types';
 
@@ -61,33 +49,25 @@ function TimeCell({ iso }: { iso: string }) {
   );
 }
 
-/** How each declared column renders. Keyed by the same ids as the priority table. */
-function cellFor(col: InboxColumn, controls: HeaderControls): ColumnDef<ConversationRow, unknown> {
+/**
+ * How each declared column renders — **built ONCE, with no per-render data** (see `header-cell.tsx`
+ * for why: a header whose component type changes per render remounts a Radix Select on every commit).
+ * Everything dynamic reaches the header and the status cell through context.
+ */
+function cellFor(col: InboxColumn): ColumnDef<ConversationRow, unknown> {
+  const meta: InboxColumnMeta = { tier: col.tier, col };
   const base = {
     id: col.id,
     size: col.width,
-    // The screen's whole narrowing statement. `DataTable` sheds by it — see `density-spec.md` §2/§7.
-    meta: { tier: col.tier },
+    // The screen's whole narrowing statement (`DataTable` sheds by `tier`) plus the column itself,
+    // which the stable header component reads instead of closing over it.
+    meta,
     /**
-     * ⭐ The header carries BOTH of the column's controls — its sort and its own funnel. Each renders
-     * only where the thing behind it exists: a triangle only where the server declares that order, a
-     * funnel only where the filter genuinely is this column (restored 2026-08-06 on the operator's
-     * instruction — see `columns.ts`).
+     * ⭐⭐ A STABLE component reference, never an inline arrow — the freeze fix. It carries both of the
+     * column's controls (its sort and its own funnel), each rendering only where the thing behind it
+     * exists. See `header-cell.tsx` for the measurement that made this mandatory.
      */
-    header: () => (
-      <span className="flex items-center gap-1">
-        <SortableHeader column={col} order={controls.order} onOrderChange={controls.onOrderChange} />
-        {col.filter && (
-          <ColumnFilter
-            header={col.header}
-            filterKey={col.filter.key}
-            options={optionsFor(col, controls)}
-            value={controls.filters[col.filter.key]}
-            onChange={(next) => col.filter && controls.onFilterChange(col.filter.key, next)}
-          />
-        )}
-      </span>
-    ),
+    header: InboxHeaderCell,
   };
 
   switch (col.id) {
@@ -122,12 +102,16 @@ function cellFor(col: InboxColumn, controls: HeaderControls): ColumnDef<Conversa
            */
           const status = row.original.statusKey?.trim() || statusFromWire(row.original.status);
           if (!status) return <EmptyValue />;
+          // ⓘ A `cell` renderer IS a component (flexRender calls createElement on it), so a hook
+          // here is legal — and the reason it must read context rather than close over the labels is
+          // the same one `header-cell.tsx` documents at length.
+          const labels = useStatusLabels();
           /**
            * ⭐ W6: the catalogue join 032 designed — the account's agent-facing NAME when the
            * catalogue has arrived, the key as an honest fallback when it has not (or when an old row
            * wears a key the catalogue no longer lists; a retired status must still render).
            */
-          return <StatusBadge kind="status" value={controls.statusLabels[status] ?? status} />;
+          return <StatusBadge kind="status" value={labels[status] ?? status} />;
         },
       };
     case 'priority':
@@ -213,16 +197,19 @@ export function InboxList({
   filters: InboxFilters;
   onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
 }) {
-  // Every declared column, every time. Which of them fits is the composite's answer, not this screen's.
-  const columns = useMemo(
-    () =>
-      INBOX_COLUMNS.map((col) =>
-        cellFor(col, { order, onOrderChange, statusLabels, statusOptions, filters, onFilterChange }),
-      ),
-    [order, onOrderChange, statusLabels, statusOptions, filters, onFilterChange],
-  );
+  /**
+   * ⭐ Built ONCE, with no dependencies: the definitions carry no per-render data, so their identity
+   * never changes and TanStack never re-creates the header subtree. Which of them fits is the
+   * composite's answer, not this screen's.
+   */
+  const columns = useMemo(() => INBOX_COLUMNS.map((col) => cellFor(col)), []);
+
+  // One object per render is fine — it is a PROP, not a component type (see `header-cell.tsx`).
+  const controls: HeaderControls = { order, onOrderChange, statusOptions, filters, onFilterChange };
 
   return (
+    <HeaderControlsProvider value={controls}>
+      <StatusLabelsProvider value={statusLabels}>
     <DataTable<ConversationRow>
       columns={columns}
       state={state}
@@ -232,5 +219,7 @@ export function InboxList({
       emptyLabel={emptyLabel}
       rowSelection={rowSelection}
     />
+      </StatusLabelsProvider>
+    </HeaderControlsProvider>
   );
 }

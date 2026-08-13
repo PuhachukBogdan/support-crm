@@ -70,6 +70,31 @@ describe('our own mail coming back is refused as a loop (FR-033, research R14)',
     expect(res.ok).toBe(true);
   });
 
+  /**
+   * ⭐⭐ THE CONTROL THAT WAS MISSING, and its absence disabled email intake completely (live round,
+   * 2026-08-05 — the first customer mail on the stand was refused `class=loop`).
+   *
+   * `Return-Path` is parsed by `mailparser` into an ADDRESS OBJECT, not a string. The bounce check read it
+   * with a string-only helper, got `''`, saw the header PRESENT, and concluded bounce — for every message.
+   * Every MTA adds this header on delivery, so in production not one email would have become a ticket.
+   *
+   * ⚠️ The `Return-Path: <>` case above passed throughout, and would have passed for ANY value: it asserted
+   * that a refusal happened, never that the refusal discriminated. On its own it is a vacuous positive —
+   * the fifth instance of that class in this product. This test is its negative control, and the two are
+   * only meaningful as a pair.
+   */
+  it('an ORDINARY mail carrying a populated Return-Path is not a bounce (every MTA adds one)', async () => {
+    const res = await parseInboundEmail(raw(`${BASE}\r\nReturn-Path: <player@mail.test>`));
+    expect(res.ok).toBe(true);
+  });
+
+  it('still refuses the real bounce marker, distinguished from an address by its VALUE', async () => {
+    const bounce = await parseInboundEmail(raw(`${BASE}\r\nReturn-Path: <>`));
+    expect(bounce.ok).toBe(false);
+    if (bounce.ok) return;
+    expect(bounce.refusal).toBe('loop');
+  });
+
   it('OUR OWN address in the From is a loop — the signal no header provides', async () => {
     // The most likely case in practice: our reply arriving back through a misconfigured forward or a
     // customer's own auto-forward rule. No header marks it, so the configured addresses do.

@@ -14,8 +14,6 @@ async function run(): Promise<void> {
   try {
     for (const brand of seed.brands)
       await db.brand.upsert({ where: { id: brand.id }, create: brand, update: brand });
-    for (const rule of seed.brandAccessRules)
-      await db.brandAccessRule.upsert({ where: { id: rule.id }, create: rule, update: rule });
     console.log('brands seed: ok');
   } finally {
     await base.$disconnect();

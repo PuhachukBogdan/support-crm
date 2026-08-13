@@ -95,9 +95,9 @@ export class ImapReaderService implements OnModuleInit, OnModuleDestroy {
           backoffMs = 1_000;
         }
       } catch (err) {
-        // ⚠️ The error's NAME only. An IMAP error message can quote the mailbox, the credentials it
-        // tried, or a message header — all of which are Principle IV material.
-        this.logger.warn(`mailbox reader: ${err instanceof Error ? err.name : 'error'}`);
+        // ⚠️ Never the MESSAGE. An IMAP error message can quote the mailbox, the credentials it tried, or
+        // a message header — all of which are Principle IV material. See `diagnose` for what replaces it.
+        this.logger.warn(`mailbox reader: ${diagnose(err)}`);
         backoffMs = Math.min(backoffMs * 2, 60_000);
       }
       await this.close();
@@ -177,7 +177,7 @@ export class ImapReaderService implements OnModuleInit, OnModuleDestroy {
       // Serialised through a promise chain rather than run concurrently: two overlapping batches would
       // both fetch the same unseen set, and while the constraint makes that safe it is pure waste.
       void this.takeInUnseen(client).catch((err) => {
-        this.logger.warn(`mailbox batch failed: ${err instanceof Error ? err.name : 'error'}`);
+        this.logger.warn(`mailbox batch failed: ${diagnose(err)}`);
       });
     });
 
@@ -222,6 +222,24 @@ export class ImapReaderService implements OnModuleInit, OnModuleDestroy {
    * ⚠️ **`\Seen` is set only AFTER chats has answered.** A message marked seen before the write would be
    * invisible to the sweep, so a crash in between would lose it silently — and "silently" is the whole
    * problem: the customer is waiting and nothing in the product knows.
+   *
+   * ── ⭐⭐ THE STREAM IS DRAINED BEFORE ANY OTHER COMMAND IS SENT, AND THAT IS NOT A STYLE CHOICE ──
+   * `ImapFlow.fetch()` holds the connection for as long as its async iterator is open. Issuing a second
+   * command inside the loop — `messageFlagsAdd`, which is what marking seen is — **destroys the socket**.
+   * The first draft did exactly that, and the effect was total:
+   *
+   *   the first message of the first batch killed the connection · nothing was marked seen, so nothing
+   *   was ever taken in · `run` reconnected, fetched the same message, died again · for ever.
+   *
+   * ⭐ **So email intake had never worked at all**, and the shape of the failure is why it survived review:
+   * the reconnect loop looks healthy from the outside (the log even said `IDLE`), the mailbox keeps its
+   * mail, and the only symptom is a warning every thirty seconds saying `Error`. Reproduced against
+   * greenmail on 2026-08-05 in nine lines, once the log said *where*.
+   *
+   * ⚠️ Which is also why this does not simply buffer everything: uids come from one `search`, and the
+   * messages are fetched in bounded chunks. A mailbox with ten thousand unread messages must not become
+   * ten thousand message bodies in memory — the streaming the first draft wanted was right, it was the
+   * interleaved write that was wrong.
    */
   async takeInUnseen(client: ImapFlow): Promise<{ taken: number; refused: number }> {
     const tenant = this.tenant;
@@ -230,10 +248,50 @@ export class ImapReaderService implements OnModuleInit, OnModuleDestroy {
     let taken = 0;
     let refused = 0;
 
-    for await (const msg of client.fetch({ seen: false }, { uid: true, source: true })) {
+    // One command, one array of uids — no stream held open while we work.
+    const unseen = (await client.search({ seen: false }, { uid: true })) || [];
+    for (let i = 0; i < unseen.length && !this.stopping; i += ImapReaderService.FETCH_CHUNK) {
+      const chunk = unseen.slice(i, i + ImapReaderService.FETCH_CHUNK);
+      // Phase 1 — drain. Nothing else may touch the connection until this loop ends.
+      const batch: Array<{ uid: number; source: Buffer }> = [];
+      for await (const msg of client.fetch(
+        { uid: chunk.join(',') },
+        { uid: true, source: true },
+        { uid: true },
+      )) {
+        batch.push({ uid: msg.uid, source: msg.source as Buffer });
+      }
+      // Phase 2 — the stream is closed; now the connection is free for `markSeen`.
+      const outcome = await this.takeInBatch(client, tenant, batch);
+      taken += outcome.taken;
+      refused += outcome.refused;
+    }
+
+    if (taken > 0 || refused > 0) this.logger.log(`mail intake: taken=${taken} refused=${refused}`);
+    return { taken, refused };
+  }
+
+  /** How many message bodies may be in memory at once. */
+  private static readonly FETCH_CHUNK = 20;
+
+  /**
+   * Phase 2 of {@link takeInUnseen}: everything that needs the connection for anything but fetching.
+   *
+   * Extracted so the drain above stays a loop with nothing in it — the one property that keeps the socket
+   * alive, and the one a later edit would most plausibly break by "tidying" a call back inside it.
+   */
+  private async takeInBatch(
+    client: ImapFlow,
+    tenant: { accountId: string; brandId: string },
+    batch: ReadonlyArray<{ uid: number; source: Buffer }>,
+  ): Promise<{ taken: number; refused: number }> {
+    let taken = 0;
+    let refused = 0;
+
+    for (const msg of batch) {
       if (this.stopping) break;
       try {
-        const parsed = await parseInboundEmail(msg.source as Buffer, this.ourAddresses());
+        const parsed = await parseInboundEmail(msg.source, this.ourAddresses());
         if (!parsed.ok) {
           refused++;
           // The CLASS and the uid. Never a header, never the sender, never the body.
@@ -273,13 +331,12 @@ export class ImapReaderService implements OnModuleInit, OnModuleDestroy {
       } catch (err) {
         refused++;
         this.logger.warn(
-          `mail batch item failed uid=${msg.uid}: ${err instanceof Error ? err.name : 'error'}`,
+          `mail batch item failed uid=${msg.uid}: ${diagnose(err)}`,
         );
         // Left unread on purpose: an exception is not a verdict, and the next pass tries again.
       }
     }
 
-    if (taken > 0 || refused > 0) this.logger.log(`mail intake: taken=${taken} refused=${refused}`);
     return { taken, refused };
   }
 
@@ -342,4 +399,48 @@ export class ImapReaderService implements OnModuleInit, OnModuleDestroy {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * An envelope-free diagnostic: the error's CLASS, its `code` when it has one, and where it was thrown.
+ *
+ * ── Why `err.name` alone was not enough (W3 live round, 2026-08-05) ─────────────────────────────
+ * ⚠️ The rule "log the name, never the message" is right and stays. But `name` on a plain `new Error(...)`
+ * is the string `Error`, and most errors in this path are plain — so three separate failures in one
+ * afternoon each logged exactly `mailbox reader: Error`, twelve times a minute, with **nothing to act on**.
+ * Mail was refused for one reason, then a second, then a third, and the log was identical every time.
+ *
+ * ⭐ The two additions carry no customer data by construction:
+ *   · `code` is a syscall / library code (`ECONNREFUSED`, `ETIMEDOUT`, `AUTHENTICATIONFAILED`) — a fact
+ *     about a socket or a protocol, never about a person.
+ *   · the top stack frame is `file:line` in our own source. It is the single most useful thing a reader
+ *     can be given and it cannot quote a header, an address or a body.
+ *
+ * ⇒ *"Not logged" and "not diagnosable" are different requirements, and Principle IV only asks for the
+ * first.* A log line that cannot distinguish three faults is the observability equivalent of the vacuous
+ * pass this product keeps re-learning.
+ */
+export function diagnose(err: unknown): string {
+  if (!(err instanceof Error)) return 'error';
+  const parts = [err.constructor?.name || err.name];
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === 'string' && code !== '') parts.push(`code=${code}`);
+  // The first frame that is ours: a library's internals are noise, and `node_modules` paths are long.
+  //
+  // ⚠️ Both separators. A stack on Windows says `…\services\worker\…` and on Linux `…/services/worker/…`;
+  // a hardcoded `/` finds nothing on a developer's box and works in the container, so the log would be
+  // useful in exactly the place nobody is looking at it. (`tests/portability/no-hardcoded-path-separator`
+  // guards this class, and this function was written wrong first anyway.)
+  const OURS = /[\\/](services|libs)[\\/]/;
+  const frame = (err.stack ?? '')
+    .split('\n')
+    .slice(1)
+    .map((l) => l.trim())
+    .find((l) => OURS.test(l) && !l.includes('node_modules'));
+  if (frame) {
+    const at = /\(?([^\s()]+:\d+:\d+)\)?$/.exec(frame);
+    const where = at?.[1];
+    if (where) parts.push(`at=${where.split(OURS).pop() ?? where}`);
+  }
+  return parts.join(' ');
 }

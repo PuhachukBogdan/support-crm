@@ -106,9 +106,21 @@ function* walk(dir: string): Generator<string> {
  * boundary guard failed on its own comments in exactly the same way. Two copies of a detector is one
  * copy that is wrong.
  */
+/**
+ * ⚠️ **CASE-INSENSITIVE, and that was the third attempt's lesson (2026-08-05).**
+ *
+ * The match used to be `code.includes(f.token)`. Every token here is written the way the *removed* thing
+ * was declared — `BrandAccessRule` is the Prisma MODEL name — but code never touches a model by that name:
+ * a Prisma call site is the camelCase accessor, `db.brandAccessRule.upsert(...)`. So the one place in the
+ * repo that still WROTE the dropped table was invisible to the guard whose entire job was to find it, and
+ * it stayed invisible for three days while `npm run seed:brands` threw on every run.
+ *
+ * ⇒ A guard that names an identifier must match every casing the language generates from it. Folding case
+ * costs nothing here — comments are already stripped, and these six tokens have no innocent homograph.
+ */
 export function findRemnants(source: string): string[] {
-  const code = stripComments(source);
-  return FORBIDDEN.filter((f) => code.includes(f.token)).map((f) => f.token);
+  const code = stripComments(source).toLowerCase();
+  return FORBIDDEN.filter((f) => code.includes(f.token.toLowerCase())).map((f) => f.token);
 }
 
 describe('*** brand scope is gone from the CODE, not merely from the call graph (ADR 0038 §1) ***', () => {

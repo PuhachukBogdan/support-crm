@@ -9,11 +9,12 @@ import {
   Post,
   RawBodyRequest,
   Req,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, type Observable } from 'rxjs';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { CHATS_CLIENT } from '../grpc/clients.module';
 
@@ -68,7 +69,17 @@ export class ChannelsController implements OnModuleInit {
   // 202 by default: the ticket is durable before we answer, and "accepted" is what a webhook provider
   // stops retrying on. A duplicate answers 200 — see below.
   @HttpCode(202)
-  async inbound(@Param('key') key: string, @Req() req: RawBodyRequest<Request>) {
+  async inbound(
+    @Param('key') key: string,
+    @Req() req: RawBodyRequest<Request>,
+    /**
+     * ⚠️ `passthrough: true` — Nest keeps serialising the returned object; this handle exists ONLY to
+     * lower the status on a duplicate. Without it `@HttpCode(202)` applies to every success and the
+     * 200/202 distinction two comments in this file describe does not exist (found by the W3 live round,
+     * 2026-08-05: the round asserted the documented 200 and got 202).
+     */
+    @Res({ passthrough: true }) res: Response,
+  ) {
     /**
      * ⚠️ **`req.rawBody`, never `req.body`.** The signature is over exactly the bytes that arrived, and
      * a parsed-then-reserialised body is a different byte string — different key order, different
@@ -118,6 +129,10 @@ export class ChannelsController implements OnModuleInit {
     // told "already accepted" — answering with an error makes it retry for ever (FR-012). The 200/202
     // distinction is there for a human reading a log, not for the caller's control flow.
     if (outcome.duplicate) {
+      // 200, not the method's 202: *nothing was created this time*. Both are successes, so no provider's
+      // control flow changes — the difference is legible in an access log, which is where somebody asking
+      // "is this integration double-delivering?" actually looks.
+      res.status(200);
       return { status: 'duplicate', conversationId: outcome.conversationId };
     }
     return { status: 'accepted', conversationId: outcome.conversationId };

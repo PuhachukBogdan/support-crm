@@ -114,17 +114,53 @@ describe('the egress allow-list is checked before any socket is opened', () => {
 });
 
 describe('one poisonous message does not stop the batch (FR-034)', () => {
-  /** A fake mailbox serving three messages, the middle one unparseable. */
+  /**
+   * A fake mailbox serving three messages, the middle one unparseable.
+   *
+   * ⭐⭐ **IT REFUSES A COMMAND WHILE `fetch` IS STREAMING, BECAUSE THE REAL LIBRARY DOES** — added
+   * 2026-08-05, after the W3 live round found that email intake had never worked once.
+   *
+   * `ImapFlow.fetch()` holds the connection until its async iterator is exhausted; a second command inside
+   * the loop destroys the socket (`NoConnection`). The reader marked messages seen inside that loop, so the
+   * first message of the first batch killed the connection, nothing was ever marked seen, and `run`
+   * reconnected to fetch the same message and die again — for ever.
+   *
+   * ⚠️ **This fake used to permit it**, and that is the whole reason 4 194 tests were green while the
+   * feature was completely inert: a plain async generator does not care what you do between yields, so the
+   * double was more permissive than the thing it stood for. *A fake that accepts what the real dependency
+   * rejects converts a hard failure into a passing test* — the same lesson `gotchas/grpc-wire-encoding-
+   * enums-longs` records for a decoder, one layer down.
+   */
   function mailbox(sources: Array<{ uid: number; source: Buffer }>) {
     const seen: number[] = [];
+    let streaming = false;
+    const refuseWhileStreaming = (what: string) => {
+      if (streaming) {
+        // The library's own failure, reproduced by name so a reader recognises it in a real log.
+        throw Object.assign(new Error(`${what} while a fetch stream is open`), {
+          code: 'NoConnection',
+        });
+      }
+    };
     return {
       client: {
         usable: true,
+        // One command, one array of uids — the reader asks for these before it fetches anything.
+        search: async () => {
+          refuseWhileStreaming('search');
+          return sources.map((m) => m.uid);
+        },
         fetch: () =>
           (async function* () {
-            for (const m of sources) yield m;
+            streaming = true;
+            try {
+              for (const m of sources) yield m;
+            } finally {
+              streaming = false;
+            }
           })(),
         messageFlagsAdd: async (q: { uid: string }) => {
+          refuseWhileStreaming('messageFlagsAdd');
           seen.push(Number(q.uid));
           return true;
         },

@@ -41,7 +41,12 @@ ok=0; bad=0
 say(){ printf "%-70s %s\n" "$1" "$2"; }
 pass(){ ok=$((ok+1)); say "$1" "ok"; }
 fail(){ bad=$((bad+1)); say "$1" "FAIL: $2"; }
-psql(){ docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2" | tr -d '\r '; }
+# ⚠️ `tr -d '\r'`, NOT `tr -d '\r '`. The first draft deleted spaces too, which strips them from INSIDE a
+# value: a subject of `Не приходит вывод 123` came back as `Неприходитвывод123` and the title assertion
+# failed against a database that was perfectly correct. `psql -tA` does not pad its output, so there was
+# never anything for the space-strip to trim — it could only ever do harm, and only to the assertions whose
+# values contain spaces, which is why it passed everywhere else.
+psql(){ docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2" | tr -d '\r'; }
 code_of(){ curl -s "$M/api/v1/search?query=to%3A$1&limit=1" | sed -n 's/.*code: \([A-Z0-9]\{6\}\)".*/\1/p' | head -1 | tr -d '\r'; }
 
 login(){ # $1 email $2 password → prints a cookie-jar path
@@ -162,8 +167,11 @@ ADDR_IN_USERS=$(psql users_db "select count(*) from \"ChannelParticipant\" where
   || fail "2.1c ⭐ the address lives in users_db; chats holds only a handle" "handle=$HANDLE inUsers=$ADDR_IN_USERS"
 
 # ── 2.1d — the agent replies, and the CUSTOMER receives it ───────────────────────────────────────
+# ⚠️ `reply`, not `PUBLIC_REPLY`. The REST vocabulary is `reply | note` and `toKindWire` maps it to the wire
+# enum `MESSAGE_KIND_PUBLIC_REPLY` — the internal name this line used to send. That contract predates this
+# block (the Inbox posts replies through it), so the 400 was the gateway being right.
 POSTED=$(curl -s -o /tmp/w3reply.json -w '%{http_code}' -b "$JA" -X POST "$G/conversations/$CONV_MAIL/messages" \
-  -H 'Content-Type: application/json' -d "{\"kind\":\"PUBLIC_REPLY\",\"body\":\"проверяем, ответим в течение часа ($RUN)\"}")
+  -H 'Content-Type: application/json' -d "{\"kind\":\"reply\",\"body\":\"проверяем, ответим в течение часа ($RUN)\"}")
 [ "$POSTED" = "201" ] || [ "$POSTED" = "200" ] && pass "2.1d the agent's public reply is recorded" \
   || fail "2.1d the agent's public reply is recorded" "http=$POSTED"
 
@@ -218,9 +226,14 @@ done
   && pass "2.1c ⭐ THE REPLY TO OUR REPLY LANDED IN THE SAME TICKET (no second ticket)" \
   || fail "2.1c ⭐ THE REPLY TO OUR REPLY LANDED IN THE SAME TICKET" "landed in '$SAME', expected '$CONV_MAIL'"
 
-STRAY=$(psql chats_db "select count(*) from \"Conversation\" where subject like '%$RUN%'")
+# ⚠️ Scoped to `channel='email'`, and this is a NARROWING of the predicate rather than of the claim. The run
+# creates two legitimate tickets — one per channel — and the API one's subject is `live w3 api <RUN>`, so an
+# unscoped `like '%RUN%'` counted it as a stray of the email exchange. It passed for weeks only because the
+# email leg never produced a ticket at all: with one match it looked correct, and the one match was the
+# WRONG ticket. The property asserted is unchanged: three emails in, exactly one email ticket.
+STRAY=$(psql chats_db "select count(*) from \"Conversation\" where channel='email' and subject like '%$RUN%'")
 [ "$STRAY" = "1" ] && pass "2.1c the whole exchange is ONE ticket, with 0 strays" \
-  || fail "2.1c the whole exchange is ONE ticket" "tickets matching this run=$STRAY"
+  || fail "2.1c the whole exchange is ONE ticket" "email tickets matching this run=$STRAY"
 
 # ── 2.1e — the capability matrix, over REST ──────────────────────────────────────────────────────
 CAPS=$(curl -s -b "$JO" "$G/conversations/channel-capabilities")

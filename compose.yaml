@@ -263,6 +263,46 @@ services:
       # constraint on (channel, external event id).
       CHANNEL_INTAKE_REPLAY_WINDOW_S: ${CHANNEL_INTAKE_REPLAY_WINDOW_S:-300}
       CHANNEL_EMAIL_ADDRESS: ${CHANNEL_EMAIL_ADDRESS:-}
+      # ── Feature 033 (roadmap 6.5) — the OUTBOUND relay, because chats opens the connection ──
+      #
+      # ⚠️ These were MISSING, and the block above says why that is fatal: compose hands the container
+      # only what this block names. `ChatsSmtpTransport` reads exactly these keys, so without them the
+      # host was empty in every compose deployment, nodemailer fell back to localhost:1025 inside a
+      # container running no mail server, and the agent's reply died after five retries with the
+      # customer's address deliberately absent from the log — a silent failure by construction.
+      #
+      # Same four values as auth's relay above, and deliberately the SAME NAMES: one transport, one
+      # boundary (research R7/R8). Two names for one relay is the two-lists-to-keep-in-agreement
+      # problem the move to `libs/common` existed to prevent.
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_SECURE: ${MAIL_SECURE:-false}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # ⭐ …and the channel's OWN relay, which overrides the five above as a SET (never per key — see
+      # `resolveChannelSmtpConfig`: a per-key fallback hands the transactional relay's credentials to
+      # somebody else's server). Empty = the channel sends through the same relay as auth, which is the
+      # behaviour every deployment had before these keys existed.
+      #
+      # ⚠️ On this stand they are REQUIRED and the reason is in the `greenmail` block below: login codes
+      # stay in mailpit, and the channel's mailbox is greenmail, because mailpit speaks no IMAP at all. In
+      # production the same split is ordinary — a brand's support mailbox lives with a provider and its
+      # replies must leave through it, or they fail that domain's SPF.
+      CHANNEL_SMTP_HOST: ${CHANNEL_SMTP_HOST:-}
+      CHANNEL_SMTP_PORT: ${CHANNEL_SMTP_PORT:-}
+      CHANNEL_SMTP_SECURE: ${CHANNEL_SMTP_SECURE:-}
+      CHANNEL_SMTP_USER: ${CHANNEL_SMTP_USER:-}
+      CHANNEL_SMTP_PASSWORD: ${CHANNEL_SMTP_PASSWORD:-}
+      # Only the fallback: a channel message's `from` is per-BRAND and comes from the message itself
+      # (white-label rule 6), and `CHANNEL_EMAIL_ADDRESS` above wins over this.
+      MAIL_FROM: ${MAIL_FROM:-no-reply@localhost}
+      MAIL_ALLOWED_RECIPIENT_DOMAINS: ${MAIL_ALLOWED_RECIPIENT_DOMAINS:-}
+      MAIL_ALLOWED_HOSTS: ${MAIL_ALLOWED_HOSTS:-}
+      # The dead-letter threshold for the outbox (FR-039) — `chats` owns the outbox, so `chats` owns the
+      # count. ⚠️ It was named on the WORKER's block only, where it does nothing: the worker says "now"
+      # and never reads a delivery's attempt count. A deployment that lowered it would have changed
+      # nothing, silently, which is worse than a value that is simply wrong.
+      CHANNEL_MAIL_MAX_ATTEMPTS: ${CHANNEL_MAIL_MAX_ATTEMPTS:-5}
 
   brands:
     <<: *service-base

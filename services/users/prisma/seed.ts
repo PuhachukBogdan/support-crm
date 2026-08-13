@@ -40,7 +40,34 @@ async function run(): Promise<void> {
   const db = withAccountScope(base, SEED_ACCOUNT_ID, { scopedModels: SCOPED_MODELS });
   const seed = buildSeed();
   try {
-    for (const op of seed.operators) await db.operator.upsert({ where: { id: op.id }, create: op, update: op });
+    /**
+     * ⚠️ Keyed on `(account_id, auth_user_id)`, NOT on the row id — changed 2026-08-05 after the seed threw
+     * on a stand where people had signed in.
+     *
+     * ⭐ The same shape MVP block W1 fixed for `Credential` two paragraphs of history ago, and W1 is what
+     * created it: that block added BOTH `@@unique([account_id, auth_user_id])` and the runtime writer
+     * (`EnsureOwnOperator`, which does `operator.create` with a generated uuid on a person's first login).
+     * From then on a seeded user who had logged in owned a profile under a DIFFERENT id, so an upsert keyed
+     * on the synthetic id tried to INSERT and hit the constraint — `P2002`, and the seed stopped there,
+     * leaving everything after this loop unwritten. W1's own live round missed it only by ordering: it
+     * seeded before anybody signed in, which is the one sequence where the two ids never meet.
+     *
+     * ⚠️ `update` deliberately omits `id`. Matching on the pair means the existing row's id is the
+     * RUNTIME's, and writing ours over it would repoint a primary key that `chats` references by value
+     * (`Conversation.assignee_operator_id` is a soft ref, so nothing would stop it) — silently reassigning
+     * or orphaning that person's conversations. The seed's job is to make the profile exist, not to own its
+     * identifier.
+     */
+    for (const op of seed.operators)
+      await db.operator.upsert({
+        where: {
+          account_id_auth_user_id: { account_id: op.account_id, auth_user_id: op.auth_user_id },
+        },
+        create: op,
+        // Named field by field rather than spread-minus-id: a field added to the dataset later should
+        // have to be considered here, not arrive silently on an existing person's profile.
+        update: { display_name: op.display_name, active: op.active },
+      });
     // Keyed by the TRIPLE since feature 020. The two seeded players share a platform id and differ
     // only by brand — under the old `where: { player_id }` the second upsert OVERWROTE the first,
     // which is the defect in one line.

@@ -125,6 +125,24 @@ export async function parseInboundEmail(
 }
 
 /**
+ * The text of a header `mailparser` may hand back as an ADDRESS OBJECT rather than a string.
+ *
+ * ⚠️ It parses `from`, `to`, `cc`, `bcc`, `sender`, `reply-to`, `delivered-to` and `return-path` this way.
+ * Comparing such a value against a string silently compares against `undefined`, which is how the bounce
+ * check below came to fire on every delivered message — a wrong answer with no error anywhere.
+ */
+function addressHeaderText(parsed: ParsedMail, name: string): string {
+  const v = parsed.headers?.get(name);
+  if (typeof v === 'string') return v.trim().toLowerCase();
+  if (v && typeof v === 'object' && 'text' in v) {
+    return String((v as { text?: unknown }).text ?? '')
+      .trim()
+      .toLowerCase();
+  }
+  return '';
+}
+
+/**
  * Is this our own mail coming back? (FR-033, research R14.)
  *
  * Five independent signals, ORed. Each one alone is enough, because a false negative here costs an
@@ -150,11 +168,25 @@ function isLoop(
   if (parsed.headers?.has('x-auto-response-suppress')) return true;
 
   // An empty `Return-Path` (`<>`) is the standard bounce marker.
-  const returnPath = header('return-path');
-  if (returnPath === '<>' || returnPath === '') {
+  //
+  // ⚠️⚠️ **READ AS AN ADDRESS, NOT AS A STRING — and getting this wrong disabled email intake entirely**
+  // (found by the W3 live round, 2026-08-05). `Return-Path` is one of the headers `mailparser` parses into
+  // an ADDRESS OBJECT (`{value: [{address, name}], text, html}`), like `From` and `Delivered-To`. The
+  // `header()` helper above returns `''` for anything that is not a string, so this branch used to read
+  // *every* populated `Return-Path` as empty — and since `has()` was then true, every message carrying the
+  // header was refused as a bounce. **Every MTA adds `Return-Path` on delivery**, so on the stand the very
+  // first customer email was refused `class=loop`, and in production not one mail would ever have become a
+  // ticket.
+  //
+  // ⭐ Why 4 194 tests were green: the suite builds its own raw messages, and a hand-written fixture has no
+  // MTA to add the header. The one test that did set it used `Return-Path: <>` and passed for the wrong
+  // reason — it would have passed for any value, because the refusal keyed on the header's PRESENCE. The
+  // missing control was the negative one: *an ordinary mail with a Return-Path is not a bounce.*
+  if (parsed.headers?.has('return-path')) {
+    const returnPath = addressHeaderText(parsed, 'return-path');
     // ⚠️ Only ABSENT-as-empty-angle-brackets counts. A missing `Return-Path` header entirely is normal
     // on mail read straight out of a mailbox — treating that as a bounce would refuse everything.
-    if (parsed.headers?.has('return-path')) return true;
+    if (returnPath === '' || returnPath === '<>') return true;
   }
 
   // Our own address in the From. The one signal no header provides and the most likely in practice:

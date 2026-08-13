@@ -18,6 +18,11 @@ interface ResolveRoutingWire {
   authUserIds?: string[];
 }
 
+interface EnvelopeWire {
+  accountId?: string;
+  participantId?: string;
+}
+
 interface ResolveParticipantWire {
   accountId?: string;
   brandId?: string;
@@ -226,5 +231,39 @@ export class MaintenanceController {
       address: value,
       identifierKind,
     });
+  }
+
+  /**
+   * ⚠️⚠️ **THE ONE RPC IN THE PRODUCT THAT RETURNS AN UNMASKED CONTACT VALUE** (T064, contracts §3.1).
+   *
+   * Read the terms on `ChannelParticipantService.envelopeOf` before adding a caller. In short: the
+   * outbound delivery path only, no gateway route, never logged, account-scoped.
+   *
+   * ⚠️ **A handle from another account answers NOT_FOUND, not an empty envelope.** The distinction is the
+   * point of the check: an empty answer would be indistinguishable from a participant with no address,
+   * and a caller could then sweep handles to learn which ones exist somewhere else. SC-009 claims 0 paths
+   * exempt from the isolation check, and this is the newest path with the most to lose.
+   *
+   * ⚠️ Nothing here logs the address, the handle, or the outcome.
+   */
+  @GrpcMethod('UsersMaintenanceService', 'GetChannelEnvelope')
+  async getChannelEnvelope(req: EnvelopeWire, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    const accountId = String(req?.accountId ?? '').trim();
+    const participantId = String(req?.participantId ?? '').trim();
+    if (!accountId || !participantId) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'account_id and participant_id are required',
+      });
+    }
+    const address = await this.participants.envelopeOf(accountId, participantId);
+    if (address === null) {
+      // One refusal for "not yours" and "does not exist" — the same rule the uploads surface states.
+      throw new RpcException({ code: GrpcStatus.NOT_FOUND, message: 'not found' });
+    }
+    return { address };
   }
 }

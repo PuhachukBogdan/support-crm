@@ -4,6 +4,7 @@ import type { Cursor } from '../shared/cursor';
 import type { MessageRow, Projection } from '../shared/wire';
 import { decideContactStamp } from './contact-stamp';
 import { TransitionRecorder } from '../transition/transition.recorder';
+import { OutboundRepository } from '../channel/outbound.repository';
 import {
   firstPublicReplyBase,
   subjectSet,
@@ -38,6 +39,9 @@ interface MessageTx {
   };
   messageAttachment: { createMany(args: unknown): Promise<unknown> };
   conversationTransition: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
+  // Feature 033: which channel row this brand's email goes out on, and the intent to deliver.
+  channel: { findFirst(args: unknown): Promise<unknown> };
+  outboundMessage: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 }
 
 /** The conversation columns this write path reads before touching anything. */
@@ -46,6 +50,8 @@ type MessageBeforeRow = ConversationBefore & {
   subject: string | null;
   subject_source: string | null;
   category: string | null;
+  /** Feature 033: the typed channel kind, or NULL for a ticket with no arrival channel. */
+  channel: string | null;
 };
 
 const MESSAGE_BEFORE_SELECT = {
@@ -54,6 +60,10 @@ const MESSAGE_BEFORE_SELECT = {
   subject: true,
   subject_source: true,
   category: true,
+  // ⭐ Feature 033 (roadmap 6.5): which CHANNEL this ticket arrived on decides whether a public reply also
+  // needs delivering. Read in the one `before` query the transaction already makes, rather than in a
+  // second one — this is the busiest write path in the product (Principle VII).
+  channel: true,
 } as const;
 
 /**
@@ -137,6 +147,8 @@ export class MessageRepository {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TransitionRecorder) private readonly transitions: TransitionRecorder,
+    // Feature 033: the delivery intent shares this repository's transaction — see `enqueueDelivery`.
+    @Inject(OutboundRepository) private readonly outbox: OutboundRepository,
   ) {}
 
   /** The conversation's brand (for the brand resource-check) — null when absent in this account. */
@@ -293,6 +305,18 @@ export class MessageRepository {
       // candidate as it arrives, so closing the window later needs only the count.
       if (before) {
         await this.closeOrAdvanceSubjectWindow(tx, accountId, input, before, row, actor);
+
+        // ── ⭐ Feature 033 (roadmap 6.5): the delivery intent, in THIS transaction (FR-036) ────────
+        //
+        // ⚠️ **It must be this transaction and not the controller.** An intent written outside it can
+        // exist without its message (a delivery of nothing) or, worse, the message can exist without the
+        // intent — a customer who was answered and never told, invisible from inside the product.
+        // Feature 028 established the same rule for identity mail, in the same words.
+        //
+        // Inside the `before` guard because the decision reads the conversation's CHANNEL. No before-row
+        // means the conversation is not in this account, and the message write above will fail on the
+        // foreign key regardless — enqueueing against it would be a row pointing at nothing.
+        await this.enqueueDelivery(tx, accountId, input, before, row);
       }
 
       if (uploadIds.length > 0) {
@@ -307,6 +331,47 @@ export class MessageRepository {
       }
 
       return row;
+    });
+  }
+
+  /**
+   * Write the delivery intent for a public operator reply on an email-channel ticket (feature 033, T063).
+   *
+   * ── The three conditions, and why each excludes what it excludes ────────────────────────────────
+   *  · **`operator`** — a customer's own message needs no delivering, and a `system` entry is ours.
+   *  · **not private** — a private note MUST NOT leave the building (FR-037 / SEC-13). This is the second
+   *    place that rule is enforced, and deliberately so: the first is the projection, and a note that
+   *    escaped by mail would be the same disclosure by a different door.
+   *  · **an email channel** — the only kind with a transport in this build. `api` cannot carry a message
+   *    out at all and `messenger` has no transport yet; both are refused by `canSend` one layer up, but
+   *    enqueueing them here would build a queue of deliveries that can only ever fail.
+   *
+   * ⚠️ **A missing `Channel` row is silence, not an error.** A ticket may carry `channel = 'email'` from
+   * the migration while its account has no channel configured — a seeded fixture, a deployment mid-setup.
+   * Throwing would refuse the agent's message over a configuration gap that has nothing to do with it;
+   * the reply is still recorded and readable, and nothing is queued for a transport that does not exist.
+   */
+  private async enqueueDelivery(
+    tx: MessageTx,
+    accountId: string,
+    input: PostInput,
+    before: MessageBeforeRow,
+    row: MessageRow,
+  ): Promise<void> {
+    if (input.authorType !== 'operator' || input.isPrivate) return;
+    if (before.channel !== 'email') return;
+
+    const channel = (await tx.channel.findFirst({
+      where: { brand_id: before.brand_id, kind: 'email', enabled: true },
+      select: { id: true },
+    })) as { id: string } | null;
+    if (!channel) return;
+
+    await this.outbox.enqueue(tx, {
+      accountId,
+      conversationId: input.conversationId,
+      messageId: row.id,
+      channelId: channel.id,
     });
   }
 

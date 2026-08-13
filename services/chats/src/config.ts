@@ -109,6 +109,15 @@ export function loadChannelConfig(env: NodeJS.ProcessEnv = process.env) {
     replayWindowSeconds: clampInt(env.CHANNEL_INTAKE_REPLAY_WINDOW_S, 300, 5, 3_600),
     /** The single support mailbox of the MVP (2.1h). Used by the seed; empty is legitimate. */
     emailAddress: (env.CHANNEL_EMAIL_ADDRESS ?? '').trim(),
+    /**
+     * Attempts before a delivery is dead-lettered (FR-039).
+     *
+     * ⚠️ Bounded, and the bound matters in the unusual direction: an unbounded retry of a reply the relay
+     * keeps refusing is not persistence, it is the product spending itself on a message that will never
+     * arrive — while the agent believes the customer has been answered. A dead letter in `failed` is a
+     * row a person can find; an infinite retry is a silence nobody investigates.
+     */
+    maxAttempts: clampInt(env.CHANNEL_MAIL_MAX_ATTEMPTS, 5, 1, 20),
   };
 }
 

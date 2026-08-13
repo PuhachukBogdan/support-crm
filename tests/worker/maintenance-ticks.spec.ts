@@ -95,6 +95,9 @@ const CALLER_KIND: Readonly<Record<string, 'tick' | 'service' | 'reader'>> = {
   'ChatsMaintenanceService.RunDueExports': 'tick',
   'ChatsMaintenanceService.SweepConversationSubjects': 'tick',
   'ChatsMaintenanceService.SweepFirstReplySla': 'tick',
+  // ⭐ Feature 033 (roadmap 6.5): the sender's clock. A tick of its own at 15 s — an agent's reply is
+  // something a person is waiting on, like a login code and unlike a breach.
+  'ChatsMaintenanceService.SendDueChannelMessages': 'tick',
   'UsersMaintenanceService.PurgeExpiredArtefacts': 'tick',
   'UsersMaintenanceService.SweepIdlePresence': 'tick',
   // ⭐ Feature 031: asked by CHATS while draining the backlog, not by a tick. See the header.
@@ -102,6 +105,10 @@ const CALLER_KIND: Readonly<Record<string, 'tick' | 'service' | 'reader'>> = {
   // ⭐ Feature 033 (roadmap 6.4): asked by CHATS while taking an email in — the reply envelope, owned by
   // the service that owns contact values (research R9). Not a tick: it happens per message.
   'UsersMaintenanceService.ResolveChannelParticipant': 'service',
+  // ⭐ Feature 033 (roadmap 6.5): asked by CHATS at send time. **The one rpc in the product that returns an
+  // unmasked contact value** — which is why it lives on a surface no gateway route reaches, and why its
+  // answer is fetched per send rather than stored beside the queue row.
+  'UsersMaintenanceService.GetChannelEnvelope': 'service',
   // ⭐ Feature 033: a THIRD kind of caller, and the reason this map gained a value rather than bending an
   // existing one. `ResolveIntakeChannel` is asked by the worker — so it is not `service` — but not from a
   // repeatable job either, because the mailbox reader holds a PERSISTENT IMAP connection rather than firing
@@ -153,8 +160,16 @@ describe('the scan sees the maintenance surface (guards against a vacuous pass)'
       // Feature 023 (roadmap 4.18). Same review moment, second time: the answer to "what calls it?" is
       // the SLA tick and NOT the expiry tick — the title window is ten minutes, and a five-minute
       // heartbeat would close it anywhere between ten and fifteen.
+      // ⭐ Feature 033 (roadmap 6.5). The answer to "what calls it?" is `channels/outbound-tick.job.ts` —
+      // its own queue rather than a passenger on an existing sweep, because a reply's latency is a person's
+      // wait and the other ticks are paced for machines.
+      'ChatsMaintenanceService.SendDueChannelMessages',
       'ChatsMaintenanceService.SweepConversationSubjects',
       'ChatsMaintenanceService.SweepFirstReplySla',
+      // ⭐ Feature 033 (roadmap 6.5). The answer to "what calls it?" is chats' outbound sender, once per
+      // delivery. It is the one rpc here that returns a customer's contact value, and the reason it may:
+      // replying to an email needs the address they wrote FROM, which a hash cannot give back.
+      'UsersMaintenanceService.GetChannelEnvelope',
       'UsersMaintenanceService.PurgeExpiredArtefacts',
       // ⭐ Feature 033 (roadmap 6.4): asked by chats per inbound email. It is the only rpc in the product
       // whose REQUEST carries a customer's contact value, which is why it lives on a surface no gateway
@@ -207,7 +222,13 @@ describe('*** every maintenance RPC is CALLED by the worker ***', () => {
       // The load-bearing half. `ExpireDueExports` had a client method and no job calling it, so a scan for
       // "does the name appear anywhere in the worker" would have passed while the sweep never ran.
       const jobs = WORKER_CODE.filter(
-        (f) => f.file.includes('/jobs/') && new RegExp(`\\.${method}\\s*\\(`).test(f.code),
+        (f) =>
+          // ⚠️ A job is a file NAMED like one, not a file living in one directory. Widened by feature
+          // 033, whose outbound tick sits in `channels/` beside the mailbox reader it belongs with —
+          // cohesion the directory rule would have punished for no gain. `*.job.ts` is the more precise
+          // expression of the property anyway: a client file is never named that, so nothing is weakened.
+          (f.file.includes('/jobs/') || f.file.endsWith('.job.ts')) &&
+          new RegExp(`\\.${method}\\s*\\(`).test(f.code),
       ).map((f) => f.file);
       expect({ rpc, jobs }).toEqual({ rpc, jobs: expect.arrayContaining([expect.any(String)]) });
     },
@@ -217,7 +238,9 @@ describe('*** every maintenance RPC is CALLED by the worker ***', () => {
     // A job class nobody provides is never constructed, so its `onModuleInit` never schedules anything —
     // the same defect one level up.
     const appModule = WORKER_CODE.find((f) => f.file.endsWith('app.module.ts'))!.code;
-    const jobClasses = WORKER_CODE.filter((f) => f.file.includes('/jobs/')).flatMap((f) =>
+    const jobClasses = WORKER_CODE.filter(
+      (f) => f.file.includes('/jobs/') || f.file.endsWith('.job.ts'),
+    ).flatMap((f) =>
       [...f.code.matchAll(/export class (\w+Job)\b/g)].map((m) => m[1]!),
     );
     expect(jobClasses.length).toBeGreaterThan(2);

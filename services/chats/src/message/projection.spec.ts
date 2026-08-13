@@ -5,6 +5,21 @@ import { MessageReadController } from './message.grpc.controller';
 import type { UploadsClient } from '../uploads/uploads.client';
 import { TransitionRecorder } from '../transition/transition.recorder';
 
+/**
+ * Feature 033: the delivery-intent writer, stubbed to do NOTHING.
+ *
+ * These specs post on tickets whose channel is not email, so the real repository would enqueue nothing
+ * either — the stub keeps that true without giving the fake transaction a `channel` delegate. The enqueue
+ * rule itself is asserted in `services/chats/src/channel/outbound.spec.ts`, where a public reply on an
+ * email ticket must produce exactly one intent and a private note none.
+ */
+function noOutbox() {
+  return {
+    enqueue: async () => undefined,
+  } as unknown as import('../channel/outbound.repository').OutboundRepository;
+}
+
+
 function md(accountId = 'acc-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
@@ -81,7 +96,7 @@ function noUploads() {
 describe('GetThread projection — SEC-13 / SC-002 (zero tolerance)', () => {
   it('STAFF projection includes the private note', async () => {
     const { prisma } = fakePrisma();
-    const ctrl = new MessageReadController(new MessageRepository(prisma, new TransitionRecorder()), noUploads());
+    const ctrl = new MessageReadController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noUploads());
     const res = await ctrl.getThread(
       { conversationId: 'c1', projection: 'THREAD_PROJECTION_STAFF' },
       md(),
@@ -93,7 +108,7 @@ describe('GetThread projection — SEC-13 / SC-002 (zero tolerance)', () => {
 
   it('CUSTOMER projection is STRUCTURALLY ABSENT the private note (query-level, not a flag)', async () => {
     const { prisma, findMany } = fakePrisma();
-    const ctrl = new MessageReadController(new MessageRepository(prisma, new TransitionRecorder()), noUploads());
+    const ctrl = new MessageReadController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noUploads());
     const res = await ctrl.getThread(
       { conversationId: 'c1', projection: 'THREAD_PROJECTION_CUSTOMER' },
       md(),
@@ -109,7 +124,7 @@ describe('GetThread projection — SEC-13 / SC-002 (zero tolerance)', () => {
 
   it('reads the thread in chronological order (FR-009)', async () => {
     const { prisma, findMany } = fakePrisma();
-    const ctrl = new MessageReadController(new MessageRepository(prisma, new TransitionRecorder()), noUploads());
+    const ctrl = new MessageReadController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noUploads());
     await ctrl.getThread({ conversationId: 'c1', projection: 'THREAD_PROJECTION_STAFF' }, md());
     expect(findMany.mock.calls[0]![0].orderBy).toEqual([{ created_at: 'asc' }, { id: 'asc' }]);
   });

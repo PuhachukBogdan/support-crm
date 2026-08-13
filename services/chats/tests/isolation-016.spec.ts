@@ -5,6 +5,21 @@ import { TransitionRecorder } from '../src/transition/transition.recorder';
 import { userActor } from '../src/transition/conversation-transitions';
 
 /**
+ * Feature 033: the delivery-intent writer, stubbed to do NOTHING.
+ *
+ * These specs post on tickets whose channel is not email, so the real repository would enqueue nothing
+ * either — the stub keeps that true without giving the fake transaction a `channel` delegate. The enqueue
+ * rule itself is asserted in `services/chats/src/channel/outbound.spec.ts`, where a public reply on an
+ * email ticket must produce exactly one intent and a private note none.
+ */
+function noOutbox() {
+  return {
+    enqueue: async () => undefined,
+  } as unknown as import('../src/channel/outbound.repository').OutboundRepository;
+}
+
+
+/**
  * T058 (feature 016) — cross-account isolation for `MessageAttachment` (Principle I / SC-005).
  *
  * `MessageAttachment` carries an `account_id` of its own even though it always hangs off a Message
@@ -116,7 +131,7 @@ describe('MessageAttachment is an account-scoped model', () => {
 describe('*** a cross-account thread read returns no attachment ids ***', () => {
   it('the neighbour’s message and its upload id are both invisible', async () => {
     const { prisma } = fakePrisma();
-    const { rows } = await new MessageRepository(prisma, new TransitionRecorder()).thread(OURS, 'c1', 'staff', 50, null);
+    const { rows } = await new MessageRepository(prisma, new TransitionRecorder(), noOutbox()).thread(OURS, 'c1', 'staff', 50, null);
     expect(rows.map((r) => r.id)).toEqual(['m-ours']);
     const payload = JSON.stringify(rows);
     expect(payload).not.toContain('up-theirs-secret');
@@ -125,13 +140,13 @@ describe('*** a cross-account thread read returns no attachment ids ***', () => 
 
   it('the other account sees only its own', async () => {
     const { prisma } = fakePrisma();
-    const { rows } = await new MessageRepository(prisma, new TransitionRecorder()).thread(THEIRS, 'c1', 'staff', 50, null);
+    const { rows } = await new MessageRepository(prisma, new TransitionRecorder(), noOutbox()).thread(THEIRS, 'c1', 'staff', 50, null);
     expect(rows.map((r) => r.id)).toEqual(['m-theirs']);
   });
 
   it('the read never scopes to another account', async () => {
     const { prisma, forAccount } = fakePrisma();
-    await new MessageRepository(prisma, new TransitionRecorder()).thread(OURS, 'c1', 'staff', 50, null);
+    await new MessageRepository(prisma, new TransitionRecorder(), noOutbox()).thread(OURS, 'c1', 'staff', 50, null);
     expect(forAccount).toHaveBeenCalledWith(OURS);
     expect(forAccount).not.toHaveBeenCalledWith(THEIRS);
   });
@@ -140,7 +155,7 @@ describe('*** a cross-account thread read returns no attachment ids ***', () => 
 describe('*** an attachment row is stamped with the CALLER’s account ***', () => {
   it('never with one taken from the request', async () => {
     const { prisma, writes } = fakePrisma();
-    await new MessageRepository(prisma, new TransitionRecorder()).post(OURS, {
+    await new MessageRepository(prisma, new TransitionRecorder(), noOutbox()).post(OURS, {
       conversationId: 'c1',
       authorType: 'operator',
       authorId: 'op-1',
@@ -163,7 +178,7 @@ describe('*** an attachment row is stamped with the CALLER’s account ***', () 
 describe('*** the contact stamp goes through the CALLER’s scoped client ***', () => {
   it('stamps the conversation for the acting account only', async () => {
     const { prisma, stamps, forAccount } = fakePrisma();
-    await new MessageRepository(prisma, new TransitionRecorder()).post(OURS, {
+    await new MessageRepository(prisma, new TransitionRecorder(), noOutbox()).post(OURS, {
       conversationId: 'c1',
       authorType: 'operator',
       authorId: 'op-1',
@@ -181,7 +196,7 @@ describe('*** the contact stamp goes through the CALLER’s scoped client ***', 
 
   it('writes NO stamp for a private note, so a note cannot touch another account’s row either', async () => {
     const { prisma, stamps } = fakePrisma();
-    await new MessageRepository(prisma, new TransitionRecorder()).post(OURS, {
+    await new MessageRepository(prisma, new TransitionRecorder(), noOutbox()).post(OURS, {
       conversationId: 'c1',
       authorType: 'operator',
       authorId: 'op-1',

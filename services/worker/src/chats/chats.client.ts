@@ -50,6 +50,19 @@ export interface SweepSubjectsResult {
   closed: number;
 }
 
+/**
+ * Feature 033: counts from one outbound pass.
+ *
+ * ⚠️ `failed` climbing with `sent` at zero is the signal that matters here, and it is the only signal
+ * this boundary carries: the recipient, the subject and the body are all customer content and none of
+ * them crosses (research R6, FR-044).
+ */
+export interface SendDueCounts {
+  attempted: number;
+  sent: number;
+  failed: number;
+}
+
 /** Feature 031: counts only. `skipped` high with `assigned` zero is the head-of-line signal. */
 interface DrainResult {
   considered: number;
@@ -106,6 +119,8 @@ interface MaintenanceGrpc {
   sweepConversationSubjects(data: { limit: number }, md?: Metadata): Observable<SweepSubjectsResult>;
   // ⭐ Feature 031 (roadmap 4.20): drain the backlog as capacity frees. Same shape — a limit in, counts out.
   drainBacklog(data: { limit: number }, md?: Metadata): Observable<DrainResult>;
+  // ⭐ Feature 033 (roadmap 6.5): claim and send due conversation replies. Counts out — never a recipient.
+  sendDueChannelMessages(data: { limit: number }, md?: Metadata): Observable<SendDueCounts>;
 }
 
 @Injectable()
@@ -176,6 +191,17 @@ export class ChatsMaintenanceClient implements OnModuleInit {
    */
   async drainBacklog(limit: number): Promise<DrainResult> {
     return firstValueFrom(this.svc.drainBacklog({ limit }, systemMetadata()));
+  }
+
+  /**
+   * Send due conversation replies (feature 033, roadmap 6.5). Counts only.
+   *
+   * ⚠️ The worker's whole role is saying "now". It holds no outbox, fetches no envelope, opens no
+   * connection and never sees a message — chats owns all four. That split is why this method takes a
+   * limit and returns three numbers.
+   */
+  async sendDueChannelMessages(limit: number): Promise<SendDueCounts> {
+    return firstValueFrom(this.svc.sendDueChannelMessages({ limit }, systemMetadata()));
   }
 
   /** Claim and run due exports; also recover stale claims (feature 017). Counts only. */

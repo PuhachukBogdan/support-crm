@@ -4,6 +4,21 @@ import { TransitionRecorder } from '../transition/transition.recorder';
 import { userActor } from '../transition/conversation-transitions';
 
 /**
+ * Feature 033: the delivery-intent writer, stubbed to do NOTHING.
+ *
+ * These specs post on tickets whose channel is not email, so the real repository would enqueue nothing
+ * either — the stub keeps that true without giving the fake transaction a `channel` delegate. The
+ * enqueue rule itself is asserted in `services/chats/src/channel/outbound.spec.ts`, where a public reply
+ * on an email ticket must produce exactly one intent and a private note none.
+ */
+function noOutbox() {
+  return {
+    enqueue: async () => undefined,
+  } as unknown as import('../channel/outbound.repository').OutboundRepository;
+}
+
+
+/**
  * T030 / T030a (feature 023, roadmap 4.18 + 4.8a) — the title window ON THE WRITE PATH.
  *
  * ⚠️ Why this file exists as well as `subject.derive.spec.ts`. The decision is pure and tested there;
@@ -106,7 +121,7 @@ const post = (over: Partial<PostInput> = {}): PostInput => ({
   ...over,
 });
 
-const repo = (prisma: PrismaService) => new MessageRepository(prisma, new TransitionRecorder());
+const repo = (prisma: PrismaService) => new MessageRepository(prisma, new TransitionRecorder(), noOutbox());
 
 const typesOf = (transitions: Array<Record<string, unknown>>) => transitions.map((t) => t.type);
 

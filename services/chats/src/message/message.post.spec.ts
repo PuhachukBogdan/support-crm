@@ -8,6 +8,21 @@ import { MessageWriteController } from './message.grpc.controller';
 import type { UploadsClient } from '../uploads/uploads.client';
 import { TransitionRecorder } from '../transition/transition.recorder';
 
+/**
+ * Feature 033: the delivery-intent writer, stubbed to do NOTHING.
+ *
+ * These specs post on tickets whose channel is not email, so the real repository would enqueue nothing
+ * either — the stub keeps that true without giving the fake transaction a `channel` delegate. The
+ * enqueue rule itself is asserted in `services/chats/src/channel/outbound.spec.ts`, where a public reply
+ * on an email ticket must produce exactly one intent and a private note none.
+ */
+function noOutbox() {
+  return {
+    enqueue: async () => undefined,
+  } as unknown as import('../channel/outbound.repository').OutboundRepository;
+}
+
+
 function md(accountId = 'acc-1', userId = 'op-1'): Metadata {
   const m = new Metadata();
   m.set('x-actor-account-id', accountId);
@@ -118,7 +133,7 @@ function noUploads() {
 describe('MessageWriteController.postMessage (US2)', () => {
   it('posts a public reply authored by the acting operator', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi' },
       md('acc-1', 'op-1'),
@@ -134,7 +149,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('posts a private note and captures @mentions (R6)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'psst', mentions: ['op-2'] },
       md('acc-1', 'op-1'),
@@ -145,7 +160,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('drops mentions on a public reply (mentions belong to private notes)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'hi', mentions: ['op-2'] },
       md('acc-1', 'op-1'),
@@ -155,7 +170,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('rejects a non-postable kind (incoming/system/unspecified)', async () => {
     const { prisma } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await expect(
       ctrl.postMessage({ conversationId: 'c1', kind: 'MESSAGE_KIND_INCOMING_CUSTOMER', body: 'x' }, md()),
     ).rejects.toBeInstanceOf(RpcException);
@@ -163,7 +178,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('is NOT_FOUND when the conversation is absent / brand not permitted', async () => {
     const { prisma } = fakePrisma(null); // conversation not found in account
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await expect(
       ctrl.postMessage({ conversationId: 'nope', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' }, md('acc-1', 'op-1')),
     ).rejects.toBeInstanceOf(RpcException);
@@ -171,7 +186,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 
   it('RecordIncomingMessage yields an INCOMING_CUSTOMER message (FR-009)', async () => {
     const { prisma, create } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     const res = await ctrl.recordIncomingMessage(
       { conversationId: 'c1', body: 'help', authorId: 'player-9' },
       md('acc-1', 'op-1'),
@@ -196,7 +211,7 @@ describe('MessageWriteController.postMessage (US2)', () => {
 describe('the contact stamp is written with the message (feature 022)', () => {
   it('a PUBLIC reply stamps last_outbound_at with the created message’s own timestamp', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'answered' },
       md('acc-1', 'op-1'),
@@ -210,7 +225,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
 
   it('an INBOUND customer message stamps last_inbound_at', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await ctrl.recordIncomingMessage(
       { conversationId: 'c1', body: 'help', authorId: 'player-9' },
       md('acc-1', 'op-1'),
@@ -221,7 +236,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
 
   it('a PRIVATE NOTE stamps NOTHING — no update statement is issued at all', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     const res = await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PRIVATE_NOTE', body: 'internal', mentions: ['op-2'] },
       md('acc-1', 'op-1'),
@@ -235,7 +250,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
     // A "helpful" future edit that also touched the other column would make a reply look like the
     // customer wrote, which is the single most misleading thing this card can say.
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await ctrl.postMessage(
       { conversationId: 'c1', kind: 'MESSAGE_KIND_PUBLIC_REPLY', body: 'x' },
       md('acc-1', 'op-1'),
@@ -245,7 +260,7 @@ describe('the contact stamp is written with the message (feature 022)', () => {
 
   it('never touches updated_at — the column this feature exists to stop trusting', async () => {
     const { prisma, stamps } = fakePrisma();
-    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder()), noEvents(), noClock(), noUploads());
+    const ctrl = new MessageWriteController(new MessageRepository(prisma, new TransitionRecorder(), noOutbox()), noEvents(), noClock(), noUploads());
     await ctrl.recordIncomingMessage({ conversationId: 'c1', body: 'hi' }, md('acc-1', 'op-1'));
     for (const s of stamps) {
       expect(Object.keys(s.data)).not.toContain('updated_at');

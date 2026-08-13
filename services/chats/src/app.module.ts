@@ -18,6 +18,11 @@ import { ChatsPersonModule } from './person/person-members.client';
 // Feature 033 (roadmap 6.4): chats → users for the reply envelope (research R9).
 import { ChatsChannelParticipantModule } from './channel/participant.client';
 import { ThreadResolver } from './channel/threading';
+// Feature 033 US4 (roadmap 6.5): the outbox, its sender, and the shared SMTP transport.
+import { OutboundRepository } from './channel/outbound.repository';
+import { OutboundService } from './channel/outbound.service';
+import { ChatsSmtpTransport } from './channel/smtp.transport';
+import { MAIL_TRANSPORT } from '@crm/common';
 import { AssignmentRepository } from './assignment/assignment.repository';
 import { AssignmentWriteController } from './assignment/assignment.grpc.controller';
 import { LabelsRepository } from './labels/labels.repository';
@@ -135,6 +140,14 @@ import { ChatsUploadsModule } from './uploads/uploads.client';
     ChannelIntakeService,
     // US2 (roadmap 6.4): where a reply belongs, matched only on identifiers we ourselves stored.
     ThreadResolver,
+    // ── US4 (roadmap 6.5): the agent's reply reaches the customer, once ────────────────────────────
+    //
+    // ⚠️ `MAIL_TRANSPORT` is the SHARED sender from `libs/common`, wrapped by this service's own thin DI
+    // shell. Not a second implementation: the egress guard lives inside it, and a copy here would turn
+    // the one boundary Principle III depends on into a convention with two allow-lists to keep in step.
+    OutboundRepository,
+    OutboundService,
+    { provide: MAIL_TRANSPORT, useClass: ChatsSmtpTransport },
     ChatsAccessGuard,
     // Feature 023 (roadmap 4.8a). The recorder is injected into the repositories that own the write
     // paths — it is never reached from a controller, which is where the automation dispatcher is

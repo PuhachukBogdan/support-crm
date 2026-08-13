@@ -984,9 +984,7 @@ service ChatsMaintenanceService {
   //
   // The worker only says "now". chats holds the outbox, fetches the envelope from `users` at send time,
   // and opens the connection.
-  // ⚠️ The rpc line is declared by US4 beside its handler and its worker tick — both
-  // `every-rpc-is-served.spec.ts` and `maintenance-ticks.spec.ts` refuse a maintenance rpc with no
-  // handler and no stated way of being reached, and they refused this one when it arrived early.
+  rpc SendDueChannelMessages(MaintenanceBatchRequest) returns (SendDueResult);
 
   // Feature 017 (roadmap 4.10). Both inherit every property of the sweep above: system actor only, no
   // gateway route, batch-capped, COUNTS in the response.

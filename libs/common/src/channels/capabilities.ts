@@ -119,7 +119,11 @@ export type SendVerdict = { allowed: true } | { allowed: false; reason: Capabili
  */
 export function canSend(kind: string | null | undefined, ctx: SendContext): SendVerdict {
   if (!isChannelKind(kind)) return { allowed: false, reason: 'unknown_channel_kind' };
-  if (!CHANNEL_KIND_SPECS[kind].liveTransport) return { allowed: false, reason: 'no_transport' };
+  // ⚠️ `outboundTransport`, NOT `liveTransport` — see the field's own note in `kinds.ts`. Reading the
+  // latter here allowed a reply on an API-channel ticket, whose transport back is the customer's open page
+  // and not an address we hold. Feature 033's US4 spec caught it; the fix was to stop making one boolean
+  // mean two facts.
+  if (!CHANNEL_KIND_SPECS[kind].outboundTransport) return { allowed: false, reason: 'no_transport' };
 
   const cap = CHANNEL_CAPABILITIES[kind];
 

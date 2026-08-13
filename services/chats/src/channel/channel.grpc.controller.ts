@@ -4,6 +4,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import type { Metadata, MetadataValue } from '@grpc/grpc-js';
 import { ChannelRepository } from './channel.repository';
 import { ChannelIntakeService } from './intake.service';
+import { OutboundService } from './outbound.service';
 
 /** Read one metadata key as a string. The same helper every maintenance controller carries. */
 function readMeta(md: Metadata | undefined, key: string): string {
@@ -58,6 +59,8 @@ export class ChannelIngressController {
     // the intake service, which resolves it as its own first step — the account must be decided in one
     // place, and that place is the service that then writes under it.
     @Inject(ChannelRepository) private readonly channels: ChannelRepository,
+    // Feature 033 US4: the outbound pass. Reached only by the worker's tick.
+    @Inject(OutboundService) private readonly outbound: OutboundService,
   ) {}
 
   @GrpcMethod('ChatsWriteService', 'AcceptChannelDelivery')
@@ -107,6 +110,26 @@ export class ChannelIngressController {
     });
 
     return wire(outcome);
+  }
+
+  /**
+   * One outbound pass (feature 033, roadmap 6.5 — T068).
+   *
+   * ⚠️ **COUNTS OUT, NOTHING ABOUT A MESSAGE IN.** The shape feature 028 established for identity mail,
+   * and this path needs it more strictly: the recipient of a conversation reply is a CUSTOMER, so a
+   * response naming one would put a contact value in a log read by nobody with customer eyes.
+   *
+   * The worker only says "now". chats holds the outbox, fetches the envelope from `users` at send time,
+   * and opens the connection.
+   */
+  @GrpcMethod('ChatsMaintenanceService', 'SendDueChannelMessages')
+  async sendDueChannelMessages(req: { limit?: number }, metadata: Metadata) {
+    if (readMeta(metadata, 'x-actor-kind') !== 'system') {
+      throw new RpcException({ code: GrpcStatus.PERMISSION_DENIED, message: 'forbidden' });
+    }
+    // Server-capped, like every maintenance batch: a caller does not get to ask for the whole queue.
+    const limit = Math.min(Math.max(Number(req?.limit ?? 0) || 20, 1), 100);
+    return this.outbound.sendDue(limit);
   }
 
   /**

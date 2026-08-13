@@ -86,13 +86,29 @@ describe('the capability matrix — feature 033', () => {
     expect(canSend('email', { initiating: true })).toEqual({ allowed: true });
   });
 
-  it('refuses initiating on a kind that cannot open a conversation', () => {
-    expect(canSend('api', { initiating: true })).toEqual({
-      allowed: false,
-      reason: 'initiation_not_supported',
-    });
-    // ...while replying on it is fine — the customer is already there.
-    expect(canSend('api', { initiating: false })).toEqual({ allowed: true });
+  /**
+   * ⭐ **AMENDED BY US4, and the amendment is a correction rather than a relaxation.**
+   *
+   * This test used to assert that `api` refuses an INITIATION with `initiation_not_supported` while
+   * ALLOWING a reply. The second half was wrong, and feature 033's `outbound.spec.ts` proved it by
+   * sending one: the API channel's transport back is the customer's open page, not an address we hold, so
+   * it can carry nothing out in either direction. Its adapter had always said so (`send` →
+   * `not_supported`); `canSend` read `liveTransport`, which conflated *we can take work in* with *we can
+   * send out*, and therefore allowed the reply. `kinds.ts` gained `outboundTransport` and the gate reads
+   * that instead.
+   *
+   * ⓘ Consequently NO kind currently produces `initiation_not_supported` from `canSend`: the only kind
+   * that may not initiate is also the only one with no outbound transport, and the transport check comes
+   * first by design ("a kind we cannot carry at all must not be refused for a subtler reason"). The
+   * refusal reason stays in the vocabulary because `mayInitiate` remains a true fact about the kind, and
+   * it becomes reachable the moment any non-initiating kind gains a transport.
+   */
+  it('refuses BOTH directions on the API channel — there is no address to deliver to', () => {
+    for (const initiating of [true, false]) {
+      expect(canSend('api', { initiating })).toEqual({ allowed: false, reason: 'no_transport' });
+    }
+    // The fact itself is still data, and still true, even though the transport check answers first.
+    expect(CHANNEL_CAPABILITIES.api.mayInitiate).toBe(false);
   });
 
   it('treats an unknown elapsed time as OUTSIDE a reply window, not inside it', () => {

@@ -43,6 +43,7 @@ const CFG = (over: Partial<ChannelConfig> = {}): ChannelConfig => ({
   ]),
   replayWindowSeconds: 300,
   emailAddress: '',
+  maxAttempts: 5,
   ...over,
 });
 

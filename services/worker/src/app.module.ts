@@ -16,6 +16,7 @@ import { WorkerAuthModule } from './auth/auth.client';
 // repeatable-job mechanism the other five rely on does not apply to it (research R2).
 import { ImapReaderService } from './channels/imap-reader.service';
 import { InboundMailSweepJob } from './channels/mail-sweep-inbound.job';
+import { OutboundTickJob } from './channels/outbound-tick.job';
 
 // Phase 1 (spec 003): the worker is a gRPC microservice exposing HealthService.Check over
 // its Redis connection (via BullMQ).
@@ -46,6 +47,8 @@ import { InboundMailSweepJob } from './channels/mail-sweep-inbound.job';
     // contributes nothing while looking present — feature 015's single live-only defect.
     ImapReaderService,
     InboundMailSweepJob,
+    // Feature 033 US4: the sender's clock. chats owns the outbox; this only says "now".
+    OutboundTickJob,
   ],
 })
 export class AppModule {}

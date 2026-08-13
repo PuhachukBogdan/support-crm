@@ -46,6 +46,21 @@ export interface ChannelKindSpec {
    * attempt is refused as unavailable — never a crash, never a silent no-op.
    */
   liveTransport: boolean;
+  /**
+   * ⭐ **Can the product send OUT on this kind?** Separate from `liveTransport`, and feature 033's US4
+   * test is what forced the split.
+   *
+   * `liveTransport` conflated two different facts: *we can take work in on this kind* and *we can carry a
+   * message out on it*. The API channel is precisely the case where they differ — the widget posts to us
+   * over a signed webhook, and the transport back is the customer's open page, which we do not hold. Its
+   * adapter has always said so (`send` returns `not_supported`), but `canSend` read only `liveTransport`
+   * and therefore ALLOWED an outbound reply on an API ticket. The send would then have gone to whatever
+   * envelope the ticket happened to carry.
+   *
+   * ⚠️ So this is the field the send gate reads. Making one boolean mean two things is how a capability
+   * matrix stops being the single source of truth it exists to be.
+   */
+  outboundTransport: boolean;
   /** The proto enum value. Explicit, never derived by string munging — `wire.ts`'s precedent. */
   wire: string;
 }
@@ -56,16 +71,23 @@ export const CHANNEL_KIND_SPECS: Readonly<Record<ChannelKind, ChannelKindSpec>> 
     // signed webhook from a system we do not control, not a conversation transport of ours.
     label: 'Signed webhook from the platform widget',
     liveTransport: true,
+    // ⚠️ IN but not OUT. The transport back is the customer's open page, not an address we hold — which
+    // is why `api.mayInitiate` is false as well, and why the adapter's `send` states `not_supported`.
+    outboundTransport: false,
     wire: 'CHANNEL_KIND_API',
   },
   email: {
     label: 'The brand support mailbox',
     liveTransport: true,
+    // The one kind that carries a message in BOTH directions in this build.
+    outboundTransport: true,
     wire: 'CHANNEL_KIND_EMAIL',
   },
   messenger: {
     label: 'Messenger platforms (contract only in the MVP)',
     liveTransport: false,
+    // Neither direction yet: the kind and the contract ship, the transport waits on `O1` (2.1i).
+    outboundTransport: false,
     wire: 'CHANNEL_KIND_MESSENGER',
   },
 };

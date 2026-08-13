@@ -397,7 +397,7 @@ service UsersMaintenanceService {
   // account-scoped like everything else. It exists because replying to an email needs the address the
   // customer wrote FROM — which a hash cannot give and the player's registered address must not, since
   // they may differ and answering the wrong one sends a stranger's conversation to them.
-  // ⚠️ The rpc line is declared by US4 beside its handler (`every-rpc-is-served.spec.ts`).
+  rpc GetChannelEnvelope(GetChannelEnvelopeRequest) returns (ChannelEnvelope);
 }
 
 // Feature 033 — resolve who wrote, and remember where to answer, in one call.

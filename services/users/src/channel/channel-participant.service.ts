@@ -150,6 +150,34 @@ export class ChannelParticipantService {
   }
 
   /**
+   * ⚠️⚠️ **THE ONE METHOD IN THE PRODUCT THAT RETURNS AN UNMASKED CONTACT VALUE.** (T064, contracts §3.1)
+   *
+   * Its terms, all firm and all enforced somewhere other than here as well:
+   *   · callable **only** from the outbound delivery path — no operator-facing projection reaches it;
+   *   · reachable from **no gateway route** (it lives on the maintenance surface, which the route scan
+   *     asserts nothing in the gateway names);
+   *   · **never logged**, on either side;
+   *   · **account-scoped** like everything else — SC-009 claims 0 paths exempt from the isolation check,
+   *     and this is the newest path with the most to lose.
+   *
+   * It exists because replying to an email needs the address the customer wrote FROM. A hash cannot give
+   * it back, and the player's registered address must not stand in for it: they may differ, and answering
+   * the wrong one delivers a stranger's conversation to somebody.
+   *
+   * ⚠️ Returns `null` for a handle that is not in this account. **Not an error** — a wrong or foreign
+   * handle and a deleted one are the same fact to the caller, and distinguishing them would confirm that
+   * a participant exists in some other tenant.
+   */
+  async envelopeOf(accountId: string, participantId: string): Promise<string | null> {
+    if (!participantId) return null;
+    const row = (await this.prisma.forAccount(accountId).channelParticipant.findFirst({
+      where: { id: participantId },
+      select: { address: true },
+    })) as { address: string } | null;
+    return row?.address ?? null;
+  }
+
+  /**
    * Which player this identifier names — or none, stated (FR-019…FR-022).
    *
    * ── The two classes resolve by two different mechanisms, and neither is a guess ─────────────────

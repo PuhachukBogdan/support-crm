@@ -329,6 +329,10 @@ services:
       # determine how fast mail appears, the IDLE connection is broken and this is hiding it.
       CHANNEL_MAIL_SWEEP_INTERVAL_MS: ${CHANNEL_MAIL_SWEEP_INTERVAL_MS:-60000}
       CHANNEL_MAIL_MAX_ATTEMPTS: ${CHANNEL_MAIL_MAX_ATTEMPTS:-5}
+      # ⭐ The SENDER's clock (feature 033 US4). 15 s, matching feature 028's mail sweep: an agent's reply
+      # is something a person is waiting on, like a login code and unlike a breach. Clamped in code.
+      CHANNEL_OUTBOUND_INTERVAL_MS: ${CHANNEL_OUTBOUND_INTERVAL_MS:-15000}
+      CHANNEL_OUTBOUND_BATCH: ${CHANNEL_OUTBOUND_BATCH:-20}
       # Egress allow-list for every outbound mail connection the product opens (Principle III) — one
       # list for one boundary, so auth's relay and this service's mailbox cannot disagree. Empty =
       # unrestricted, the same reading feature 028 chose for recipient domains: reversed, it would

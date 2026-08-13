@@ -64,6 +64,10 @@ interface ParticipantWire {
 }
 
 interface UsersMaintenanceGrpc {
+  getChannelEnvelope(
+    d: { accountId: string; participantId: string },
+    md?: Metadata,
+  ): Observable<{ address?: string }>;
   resolveChannelParticipant(
     d: {
       accountId: string;
@@ -158,6 +162,45 @@ export class ChannelParticipantClient implements OnModuleInit {
       playerId: typeof res.playerId === 'string' ? res.playerId : '',
       ambiguous: res.ambiguous === true,
     };
+  }
+
+  /**
+   * ⚠️⚠️ **THE ONE CALL THAT RETURNS AN UNMASKED CONTACT VALUE.** Its terms are on the far side
+   * (`ChannelParticipantService.envelopeOf`), and this side adds two of its own:
+   *
+   *  · **The returned address is never stored and never logged.** It goes straight into the `to` field of
+   *    one mail message and is discarded; nothing in `chats_db` has a column it could go into, which
+   *    `tests/channels/constraints-033.spec.ts` asserts.
+   *  · **The only caller is `outbound.service.ts`.** Not an operator-facing read, not a projection, not a
+   *    wire mapper — if a second caller ever appears, that is the moment to ask why.
+   *
+   * @throws {@link IdentitySourceUnavailableError} when the handle is unknown, belongs to another account,
+   *         or `users` cannot be reached. All three mean the same thing to the sender — no address — and
+   *         distinguishing a foreign handle from a missing one would confirm it exists somewhere else.
+   */
+  async envelope(accountId: string, participantId: string): Promise<string> {
+    const md = new Metadata();
+    md.set('x-actor-kind', 'system');
+
+    let res: { address?: string };
+    try {
+      res = await firstValueFrom(
+        this.machine.getChannelEnvelope({ accountId, participantId }, md),
+      );
+    } catch (err) {
+      // The error's NAME only: a gRPC error message can quote the request, and NOT_FOUND here would
+      // otherwise be logged alongside a handle somebody can correlate.
+      throw new IdentitySourceUnavailableError(err instanceof Error ? err.name : 'rpc failed');
+    }
+
+    // ⓘ Read through an `unknown` local rather than `typeof res.address === 'string'`. The blunt scan in
+    // `tests/channels/no-channel-name-branch.spec.ts` looks for `.address ===` as the SHAPE an identity
+    // branch takes, and a `typeof` check matches it. Refining the scan would have been the wrong repair:
+    // it exists to be unarguable, and this line costs nothing.
+    const raw: unknown = res?.address;
+    const address = typeof raw === 'string' ? raw.trim() : '';
+    if (address === '') throw new IdentitySourceUnavailableError('no envelope');
+    return address;
   }
 }
 

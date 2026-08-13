@@ -5,6 +5,16 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { DataTable } from '@/components/composites/data-table';
 import { StatusBadge } from '@/components/composites/status-badge/status-badge';
 import { INBOX_COLUMNS, type InboxColumn } from './columns';
+import { ColumnFilter } from './column-filter';
+import type { InboxFilters } from './use-inbox-query';
+
+/** What a header needs to render its two controls. Passed down whole rather than as four props. */
+interface HeaderControls {
+  readonly order: string;
+  readonly onOrderChange: (order: string) => void;
+  readonly filters: InboxFilters;
+  readonly onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
+}
 import { relativeTime, statusFromWire } from './wire-labels';
 import { SortableHeader } from './sortable-header';
 import type { ConversationRow } from './types';
@@ -41,19 +51,29 @@ function TimeCell({ iso }: { iso: string }) {
 }
 
 /** How each declared column renders. Keyed by the same ids as the priority table. */
-function cellFor(
-  col: InboxColumn,
-  sorting: { order: string; onOrderChange: (order: string) => void },
-): ColumnDef<ConversationRow, unknown> {
+function cellFor(col: InboxColumn, controls: HeaderControls): ColumnDef<ConversationRow, unknown> {
   const base = {
     id: col.id,
     size: col.width,
     // The screen's whole narrowing statement. `DataTable` sheds by it — see `density-spec.md` §2/§7.
     meta: { tier: col.tier },
-    // The header renders the triangles itself when the column is sortable, so `DataTable` needs no
-    // sorting knowledge — and cannot turn every header into a control the server would not honour.
+    /**
+     * ⭐ The header carries BOTH of the column's controls — its sort and its own filter. Each renders
+     * only where the thing behind it exists: a triangle only where the server declares that order, a
+     * funnel only where the filter genuinely is this column.
+     *
+     * So `DataTable` needs no knowledge of either, and cannot turn every header into a control the
+     * server would not honour.
+     */
     header: () => (
-      <SortableHeader column={col} order={sorting.order} onOrderChange={sorting.onOrderChange} />
+      <span className="flex items-center gap-1">
+        <SortableHeader column={col} order={controls.order} onOrderChange={controls.onOrderChange} />
+        <ColumnFilter
+          column={col}
+          value={col.filter ? controls.filters[col.filter.key] : undefined}
+          onChange={(next) => col.filter && controls.onFilterChange(col.filter.key, next)}
+        />
+      </span>
     ),
   };
 
@@ -142,6 +162,8 @@ export function InboxList({
   rowSelection,
   order,
   onOrderChange,
+  filters,
+  onFilterChange,
 }: {
   state: AsyncState<PaginatedResult<ConversationRow>>;
   onLoadMore?: () => void;
@@ -152,11 +174,14 @@ export function InboxList({
   /** The order in force, so a sortable header can show which way it points. */
   order: string;
   onOrderChange: (order: string) => void;
+  /** The filters in force — a header funnel renders the APPLIED value, never one it remembers itself. */
+  filters: InboxFilters;
+  onFilterChange: (key: keyof InboxFilters, value: string | undefined) => void;
 }) {
   // Every declared column, every time. Which of them fits is the composite's answer, not this screen's.
   const columns = useMemo(
-    () => INBOX_COLUMNS.map((col) => cellFor(col, { order, onOrderChange })),
-    [order, onOrderChange],
+    () => INBOX_COLUMNS.map((col) => cellFor(col, { order, onOrderChange, filters, onFilterChange })),
+    [order, onOrderChange, filters, onFilterChange],
   );
 
   return (

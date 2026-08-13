@@ -49,7 +49,54 @@ export interface InboxColumn {
    * "high/low/normal/urgent").
    */
   readonly sort?: { readonly asc: string; readonly desc: string };
+  /**
+   * ⭐ The filter this column owns, opened from a **funnel in its own header** (operator, 2026-08-03:
+   * *«может их прям в эту плашку и впихнуть»*).
+   *
+   * This is the sanctioned kind of change: first the Zendesk copy, then our improvement on top. Zendesk
+   * keeps a filter bar above the list; a column that carries both its sort and its filter puts the
+   * control where the thing it narrows already is.
+   *
+   * ⛔ **Declared only where the filter genuinely IS this column** — otherwise the header would host a
+   * narrowing that has nothing to do with it, which is worse than a toolbar.
+   */
+  readonly filter?: {
+    readonly key: FilterKey;
+    readonly options: readonly string[];
+  };
 }
+
+/** The keys the transient filter state accepts. Kept structural so a renamed filter breaks the build. */
+type FilterKey = 'status' | 'channel';
+
+/**
+ * ⚠️ Statuses are DATA, not code (cross-cutting conclusion D — custom statuses exist). These are the
+ * ones the wire enum defines **and that something actually produces**; when custom statuses land they
+ * come from the server and this constant goes away.
+ *
+ * ⛔ **`snoozed` was here and is removed.** The operator hit it and asked what it was for — the honest
+ * answer is *nothing*: it exists in the schema comment and both wire maps, **no code path ever sets it**,
+ * and the stand has zero such rows. It was in this list only because the enum was copied instead of
+ * asking what fills it. A filter option that can only ever return an empty list teaches an agent that
+ * the queue is empty when it is not.
+ *
+ * ⛔ **`resolved` is also gone**, on the operator's instruction: it has its own bucket in the rail, and
+ * *«не вижу смысла отдельно в статус фильтре resolved выделять, если они будут в отдельной вкладке»*.
+ * Two routes to the same set is how a bucket and a filter end up disagreeing.
+ */
+const STATUSES = ['open', 'pending'] as const;
+
+/**
+ * ⚠️ **The channel list is deliberately NOT a closed catalogue.** A channel is data, never a branch
+ * (roadmap 9.6a) — Phase 6 adds them as connections are made. These are the values present today; the
+ * gateway accepts any well-formed name, so a new channel becomes filterable without a code change.
+ *
+ * ⛔ **There is no "no channel" option, and that is a real limitation worth stating.** About one in six
+ * conversations carry no channel; the wire cannot express "unset" as a filter value (an empty string
+ * means "no filter"). Those rows stay reachable by not filtering — so the filter narrows, and clearing
+ * it is how you get back to everything (FR-011a).
+ */
+const CHANNELS = ['chat', 'email', 'api'] as const;
 
 /**
  * ⭐ **Order copied from Zendesk** (`ui-design/screenshots/views_1.png`, 2026-08-03):
@@ -64,7 +111,14 @@ export interface InboxColumn {
  * and **no Satisfaction column** (no ratings exist — roadmap 10.4).
  */
 export const INBOX_COLUMNS: readonly InboxColumn[] = [
-  { id: 'status', header: 'Status', tier: 'essential', width: 96 },
+  {
+    id: 'status',
+    header: 'Status',
+    tier: 'essential',
+    width: 96,
+    // ⓘ No sort arrow: Zendesk shows none on Ticket status either — a status is a set, not a scale.
+    filter: { key: 'status', options: STATUSES },
+  },
   // "Requested" is the creation instant. §2 makes *time-since* essential and that is `Updated` below;
   // when the queue is narrow, which one still matters is the one that moved.
   { id: 'createdAt', header: 'Requested', tier: 'contextual', width: 120 },
@@ -87,7 +141,13 @@ export const INBOX_COLUMNS: readonly InboxColumn[] = [
     width: 120,
     sort: { asc: 'updated_asc', desc: 'updated_desc' },
   },
-  { id: 'channel', header: 'Channel', tier: 'contextual', width: 100 },
+  {
+    id: 'channel',
+    header: 'Channel',
+    tier: 'contextual',
+    width: 100,
+    filter: { key: 'channel', options: CHANNELS },
+  },
   { id: 'playerId', header: 'Player', tier: 'essential', width: 140 },
   // The reason feature 023 exists: a queue you can scan. Never shed; truncates instead.
   { id: 'subject', header: 'Subject', tier: 'essential', width: 220 },

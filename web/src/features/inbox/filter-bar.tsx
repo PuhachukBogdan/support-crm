@@ -1,80 +1,39 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Choice } from './choice';
-import type { InboxFilters } from './use-inbox-query';
 
 /**
- * Transient filters: status and channel (feature 029, FR-011/FR-013).
+ * What is left of the filter toolbar (feature 029 FR-011/FR-013, narrowed by roadmap 9.2b).
  *
- * ⚠️ **Nothing here is saved.** No localStorage, no preference call, no URL round-trip. Agents have
- * no saved queries by the operator's decision (R11/R16) — anything named and kept is a *view*, and
- * views are granted by an admin. A "remember my last filter" convenience would quietly create the
- * user-owned object he ruled out.
+ * ⭐ **Status and channel moved into their own column headers** — `columns.ts` declares each filter on
+ * the column it narrows, and `column-filter.tsx` renders the funnel. Their option lists moved with
+ * them, comments and all: the reasoning about *which* statuses exist belongs beside the column that
+ * offers them, not beside a bar that no longer does.
+ *
+ * ⚠️ **Nothing here is saved.** No localStorage, no preference call, no URL round-trip. Agents have no
+ * saved queries by the operator's decision (R11/R16) — anything named and kept is a *view*, and views
+ * are granted by an admin. A "remember my last filter" convenience would quietly create the user-owned
+ * object he ruled out.
  */
-
-/**
- * ⚠️ Statuses are DATA, not code (cross-cutting conclusion D — custom statuses exist). These are the
- * ones the wire enum defines **and that something actually produces**; when custom statuses land they
- * come from the server and this constant goes away.
- *
- * ⛔ **`snoozed` was here and is removed.** The operator hit it and asked what it was for — the honest
- * answer is *nothing*: it exists in the schema comment and both wire maps, **no code path ever sets
- * it**, and the stand has zero such rows (open 19 · pending 9 · resolved 7). It was in this list only
- * because I copied the enum instead of asking what fills it.
- *
- * That is precisely the defect already rejected for `category` in this feature — *"a filter whose
- * every option matches nothing is worse than no filter"* — committed here by the person who wrote
- * that sentence. A filter option that can only ever return an empty list teaches an agent that the
- * queue is empty when it is not.
- *
- * ⛔ **`resolved` is also gone**, on the operator's instruction (2026-08-03): it has its own bucket in
- * the rail, and *«не вижу смысла отдельно в статус фильтре resolved выделять, если они будут в
- * отдельной вкладке»*. Two routes to the same set is how a bucket and a filter end up disagreeing —
- * the collision this screen already has to resolve in `setBucket`.
- */
-const STATUSES = ['open', 'pending'] as const;
-
-/**
- * ⚠️ **The channel list is deliberately NOT a closed catalogue.** A channel is data, never a branch
- * (roadmap 9.6a) — Phase 6 adds them as connections are made. These are the values present today; the
- * gateway accepts any well-formed name, so a new channel becomes filterable without a code change.
- *
- * ⛔ **There is no "no channel" option, and that is a real limitation worth stating.** About one in
- * six conversations carry no channel; the wire cannot express "unset" as a filter value (an empty
- * string means "no filter"). Those rows stay reachable by not filtering — so the filter narrows, and
- * clearing it is how you get back to everything (FR-011a).
- */
-const CHANNELS = ['chat', 'email', 'api'] as const;
-
 export function FilterBar({
-  filters,
   hasActiveFilters,
-  onChange,
   onClear,
 }: {
-  filters: InboxFilters;
   hasActiveFilters: boolean;
-  onChange: (key: keyof InboxFilters, value: string | undefined) => void;
   onClear: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3" data-testid="inbox-filters">
-      <Choice
-        label="Status"
-        testId="filter-status"
-        value={filters.status}
-        onChange={(v) => onChange('status', v)}
-        options={STATUSES}
-      />
-      <Choice
-        label="Channel"
-        testId="filter-channel"
-        value={filters.channel}
-        onChange={(v) => onChange('channel', v)}
-        options={CHANNELS}
-      />
-
+      {/**
+       * ⚠️ **The bar could not simply be deleted, and 9.2b says why:** folding filters into the header
+       * works only where the filter *is* a column, so the bar cannot disappear until every offered
+       * filter has a home there. Today both do — status and channel — leaving exactly one thing that
+       * belongs to no single column: undoing all of them at once.
+       *
+       * ⛔ It renders nothing when nothing is applied. An always-present "Clear filters" is a control
+       * that does nothing most of the time, which is the affordance-without-a-feature defect this
+       * screen keeps removing.
+       */}
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" data-testid="filter-clear" onClick={onClear}>
           Clear filters

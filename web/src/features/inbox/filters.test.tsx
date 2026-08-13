@@ -28,6 +28,36 @@ function renderInbox() {
   );
 }
 
+describe('*** each filter lives in ITS OWN column header (9.2b) ***', () => {
+  it('⭐ the funnel is inside the column it narrows, and the toolbar no longer holds it', async () => {
+    setDataAccess(stubConversations({ count: 3 }));
+    renderInbox();
+    await screen.findByText('Conversation 1');
+
+    for (const key of ['status', 'channel']) {
+      const trigger = screen.getByTestId(`filter-${key}`);
+      // Structural on purpose: every behavioural assertion in this file would pass with the controls
+      // sitting anywhere on the page. The operator asked for them *«прям в эту плашку»* — in the header
+      // of the column they narrow — so that placement is the requirement, and it needs its own claim.
+      expect(trigger.closest('th')).not.toBeNull();
+      expect(screen.getByTestId('inbox-filters').contains(trigger)).toBe(false);
+    }
+    // The funnel sits beside that column's own sort control — one header, both of its controls.
+    expect(screen.getByTestId('sort-lastActivityAt').closest('th')).not.toBeNull();
+  });
+
+  it('a column with no filter of its own gets no funnel', async () => {
+    setDataAccess(stubConversations({ count: 3 }));
+    renderInbox();
+    await screen.findByText('Conversation 1');
+
+    // `subject` is a free-text column: the route accepts no such filter, and a funnel offering one
+    // would be the control-that-does-nothing this screen keeps deleting.
+    expect(screen.queryByTestId('filter-subject')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('filter-playerId')).not.toBeInTheDocument();
+  });
+});
+
 describe('*** filters are transient and nothing is persisted (FR-013) ***', () => {
   it('⭐ applying a filter and an order writes to NO storage at all', async () => {
     const setItem = jest.spyOn(Storage.prototype, 'setItem');
@@ -57,7 +87,9 @@ describe('*** filters are transient and nothing is persisted (FR-013) ***', () =
     renderInbox();
     await screen.findByText('Conversation 1');
 
-    expect(screen.getByTestId('filter-status')).toHaveTextContent(/any/i);
+    // The header funnel carries no leftover value (it shows one only when applied — see the note in
+    // `buckets.test.tsx`), and the request proves it: a remount asks for everything.
+    expect(screen.getByTestId('filter-status')).not.toHaveTextContent(/pending/i);
     expect(stub.calls[0]!.filters).toEqual({});
     expect(stub.calls[0]!.order).toBe('updated_desc');
   });

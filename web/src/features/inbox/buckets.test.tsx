@@ -83,8 +83,15 @@ describe('*** the bucket rail ***', () => {
     await waitFor(() =>
       expect(stub.calls[stub.calls.length - 1]!.filters).toMatchObject({ status: 'resolved' }),
     );
-    // …and the filter bar tells the truth about it rather than showing a value that no longer applies.
-    expect(screen.getByTestId('filter-status')).toHaveTextContent(/any/i);
+    /**
+     * …and the control tells the truth about it rather than showing a value that no longer applies.
+     *
+     * ⓘ Asserted as the ABSENCE of the stale value, not as the word "Any". Since the filter moved into
+     * the column header (9.2b), the funnel spends width on a word only when something is applied — so
+     * "shows Any" would now be a claim about the old layout, while "does not still say pending" is the
+     * thing that actually protects the agent.
+     */
+    expect(screen.getByTestId('filter-status')).not.toHaveTextContent(/pending/i);
   });
 
   it('a filter the bucket does NOT own still applies on top of it', async () => {

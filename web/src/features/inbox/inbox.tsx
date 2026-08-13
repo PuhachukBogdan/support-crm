@@ -75,12 +75,8 @@ export function Inbox() {
         <PageHeader title="Inbox" />
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <FilterBar
-            filters={filters}
-            hasActiveFilters={hasActiveFilters}
-            onChange={setFilter}
-            onClear={clearFilters}
-          />
+          {/* Status and channel now live in their own column headers — see `column-filter.tsx`. */}
+          <FilterBar hasActiveFilters={hasActiveFilters} onClear={clearFilters} />
           {/* The shape of the search to come, labelled so nobody mistakes it for a working one. */}
           <SearchPlaceholder />
           {/**
@@ -98,9 +94,11 @@ export function Inbox() {
           onRetry={list.refetch}
           onLoadMore={nextCursor ? () => loadMore(nextCursor) : undefined}
           rowSelection={mayExport ? { selected, onChange: setSelected } : undefined}
-          // Sorting lives on the column headers now — one control, one place.
+          // Sorting AND filtering live on the column headers now — one control each, one place each.
           order={order}
           onOrderChange={setOrder}
+          filters={filters}
+          onFilterChange={setFilter}
         />
       </div>
     </div>
